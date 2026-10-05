@@ -43,9 +43,11 @@ from solsys_code.observation_blocks import FomoLCOFacility, select_schedule_bloc
 logger = logging.getLogger(__name__)
 
 # The ObservationRecord.parameters key this sweep writes on a record it created while the live block
-# lookup failed. _schedule_lookup_is_needed() treats a marked record as needing a lookup until one
-# succeeds, and the successful write removes the key (the freshly built parameters never contain it).
-# Only the sweep writes it: _build_parameters() copies nothing from the portal payload into this key.
+# lookup failed, and on an existing record whose --recheck-unscheduled lookup failed while the ordinary
+# tick would otherwise skip it. _schedule_lookup_is_needed() treats a marked record as needing a lookup
+# until one succeeds, and the successful write removes the key (the freshly built parameters never
+# contain it). Only the sweep writes it: _build_parameters() copies nothing from the portal payload
+# into this key.
 SCHEDULE_LOOKUP_FAILED_KEY = 'schedule_lookup_failed'
 
 # Portal wire key -> TOM Target field name, the inverse of OCSFacility._build_target_fields'
@@ -315,8 +317,10 @@ def _resolve_schedule(
     facility.get_observation_status() call -- on ``FomoLCOFacility``, so the live path
     chooses the block with the same rule -- which *is* skipped entirely under --dry-run.
     A failed fallback call is caught and reported via the
-    returned 'lookup_failed' flag -- never fatal, never counted as a skipped request. A failed
-    lookup resolved nothing: the caller then writes neither schedule field nor a status change
+    returned 'lookup_failed' flag -- never fatal, never counted as a skipped request. That includes a
+    reply whose block list is not a list: ``FomoLCOFacility`` raises ``UnexpectedBlockPayloadError``
+    for it, which is caught here like any other failure, so it is a failed lookup, never "no block".
+    A failed lookup resolved nothing: the caller then writes neither schedule field nor a status change
     for an existing record (see ``_changed_record_fields``), so a stored time is never erased.
 
     Args:
@@ -391,12 +395,14 @@ def _schedule_lookup_is_needed(
     'scheduled_start' or 'scheduled_end' keeps being looked up until the portal supplies
     them, so a lookup that failed when the record was created or completed is retried on
     later ticks rather than frozen at no schedule. A record in a failed state (window
-    expired, cancelled and the like) with no times is skipped too, because no FOMO path stores a
-    state change without its block: this sweep writes a state change only together with a lookup
-    that succeeded (a failed lookup holds the change back and writes no schedule field, so the
-    state-change branch retries it next tick); a record this sweep creates while its lookup fails
-    carries ``SCHEDULE_LOOKUP_FAILED_KEY`` and is looked up on every run until a lookup succeeds;
-    and the unattended status refresh writes nothing for a request whose lookup raises.
+    expired, cancelled and the like) with no times is skipped too, because no FOMO path that updates an
+    existing record stores a state change without its block: this sweep writes a state
+    change only together with a lookup that succeeded (a failed lookup holds the change back and
+    writes no schedule field, so the state-change branch retries it next tick); a record this sweep
+    creates while its lookup fails, or whose ``recheck_unscheduled`` lookup fails while this skip
+    would otherwise apply, carries ``SCHEDULE_LOOKUP_FAILED_KEY`` and is looked up on every run until
+    a lookup succeeds; and the unattended status refresh writes nothing for a request whose lookup
+    raises, including a block-list reply that is not a list (``UnexpectedBlockPayloadError``).
 
     A failed request can carry a block that started and was aborted after taking data, and that
     block counts (Phase 35 D-05/D-06). Since 37.1-07 every FOMO-owned path that writes a state
@@ -411,10 +417,10 @@ def _schedule_lookup_is_needed(
     stored before 37.1-07 (T-37.1-42, accepted). The Didymos backfill command creates its record with
     the listing's state before its own lookup and reports a failure under ``status sync failed``, so
     such a record is recovered with ``recheck_unscheduled=True`` like a legacy one. Both kinds are
-    brought up to date by an operator
-    run with ``recheck_unscheduled=True``, which also looks up a failed-state record that is
-    missing either time, once per run. The unattended runner never passes it, so F2's bounded
-    per-tick lookups stay as they are.
+    brought up to date by an operator run with ``recheck_unscheduled=True``, which also looks up a
+    failed-state record that is missing either time, once per run. The unattended runner never passes
+    it, so F2's bounded per-tick lookups stay as they are. If that recheck lookup fails, the record is
+    marked as above, so the unattended runner, which never passes the flag, retries it.
 
     This is F2 option A from .planning/v2.4-INTENT-REVIEW.md. The function makes no query, no
     network call and no mutation, and trusts the two state lists it is given.
@@ -441,6 +447,39 @@ def _schedule_lookup_is_needed(
     if existing_record.scheduled_start is None or existing_record.scheduled_end is None:
         return recheck_unscheduled or existing_record.status not in failed_states
     return False
+
+
+def _failed_lookup_needs_marker(
+    record: ObservationRecord,
+    portal_state: str,
+    terminal_states: frozenset[str],
+    failed_states: frozenset[str],
+    *,
+    lookup_failed: bool,
+) -> bool:
+    """Decide whether a failed live lookup on an existing record must mark it for a retry.
+
+    A failed lookup resolves nothing and writes nothing, so a record the next ordinary tick would
+    skip stays frozen with no times -- in practice an unmarked failed-state record with no times at
+    the same portal state, which only ``--recheck-unscheduled`` looks up. Such a record is marked
+    with ``SCHEDULE_LOOKUP_FAILED_KEY`` so the unattended runner, which never passes the flag, looks
+    it up again until a lookup succeeds. Any record the ordinary gate already looks up (a state
+    change, a non-terminal record, a completed record missing a time, an already-marked record)
+    needs no new mark.
+
+    Args:
+        record: the stored ObservationRecord the failed lookup was for.
+        portal_state: the request's current state as reported by the portal.
+        terminal_states: the facility's terminal observing states.
+        failed_states: the facility's failed observing states (a subset of the terminal ones).
+        lookup_failed: True when this run's live lookup was attempted and raised.
+
+    Returns:
+        bool: True only when the lookup failed and the ordinary per-tick gate would skip the record.
+    """
+    return lookup_failed and not _schedule_lookup_is_needed(
+        record, portal_state, terminal_states, failed_states, recheck_unscheduled=False
+    )
 
 
 def _preserve_observed_site_keys(existing: Any, rebuilt: dict[str, Any]) -> dict[str, Any]:
@@ -480,6 +519,7 @@ def _changed_record_fields(
     compare_schedule: bool = True,
     *,
     lookup_failed: bool = False,
+    mark_lookup_failed: bool = False,
 ) -> dict[str, Any]:
     """Return the ObservationRecord fields whose desired value differs from the record's.
 
@@ -519,6 +559,9 @@ def _changed_record_fields(
             the block's times together in one save. Writing the status without the block would
             disarm that retry and leave a finished record looking resolved (37.1-REVIEW CR-01).
             ``parameters`` are still compared.
+        mark_lookup_failed: True to write ``SCHEDULE_LOOKUP_FAILED_KEY`` into the compared parameters,
+            so the mark lands in the same save and the record counts as updated. Keyword-only; pass
+            True only together with ``lookup_failed`` (see ``_failed_lookup_needs_marker``).
 
     Returns:
         dict[str, Any]: field name -> new value for each of the (up to four) fields whose
@@ -533,6 +576,8 @@ def _changed_record_fields(
         changes['status'] = status
     if not compare_schedule and _has_failed_lookup_marker(record.parameters):
         parameters[SCHEDULE_LOOKUP_FAILED_KEY] = record.parameters[SCHEDULE_LOOKUP_FAILED_KEY]
+    if mark_lookup_failed:
+        parameters[SCHEDULE_LOOKUP_FAILED_KEY] = True
     if compare_schedule:
         if record.scheduled_start != scheduled_start:
             changes['scheduled_start'] = scheduled_start
@@ -599,7 +644,9 @@ def sweep_proposal(
         recheck_unscheduled: when True, every record still missing a scheduled time is looked up
             once, including a failed-state record the finished-record skip (F2) otherwise leaves
             alone, so records stored under TOM's old block rule pick up an aborted block's times.
-            One portal lookup per such record. Default False; the unattended runner never passes it.
+            One portal lookup per such record. A lookup that fails on such a record marks it with
+            ``SCHEDULE_LOOKUP_FAILED_KEY``, so the ordinary sweep the unattended runner makes retries it
+            until a lookup succeeds. Default False; the unattended runner never passes it.
         stdout: a file-like sink for progress/summary lines (defaults to a fresh
             ``io.StringIO()`` so this function is callable with no sink at all).
         stderr: a file-like sink for skip/failure lines (defaults to a fresh
@@ -684,14 +731,14 @@ def sweep_proposal(
             observation_id_raw = request.get('id')
             if observation_id_raw is None:
                 skipped += 1
-                stderr.write('Skipping request: payload has no id.')
+                stderr.write('Skipping request: payload has no id.\n')
                 continue
             observation_id = str(observation_id_raw)
 
             target_dict = _first_named_target(request)
             if target_dict is None:
                 skipped += 1
-                stderr.write(f'Skipping request {observation_id}: no configuration with a named target.')
+                stderr.write(f'Skipping request {observation_id}: no configuration with a named target.\n')
                 continue
 
             target_name = target_dict.get('name')
@@ -701,14 +748,14 @@ def sweep_proposal(
                 target, reason = _build_non_sidereal_target(target_dict)
                 if target is None:
                     skipped += 1
-                    stderr.write(f'Skipping request {observation_id}: {reason}.')
+                    stderr.write(f'Skipping request {observation_id}: {reason}.\n')
                     continue
                 is_new_target = True
 
             parameters = _build_parameters(request_group, request)
             if parameters is None:
                 skipped += 1
-                stderr.write(f'Skipping request {observation_id}: no configuration with a usable instrument_type.')
+                stderr.write(f'Skipping request {observation_id}: no configuration with a usable instrument_type.\n')
                 continue
 
             status = request.get('state', '')
@@ -740,7 +787,7 @@ def sweep_proposal(
                 fallback_lookups_skipped += 1
             if lookup_failed:
                 block_lookups_failed += 1
-                stderr.write(f'Failed to resolve observed block for observation_id={observation_id!r}.')
+                stderr.write(f'Failed to resolve observed block for observation_id={observation_id!r}.\n')
             scheduled_start = _parse_datetime_value(scheduled_start)
             scheduled_end = _parse_datetime_value(scheduled_end)
             # The schedule is compared only when this run actually resolved one. A skipped
@@ -763,6 +810,9 @@ def sweep_proposal(
                         parameters,
                         compare_schedule=compare_schedule,
                         lookup_failed=lookup_failed,
+                        mark_lookup_failed=_failed_lookup_needs_marker(
+                            existing_record, status, terminal_states, failed_states, lookup_failed=lookup_failed
+                        ),
                     )
                     if changes:
                         updated += 1
@@ -786,7 +836,7 @@ def sweep_proposal(
                 stdout.write(
                     f'Would {target_verb} target {target_name!r}; '
                     f'would {record_verb} ObservationRecord '
-                    f'observation_id={observation_id!r} status={status!r}.'
+                    f'observation_id={observation_id!r} status={status!r}.\n'
                 )
                 # ALLOC-06 / T-kpy-01: ask the matcher about the record this sweep would see, with
                 # dry_run=True so nothing is written. An existing record is judged on its STORED
@@ -850,6 +900,9 @@ def sweep_proposal(
                     parameters,
                     compare_schedule=compare_schedule,
                     lookup_failed=lookup_failed,
+                    mark_lookup_failed=_failed_lookup_needs_marker(
+                        record, status, terminal_states, failed_states, lookup_failed=lookup_failed
+                    ),
                 )
                 if changes:
                     for field, value in changes.items():
@@ -878,7 +931,7 @@ def sweep_proposal(
                     groups_reused += 1
                 else:
                     groups_created += 1
-                stdout.write(f'Would {"reuse" if would_reuse else "create"} ObservationGroup {group_name!r}.')
+                stdout.write(f'Would {"reuse" if would_reuse else "create"} ObservationGroup {group_name!r}.\n')
             else:
                 group, group_was_created = ObservationGroup.objects.get_or_create(name=group_name)
                 group.observation_records.add(*processed_in_group)
@@ -1050,6 +1103,9 @@ class Command(BaseCommand):
     request up again, and a successful lookup stores the new status and the block's times in the
     same save). A record created while its lookup fails is marked with the 'schedule_lookup_failed'
     parameters key and is looked up on every later run until a lookup succeeds, which removes the mark.
+    A failed --recheck-unscheduled lookup on a record the per-tick skip would otherwise leave alone marks
+    it the same way, so the unattended runner retries it until a lookup succeeds. A block-list reply that
+    is not a list is a failed lookup too (FomoLCOFacility raises UnexpectedBlockPayloadError for it).
 
     A request that expired or was cancelled can still carry a block that started and was aborted
     after taking data, and FOMO's block rule (first completed block, else the last aborted or
@@ -1148,7 +1204,8 @@ class Command(BaseCommand):
                 'records the per-tick skip leaves alone, using the block rule FOMO applies (a block that '
                 'started and was aborted after taking data counts), so records stored before that rule '
                 'pick up their block times. One portal lookup per such record. Works with or without '
-                '--proposal. Never used by the unattended runner. Default off.'
+                '--proposal. Never used by the unattended runner. A record whose lookup fails is marked, so the '
+                'unattended runner retries it. Default off.'
             ),
         )
 

@@ -21,6 +21,7 @@ from solsys_code.management.commands.backfill_lco_observations import (
     SCHEDULE_LOOKUP_FAILED_KEY,
     _build_parameters,
     _changed_record_fields,
+    _failed_lookup_needs_marker,
     _preserve_observed_site_keys,
     _schedule_lookup_is_needed,
     sweep_proposal,
@@ -2837,6 +2838,51 @@ class TestChangedRecordFieldsOnAFailedLookup(SimpleTestCase):
 
         self.assertEqual(changes, {'parameters': self._PARAMETERS})
         self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, changes['parameters'])
+
+    def test_mark_lookup_failed_adds_the_marker_to_the_compared_parameters(self):
+        record = self._record(status='WINDOW_EXPIRED')
+        record.scheduled_start = None
+        record.scheduled_end = None
+
+        changes = _changed_record_fields(
+            record,
+            'WINDOW_EXPIRED',
+            None,
+            None,
+            dict(self._PARAMETERS),
+            compare_schedule=True,
+            lookup_failed=True,
+            mark_lookup_failed=True,
+        )
+
+        self.assertEqual(changes, {'parameters': {**self._PARAMETERS, SCHEDULE_LOOKUP_FAILED_KEY: True}})
+
+
+class TestFailedLookupNeedsMarker(SimpleTestCase):
+    """_failed_lookup_needs_marker(): only a record the ordinary per-tick gate would skip is marked."""
+
+    def _needs(self, record, portal_state, lookup_failed=True):
+        return _failed_lookup_needs_marker(record, portal_state, _TERMINAL, _FAILED, lookup_failed=lookup_failed)
+
+    def test_a_failed_state_record_with_no_times_at_the_same_state_is_marked(self):
+        record = ObservationRecord(status='WINDOW_EXPIRED', parameters={})
+        self.assertTrue(self._needs(record, 'WINDOW_EXPIRED'))
+
+    def test_no_marker_without_a_failed_lookup(self):
+        record = ObservationRecord(status='WINDOW_EXPIRED', parameters={})
+        self.assertFalse(self._needs(record, 'WINDOW_EXPIRED', lookup_failed=False))
+
+    def test_a_record_the_ordinary_tick_retries_is_not_marked(self):
+        # A completed record missing a time, a stored PENDING record now reported WINDOW_EXPIRED, a PENDING
+        # record still PENDING and an already-marked record are all looked up by the ordinary gate already.
+        completed_missing_time = ObservationRecord(status='COMPLETED', scheduled_start=_START, parameters={})
+        state_changed = ObservationRecord(status='PENDING', parameters={})
+        still_pending = ObservationRecord(status='PENDING', parameters={})
+        already_marked = ObservationRecord(status='WINDOW_EXPIRED', parameters={SCHEDULE_LOOKUP_FAILED_KEY: True})
+        self.assertFalse(self._needs(completed_missing_time, 'COMPLETED'))
+        self.assertFalse(self._needs(state_changed, 'WINDOW_EXPIRED'))
+        self.assertFalse(self._needs(still_pending, 'PENDING'))
+        self.assertFalse(self._needs(already_marked, 'WINDOW_EXPIRED'))
 
 
 class TestFailedLookupOnANewRecord(TestCase):
