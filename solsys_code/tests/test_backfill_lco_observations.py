@@ -2617,6 +2617,44 @@ class TestFailedLookupKeepsTheStoredSchedule(TestCase):
         self.assertIn('block lookups failed: 1', summary)
         self.assertNotIn('marker-text', stdout.getvalue() + stderr.getvalue() + summary)
 
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_block_list_reply_that_is_not_a_list_keeps_status_times_and_the_retired_night(
+        self, mock_listing, mock_portal
+    ):
+        record = self._placed_record(10, 'PENDING')
+        self._assert_still_placed(record)
+        group = _request_group(1, 'Didymos 2026 - ELP', requests=[_request(10, state='WINDOW_EXPIRED')])
+        mock_listing.return_value = _page_response([group])
+
+        # Tick 1: the portal answers the block list with a paginated envelope, not a list.
+        envelope = {'count': 1, 'results': [dict(_ABORTED_BLOCK)]}
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': envelope})
+        stdout, stderr = io.StringIO(), io.StringIO()
+        summary = sweep_proposal('LCO2026A-003', stdout=stdout, stderr=stderr)
+
+        self.assertEqual(mock_portal.call_count, 2)
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'PENDING')
+        self._assert_still_placed(record)
+        self.assertIn('updated: 0', summary)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+        self.assertIn('block lookups failed: 1', summary)
+        self.assertIn("Failed to resolve observed block for observation_id='10'.", stderr.getvalue())
+
+        # Tick 2: the portal answers with a list, so the held-back state change is stored with the block's times.
+        mock_portal.reset_mock()
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [dict(_ABORTED_BLOCK)]})
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertEqual(mock_portal.call_count, 2)
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'WINDOW_EXPIRED')
+        self._assert_still_placed(record)
+        self.assertIn('updated: 1', summary)
+        self.assertIn('block lookups failed: 0', summary)
+
 
 class TestChangedRecordFieldsOnAFailedLookup(SimpleTestCase):
     """_changed_record_fields() when the live block lookup raised (37.1-REVIEW CR-01)."""
@@ -2817,6 +2855,22 @@ class TestFailedLookupOnANewRecord(TestCase):
         self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
         self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, record.parameters)
         self.assertIn('embedded blocks: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_marked_record_keeps_its_mark_when_the_block_list_is_not_a_list(self, mock_listing, mock_portal):
+        group, record = self._marked_record(30, 'WINDOW_EXPIRED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = portal_side_effect({'30': 'WINDOW_EXPIRED'}, {'30': {'detail': 'Not found.'}})
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertIs(record.parameters[SCHEDULE_LOOKUP_FAILED_KEY], True)
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('block lookups failed: 1', summary)
 
 
 class TestRecheckUnscheduledCommand(TestCase):

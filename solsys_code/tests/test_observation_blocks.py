@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase
@@ -140,3 +141,69 @@ class TestFomoFacilityStatus(TestCase):
         self.assertEqual(record.status, 'WINDOW_EXPIRED')
         self.assertIsNotNone(record.scheduled_start)
         self.assertIsNotNone(record.scheduled_end)
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_a_dict_reply_for_the_block_list_raises_and_names_only_the_request_and_type(self, mock_make_request):
+        mock_make_request.side_effect = portal_side_effect(
+            {'123': 'WINDOW_EXPIRED'}, {'123': {'detail': 'secret-body-text'}}
+        )
+
+        with self.assertRaises(ValueError) as cm:
+            FomoLCOFacility().get_observation_status('123')
+
+        self.assertEqual(type(cm.exception).__name__, 'UnexpectedBlockPayloadError')
+        self.assertIn('123', str(cm.exception))
+        self.assertIn('dict', str(cm.exception))
+        self.assertNotIn('secret-body-text', str(cm.exception))
+        self.assertEqual(mock_make_request.call_count, 2)
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_a_paginated_envelope_for_the_block_list_raises(self, mock_make_request):
+        mock_make_request.side_effect = portal_side_effect(
+            {'123': 'WINDOW_EXPIRED'}, {'123': {'count': 1, 'results': [_block('ABORTED')]}}
+        )
+
+        with self.assertRaises(ValueError) as cm:
+            FomoLCOFacility().get_observation_status('123')
+
+        self.assertEqual(type(cm.exception).__name__, 'UnexpectedBlockPayloadError')
+
+    def _placed_pending_record(self):
+        return ObservationRecord.objects.create(
+            target=self.target,
+            facility='LCO',
+            observation_id='123',
+            status='PENDING',
+            parameters={},
+            scheduled_start=datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc),
+            scheduled_end=datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc),
+        )
+
+    def _assert_record_unchanged(self, record):
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'PENDING')
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_update_observation_status_writes_nothing_when_the_block_list_is_not_a_list(self, mock_make_request):
+        mock_make_request.side_effect = portal_side_effect({'123': 'WINDOW_EXPIRED'}, {'123': {'detail': 'Not found.'}})
+        record = self._placed_pending_record()
+
+        with self.assertRaises(ValueError):
+            FomoLCOFacility().update_observation_status('123')
+
+        self._assert_record_unchanged(record)
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_update_all_observation_statuses_reports_the_record_and_keeps_its_times(self, mock_make_request):
+        mock_make_request.side_effect = portal_side_effect(
+            {'123': 'WINDOW_EXPIRED'}, {'123': {'count': 1, 'results': [_block('ABORTED')]}}
+        )
+        record = self._placed_pending_record()
+
+        failures = FomoLCOFacility().update_all_observation_statuses()
+
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0][0], '123')
+        self._assert_record_unchanged(record)

@@ -982,6 +982,29 @@ class TestStatusRefreshKeepsBlockTimes(UnattendedTestBase):
         self.assertIsNotNone(record.scheduled_start)
         self.assertIsNotNone(record.scheduled_end)
 
+    def test_a_block_list_reply_that_is_not_a_list_fails_the_record_and_keeps_its_times(self):
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            facility='LCO',
+            observation_id='500',
+            status='PENDING',
+            parameters={},
+            scheduled_start=datetime(2026, 7, 1, 1, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 1, 1, 40, tzinfo=dt_timezone.utc),
+        )
+        block = {'state': 'ABORTED', 'start': '2026-07-01T01:00:00Z', 'end': '2026-07-01T01:40:00Z'}
+        envelope = {'count': 1, 'results': [block]}
+        with patch(self.PORTAL, side_effect=portal_side_effect({'500': 'WINDOW_EXPIRED'}, {'500': envelope})):
+            result = unattended.step_status_refresh(dry_run=False)
+
+        record.refresh_from_db()
+        self.assertTrue(result.failed)
+        self.assertIn('UnexpectedBlockPayloadError', result.summary)
+        self.assertIn('LCO: failed 1', result.summary)
+        self.assertEqual(record.status, 'PENDING')
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=dt_timezone.utc))
+
 
 class TestExceptionLabel(UnattendedTestBase):
     """Quick task 260927-eqs, Task 1: ``_exception_label()``'s scope and hygiene."""
