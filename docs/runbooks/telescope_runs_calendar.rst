@@ -132,21 +132,39 @@ The event narrows as the record's own fields change:
 * a marked event on the original window if the record expires, is
   cancelled, or fails.
 
-FOMO chooses the block itself: the first completed block, else the last block
-that is in progress, that started and was aborted, or that failed after taking
-data, else the last pending one. A failed block counts only if it took data:
-at least one of its configurations reports some time completed. The LCO
-portal can report a block that started, took data and then stopped early as
-failed rather than aborted -- every such block on the July 2026 Didymos
-requests was reported failed. A failed block with no time completed, and a
-block the portal never attempted or cancelled, never gives times. So an
-earlier aborted block, or a failed block that took data, outranks a later
-pending block that has not run yet. FOMO does not leave this to TOM's own
-status call, which ignores in-progress, aborted and failed blocks. A request
-whose block was aborted or failed after taking data is therefore drawn over
-that block, with the marker its request state gives it (usually ``[X]`` once
-the window has expired), and only a request with no block that counts is
-drawn over its whole request window.
+FOMO chooses the block itself: the first completed block, else the last pending
+block, else the last block that is in progress, that started and was aborted,
+or that failed after taking data. A failed block counts only if it took data:
+at least one of its configurations reports some time completed. The LCO portal
+can report a block that started, took data and then stopped early as failed
+rather than aborted -- every such block on the July 2026 Didymos requests was
+reported failed. A failed block with no time completed, and a block the portal
+never attempted or cancelled, never gives times. So while a request still has a
+pending block, the record follows that placed block: it is drawn ``[S]`` on the
+upcoming night, and that night's allocation entry retires. A block that is in
+progress, was aborted or failed after taking data counts only once no pending
+block remains (the LCO scheduler places a new block for a request whose block
+is still running only after one of that block's configurations has failed, so
+an in-progress block yields to that pending block too). FOMO does not leave
+this to TOM's own status call, which ignores in-progress, aborted and failed
+blocks. A request whose block was aborted or failed after taking data, with no
+pending block left, is therefore drawn over that block, with the marker its
+request state gives it (usually ``[X]`` once the window has expired), and only
+a request with no block that counts is drawn over its whole request window.
+
+A record carries one block. Until the scheduler places a new block for a
+request whose block was aborted or failed after taking data, the record stays
+on that block, drawn with its request's marker (``[S]`` while the request is
+still pending). Once a new block is placed, the earlier night is not retired:
+the record moves to the placed block, its entry is drawn on the placed night,
+and the earlier night shows its allocation entry again. It stays that way if
+the placed block completes, because the record then carries the completed
+block. If the placed block instead fails after taking data, the record keeps
+that later block and its night. If it fails with nothing completed and no
+pending block remains, the record goes back to the earlier block, whose night
+retires again, and the later night's allocation entry comes back. A request
+with a single block -- like each of the July 2026 Didymos requests -- is not
+affected.
 
 The event's title carries a compact marker naming that stage, e.g.
 ``[Q] 2m0 3I/ATLAS``. **One module, ``solsys_code/status_vocabulary.py``,
@@ -170,9 +188,9 @@ every state, final as of this phase:
    * - ``[O]``
      - Observed -- a successful terminal status.
    * - ``[X]``
-     - Window expired before the observation was attempted -- drawn over the
-       whole request window when no block ever ran, or over the block when
-       one started and was aborted or failed after taking data.
+     - Window expired -- drawn over the whole request window when no block
+       counts, or over the block when one started and was aborted or failed
+       after taking data.
    * - ``[C]``
      - Cancelled -- by whichever layer owns the entry: a staff decision on
        a campaign run (the approval queue's "Mark Cancelled" button, see
@@ -505,8 +523,11 @@ entirely. A dry run's counts are what the following real pass over the
 same portal payload will report -- with two caveats. The first is that a
 request needing the live fallback lookup (no embedded ``observations``
 block) has its schedule compared by a real run but not by a dry run, so
-such a record can be reported ``unchanged`` by a dry run when only its
-schedule times would actually move. A request whose lookup is skipped
+such a record can be reported ``unchanged`` by a dry run when only its schedule
+times, or a ``schedule_lookup_failed`` mark that a successful lookup would
+remove, would actually change: a marked record whose lookup succeeds without
+moving its times is reported ``updated`` by a real pass, because the mark is
+removed, and ``unchanged`` by a dry run. A request whose lookup is skipped
 under the finished-record rule described below is compared identically by a
 dry run and a real run. The second caveat is a real pass whose block lookup
 fails: a state change it holds back is reported ``unchanged`` instead of
@@ -540,8 +561,8 @@ block list on the RequestGroup payload when the portal supplies one, or
 otherwise falls back to a live, best-effort
 ``get_observation_status()`` call per request (skipped
 entirely under ``--dry-run``). Both paths use FOMO's block choice -- the first
-completed block, else the last in-progress block, block that started and was
-aborted, or block that failed after taking data, else the last pending block
+completed block, else the last pending block, else the last in-progress block,
+block that started and was aborted, or block that failed after taking data
 (see "How do LCO/SOAR queue observations get onto the calendar?" above) --
 because TOM Toolkit's own status call ignores aborted and failed blocks. A
 request with no block that counts has no times. A failed fallback lookup (a
@@ -1393,8 +1414,13 @@ the night on the next reconcile (this is the ONLY one of the five reasons
 that "unlink to restore" sentence applies to). A block counts once it is
 placed, in progress, completed, started and aborted, or failed after taking
 data, while a request that expired or was cancelled without ever getting a
-block retires nothing and its night stays. A failed block that took no data,
-and a block the portal never attempted or cancelled, retires nothing either;
+block retires nothing and its night stays. A record carries one block, so a
+request the scheduler places again retires only the night of the block FOMO
+now chooses (the placed one while the request is pending): the night of an
+earlier block that was aborted or failed after taking data shows its
+allocation entry again, and keeps it if the placed block completes. A failed
+block that took no data, and a block the portal never attempted or cancelled,
+retires nothing either;
 (2) a boundary-affecting
 field changed since the night was last minted -- either a sub-night window
 field (the run's own dawn/dusk or dark-window overrides), or a correction
@@ -1724,7 +1750,10 @@ this fixed order, in one process:
    reads each request's block with FOMO's own block choice (see "How do
    LCO/SOAR queue observations get onto the calendar?"), so a tick never
    erases the times of an in-progress or aborted block, or of a block that
-   failed after taking data. A reply whose block
+   failed after taking data. While a request still has a pending block, the
+   tick stores that placed block's times instead, so a request placed again
+   after an aborted or failed block moves to its new night on the next tick.
+   A reply whose block
    list is not a list counts as a failed record
    (``UnexpectedBlockPayloadError``), never as an empty block list, so it
    never erases a stored time either.
