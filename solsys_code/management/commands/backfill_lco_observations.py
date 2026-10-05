@@ -45,9 +45,10 @@ logger = logging.getLogger(__name__)
 # The ObservationRecord.parameters key this sweep writes on a record it created while the live block
 # lookup failed, and on an existing record whose --recheck-unscheduled lookup failed while the ordinary
 # tick would otherwise skip it. _schedule_lookup_is_needed() treats a marked record as needing a lookup
-# until one succeeds, and the successful write removes the key (the freshly built parameters never
-# contain it). Only the sweep writes it: _build_parameters() copies nothing from the portal payload
-# into this key.
+# until one succeeds, so the next ordinary sweep of its proposal retries it -- on every unattended tick
+# for an active WatchedProposal row, otherwise on the operator's next manual run -- and the successful
+# write removes the key (the freshly built parameters never contain it). Only the sweep writes it:
+# _build_parameters() copies nothing from the portal payload into this key.
 SCHEDULE_LOOKUP_FAILED_KEY = 'schedule_lookup_failed'
 
 # Portal wire key -> TOM Target field name, the inverse of OCSFacility._build_target_fields'
@@ -420,7 +421,9 @@ def _schedule_lookup_is_needed(
     brought up to date by an operator run with ``recheck_unscheduled=True``, which also looks up a
     failed-state record that is missing either time, once per run. The unattended runner never passes
     it, so F2's bounded per-tick lookups stay as they are. If that recheck lookup fails, the record is
-    marked as above, so the unattended runner, which never passes the flag, retries it.
+    marked as above, so the next ordinary sweep of its proposal looks it up again: on every unattended
+    tick for an active WatchedProposal row, and otherwise only on the operator's next manual run (no
+    flag needed).
 
     This is F2 option A from .planning/v2.4-INTENT-REVIEW.md. The function makes no query, no
     network call and no mutation, and trusts the two state lists it is given.
@@ -462,8 +465,10 @@ def _failed_lookup_needs_marker(
     A failed lookup resolves nothing and writes nothing, so a record the next ordinary tick would
     skip stays frozen with no times -- in practice an unmarked failed-state record with no times at
     the same portal state, which only ``--recheck-unscheduled`` looks up. Such a record is marked
-    with ``SCHEDULE_LOOKUP_FAILED_KEY`` so the unattended runner, which never passes the flag, looks
-    it up again until a lookup succeeds. Any record the ordinary gate already looks up (a state
+    with ``SCHEDULE_LOOKUP_FAILED_KEY`` so every later ordinary sweep of its proposal looks it up
+    again until a lookup succeeds; the unattended runner makes that sweep on every tick only for an
+    active WatchedProposal row, and for any other --proposal code only the operator's next manual run
+    does. Any record the ordinary gate already looks up (a state
     change, a non-terminal record, a completed record missing a time, an already-marked record)
     needs no new mark.
 
@@ -644,9 +649,11 @@ def sweep_proposal(
         recheck_unscheduled: when True, every record still missing a scheduled time is looked up
             once, including a failed-state record the finished-record skip (F2) otherwise leaves
             alone, so records stored under TOM's old block rule pick up an aborted block's times.
-            One portal lookup per such record. A lookup that fails on such a record marks it with
-            ``SCHEDULE_LOOKUP_FAILED_KEY``, so the ordinary sweep the unattended runner makes retries it
-            until a lookup succeeds. Default False; the unattended runner never passes it.
+            One portal lookup per such record. A lookup that fails on a record the per-tick skip would
+            otherwise leave alone marks it with ``SCHEDULE_LOOKUP_FAILED_KEY``, so every later ordinary
+            sweep of this proposal looks it up again until a lookup succeeds; the unattended runner makes
+            that sweep on every tick only for an active WatchedProposal row. Default False; the
+            unattended runner never passes it.
         stdout: a file-like sink for progress/summary lines (defaults to a fresh
             ``io.StringIO()`` so this function is callable with no sink at all).
         stderr: a file-like sink for skip/failure lines (defaults to a fresh
@@ -1104,8 +1111,11 @@ class Command(BaseCommand):
     same save). A record created while its lookup fails is marked with the 'schedule_lookup_failed'
     parameters key and is looked up on every later run until a lookup succeeds, which removes the mark.
     A failed --recheck-unscheduled lookup on a record the per-tick skip would otherwise leave alone marks
-    it the same way, so the unattended runner retries it until a lookup succeeds. A block-list reply that
-    is not a list is a failed lookup too (FomoLCOFacility raises UnexpectedBlockPayloadError for it).
+    it the same way. If its proposal is an active WatchedProposal row, the bare sweep covers it on every
+    unattended tick, so the unattended runner retries it until a lookup succeeds; the runner never sweeps
+    any other --proposal code, so for such a code an operator re-runs --proposal <code> (no flag needed)
+    until 'block lookups failed' is 0. A block-list reply that is not a list is a failed lookup too
+    (FomoLCOFacility raises UnexpectedBlockPayloadError for it).
 
     A request that expired or was cancelled can still carry a block that started and was aborted
     after taking data, and FOMO's block rule (first completed block, else the last aborted or
