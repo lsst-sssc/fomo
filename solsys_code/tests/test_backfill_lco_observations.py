@@ -2484,6 +2484,90 @@ class TestRecheckUnscheduledSweep(TestCase):
         self.assertIn("Failed to resolve observed block for observation_id='10'.", stderr.getvalue())
         self.assertNotIn('secret-token-in-the-url', stderr.getvalue() + stdout.getvalue() + summary)
 
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_failed_recheck_lookup_marks_the_record_and_the_ordinary_sweep_retries_it(
+        self, mock_listing, mock_portal
+    ):
+        group, record = self._stored_record(10, 'WINDOW_EXPIRED')
+        mock_listing.return_value = _page_response([group])
+
+        # Tick 1: the operator's --recheck-unscheduled lookup fails.
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out: marker-text')
+        stdout, stderr = io.StringIO(), io.StringIO()
+        summary = sweep_proposal('LCO2026A-003', recheck_unscheduled=True, stdout=stdout, stderr=stderr)
+
+        record.refresh_from_db()
+        self.assertIs(record.parameters[SCHEDULE_LOOKUP_FAILED_KEY], True)
+        self.assertEqual(record.status, 'WINDOW_EXPIRED')
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before)
+        self.assertIn('updated: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+        self.assertIn('block lookups failed: 1', summary)
+        self.assertNotIn('marker-text', stdout.getvalue() + stderr.getvalue() + summary)
+
+        # Tick 2: an ordinary sweep (no flag), healthy portal. The mark makes the gate look the record up.
+        mock_portal.reset_mock()
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [dict(_ABORTED_BLOCK)]})
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertEqual(mock_portal.call_count, 2)
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, record.parameters)
+        self.assertFalse(allocation_events(self.per_night_run).filter(url=self._alloc_url(record)).exists())
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 1)
+        self.assertIn('updated: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+        self.assertIn('block lookups failed: 0', summary)
+
+        # Tick 3: resolved, so the ordinary skip applies again.
+        mock_portal.reset_mock()
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_portal.assert_not_called()
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('fallback lookups skipped: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_dry_run_recheck_never_marks_a_record(self, mock_listing, mock_portal):
+        group, record = self._stored_record(10, 'WINDOW_EXPIRED')
+        stored_parameters = dict(record.parameters)
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out')
+
+        summary = sweep_proposal(
+            'LCO2026A-003', dry_run=True, recheck_unscheduled=True, stdout=io.StringIO(), stderr=io.StringIO()
+        )
+
+        mock_portal.assert_not_called()
+        record.refresh_from_db()
+        self.assertEqual(record.parameters, stored_parameters)
+        self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, record.parameters)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_failed_recheck_lookup_on_a_completed_record_missing_a_time_is_not_marked(
+        self, mock_listing, mock_portal
+    ):
+        # The ordinary tick already looks a completed record with no times up, so it needs no new mark.
+        group, record = self._stored_record(40, 'COMPLETED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out')
+
+        summary = sweep_proposal('LCO2026A-003', recheck_unscheduled=True, stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, record.parameters)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('block lookups failed: 1', summary)
+
 
 class TestFailedLookupKeepsTheStoredSchedule(TestCase):
     """37.1-REVIEW CR-01: a live lookup that raises never erases a stored time or commits a state change.
@@ -2654,6 +2738,38 @@ class TestFailedLookupKeepsTheStoredSchedule(TestCase):
         self._assert_still_placed(record)
         self.assertIn('updated: 1', summary)
         self.assertIn('block lookups failed: 0', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_failed_lookup_with_parameter_drift_saves_parameters_and_holds_status_and_times(
+        self, mock_listing, mock_portal
+    ):
+        record = self._placed_record(10, 'PENDING')
+        moved = _request(
+            10, state='WINDOW_EXPIRED', windows=[{'start': '2026-07-01T00:30:00', 'end': '2026-07-02T00:00:00'}]
+        )
+        mock_listing.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP', requests=[moved])])
+
+        # Tick 1: the listing's window moved and the lookup fails. Parameters are saved; status and times are held.
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out')
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'PENDING')
+        self._assert_still_placed(record)
+        self.assertEqual(record.parameters['start'], '2026-07-01T00:30:00')
+        self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, record.parameters)
+        self.assertIn('updated: 1', summary)
+        self.assertIn('block lookups failed: 1', summary)
+
+        # Tick 2: a healthy tick still retries the held-back state change.
+        mock_portal.reset_mock()
+        mock_portal.side_effect = portal_side_effect({'10': 'WINDOW_EXPIRED'}, {'10': [dict(_ABORTED_BLOCK)]})
+        sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertEqual(mock_portal.call_count, 2)
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'WINDOW_EXPIRED')
 
 
 class TestChangedRecordFieldsOnAFailedLookup(SimpleTestCase):
@@ -2871,6 +2987,86 @@ class TestFailedLookupOnANewRecord(TestCase):
         self.assertIsNone(record.scheduled_end)
         self.assertIn('unchanged: 1', summary)
         self.assertIn('block lookups failed: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_marked_record_whose_lookup_fails_again_stays_marked_and_unchanged(self, mock_listing, mock_portal):
+        group, record = self._marked_record(30, 'WINDOW_EXPIRED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out')
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertIs(record.parameters[SCHEDULE_LOOKUP_FAILED_KEY], True)
+        self.assertIsNone(record.scheduled_start)
+        self.assertIsNone(record.scheduled_end)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('fallback lookups needed: 1', summary)
+        self.assertIn('block lookups failed: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_marked_record_whose_lookup_fails_saves_parameter_drift_and_keeps_its_mark(
+        self, mock_listing, mock_portal
+    ):
+        _, record = self._marked_record(30, 'WINDOW_EXPIRED')
+        moved = _request(
+            30, state='WINDOW_EXPIRED', windows=[{'start': '2026-07-01T02:00:00', 'end': '2026-07-02T00:00:00'}]
+        )
+        mock_listing.return_value = _page_response([_request_group(1, 'Didymos 2026 - ELP', requests=[moved])])
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out')
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertEqual(record.parameters['start'], '2026-07-01T02:00:00')
+        self.assertIs(record.parameters[SCHEDULE_LOOKUP_FAILED_KEY], True)
+        self.assertIsNone(record.scheduled_start)
+        self.assertIn('updated: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_a_successful_lookup_with_no_block_clears_the_mark_and_the_skip_applies(self, mock_listing, mock_portal):
+        group, record = self._marked_record(30, 'CANCELED')
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = portal_side_effect({'30': 'CANCELED'}, {'30': []})
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        self.assertEqual(mock_portal.call_count, 2)
+        record.refresh_from_db()
+        self.assertNotIn(SCHEDULE_LOOKUP_FAILED_KEY, record.parameters)
+        self.assertIsNone(record.scheduled_start)
+        self.assertIn('updated: 1', summary)
+
+        mock_portal.reset_mock()
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        mock_portal.assert_not_called()
+        self.assertIn('fallback lookups skipped: 1', summary)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_each_failed_lookup_is_its_own_stderr_line(self, mock_listing, mock_portal):
+        group = _request_group(
+            1,
+            'Didymos 2026 - ELP',
+            requests=[_request(30, state='WINDOW_EXPIRED'), _request(31, state='WINDOW_EXPIRED')],
+        )
+        mock_listing.return_value = _page_response([group])
+        mock_portal.side_effect = requests.exceptions.ConnectionError('portal timed out')
+        stderr = io.StringIO()
+
+        sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=stderr)
+
+        self.assertEqual(
+            stderr.getvalue().splitlines(),
+            [
+                "Failed to resolve observed block for observation_id='30'.",
+                "Failed to resolve observed block for observation_id='31'.",
+            ],
+        )
 
 
 class TestRecheckUnscheduledCommand(TestCase):
