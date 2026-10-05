@@ -15,7 +15,7 @@ progress:
   completed_plans: 73
   percent: 100
 last_activity: 2026-10-05
-last_activity_desc: Completed 37.1-11 (WR-01/WR-02 fixes, WR-03 runbook gap, paired notebook)
+last_activity_desc: Phase 37.1 gaps-only round 4 (37.1-11) executed; verification gaps_found 92/93
 ---
 
 # Project State
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
 Plan: 11 of 11 (37.1-11 complete)
-Status: All 11 plans executed — ready for `/gsd-verify-work` re-verification of Phase 37.1
+Status: All 11 plans executed — round-4 verification 2026-10-05 `gaps_found` 92/93 (docs-only: runbook recheck paragraph + help/docstrings/notebook cell 39 promise the runner retries a failed recheck lookup unconditionally; false for an unwatched `--proposal`, 37.1-REVIEW round-4 WR-01). Next: `/gsd-plan-phase 37.1 --gaps` (or `/gsd-code-review 37.1 --fix` for WR-01)
 
 ## Performance Metrics
 
