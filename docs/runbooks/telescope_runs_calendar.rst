@@ -528,10 +528,16 @@ completed block, else the last in-progress block or block that started and was
 aborted after taking data, else the last pending block (see "How do LCO/SOAR
 queue observations get onto the calendar?" above) -- because TOM Toolkit's own
 status call ignores an aborted block. A request that never got a block has no
-times. A failed fallback lookup is logged and
-counted under ``block lookups failed``, never fatal -- the record is still
-created or updated with whatever status the request payload itself
-reported, just without resolved schedule times.
+times. A failed fallback lookup (a timeout or a portal error) is logged and
+counted under ``block lookups failed``, is never fatal, and never erases
+anything. A record that already exists keeps its stored
+``scheduled_start``/``scheduled_end`` and its stored status: a state change
+the portal reported is held back until a lookup for it succeeds, so the
+record's allocation night stays as it was and the next run looks the request
+up again. A brand-new request is still created, with the status from the
+listing and no times, and is marked with the ``schedule_lookup_failed`` key in
+its parameters. Every later run looks a marked record up, even a finished one,
+until a lookup succeeds, and that lookup removes the mark.
 
 The live lookup is not made for a record that is already finished. When the
 record's stored state is one of the terminal states reported by
@@ -542,15 +548,21 @@ as they are. The exception is a completed record that is still missing its
 scheduled times: it keeps being looked up until the portal supplies them, so a
 failed lookup is retried rather than frozen. A request that expired or was
 cancelled can still carry a block that started and was aborted after taking
-data. Since this release every status change made by FOMO's own commands and
-the unattended runner reads that block, so the per-tick skip stays safe for
-those records. A status change made through one of TOM Toolkit's own routes --
+data. Every status change the discovery sweep and the unattended runner store
+comes with that block: the sweep stores a state change only together with a
+lookup that succeeded (see the failed-lookup rule above), and the unattended
+status refresh writes nothing for a request whose lookup fails. That is what
+keeps the per-tick skip safe for those records. The Didymos backfill
+(``backfill_lco_observation_records``) creates a record with the listing's
+status before it looks up the block and reports a failed lookup under
+``status sync failed``; such a record is recovered by re-running it with
+``--recheck-unscheduled``. A status change made through one of TOM Toolkit's own routes --
 its ``updatestatus`` command, the **Update status** button on its observation
 list, its Cancel button or its REST cancel route (see "What runs, and when"
 below) -- still uses TOM's rule and leaves such a record without times, and
 the per-tick skip then leaves it alone too. A brand-new request, a record still
-in a non-terminal state, and a record whose state changed are all still looked
-up. With the portal's listing carrying no observed blocks, this keeps a tick's
+in a non-terminal state, a record whose state changed, and a record marked
+after a failed lookup are all still looked up. With the portal's listing carrying no observed blocks, this keeps a tick's
 lookups roughly equal to the number of unfinished and new requests as a
 proposal ages, instead of growing with every request ever made.
 
