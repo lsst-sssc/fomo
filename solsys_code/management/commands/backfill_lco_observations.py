@@ -318,7 +318,8 @@ def _resolve_schedule(
     facility.get_observation_status() call -- on ``FomoLCOFacility``, so the live path
     chooses the block with the same rule -- which *is* skipped entirely under --dry-run.
     An embedded FAILED block counts only when its own configuration_statuses show time completed; one that
-    carries none gives no times and no live lookup is made for it. The portal's requestgroups listing
+    carries none gives no times (and, for an existing record, replaces its stored times with none) and no live
+    lookup is made for it. The portal's requestgroups listing
     carries no embedded blocks today, so FAILED blocks are seen on the live lookup, whose block dicts carry
     configuration_statuses.
     A failed fallback call is caught and reported via the
@@ -633,7 +634,8 @@ def sweep_proposal(
     so the sweep for a single proposal is callable directly -- by the bare-invocation
     watched-list loop (Task 3) and by the unattended runner (36-01/Plan 03) -- without going
     through ``call_command()``. Constructs its own ``FomoLCOFacility`` (TOM's LCO facility with
-    FOMO's block rule, so the times of a block that took data are stored) and calls
+    FOMO's block rule, so the times of a pending request's placed block, or else of a block that took data,
+    are stored) and calls
     ``facility.set_user(user)`` here so each call gets a fresh instance (Phase 34 D-10: a
     facility instance is never shared across calls).
 
@@ -1095,8 +1097,10 @@ class Command(BaseCommand):
     First: for a request that would need the live fallback schedule lookup (no
     embedded 'observations' block), a dry run compares status and parameters only, since the
     schedule fields it would otherwise compare are never resolved under --dry-run. Such a
-    record can therefore be reported unchanged by a dry run when only its schedule times
-    would actually move on a real pass. A record whose lookup is skipped (see below) is
+    record can therefore be reported unchanged by a dry run when only its schedule times, or a
+    'schedule_lookup_failed' mark that a successful lookup would remove, would actually change on a real
+    pass: a marked record whose lookup succeeds without moving its times is reported updated by a real
+    pass, because the mark is removed, and unchanged by a dry run. A record whose lookup is skipped (see below) is
     compared the same way in both modes: status and parameters only. Second: a real pass whose block
     lookup fails reports a state change it holds back as unchanged instead of updated, and a record a
     failed --recheck-unscheduled lookup marks as updated instead of unchanged; 'block lookups failed'
@@ -1128,8 +1132,8 @@ class Command(BaseCommand):
 
     A request in one of the facility's failed request states can still carry a block that took data --
     one that started and was aborted, or one that failed after taking data -- and FOMO's block rule
-    (first completed block, else the last in-progress, aborted or failed-with-data block, else the last
-    pending one; a failed block counts only when one of its configurations reports time completed)
+    (first completed block, else the last pending block, else the last in-progress, aborted or failed-with-data
+    block; a failed block counts only when one of its configurations reports time completed)
     stores that block's times, for both the embedded list and the live lookup. Records stored before
     that rule, and records finished through one of TOM Toolkit's own status routes, have no times and
     the skip above leaves them alone. --recheck-unscheduled (opt-in, works with --proposal and on the
@@ -1223,9 +1227,10 @@ class Command(BaseCommand):
             help=(
                 'Also look up once every record that is missing a scheduled time, including finished '
                 'records the per-tick skip leaves alone, using the block rule FOMO applies (a block that '
-                'started and was aborted, or that failed after taking data, counts), so records stored '
-                'before that rule pick up their block times. One portal lookup per such record. Works with '
-                'or without --proposal. Never used by the unattended runner. A failed lookup on a record '
+                'started and was aborted, or that failed after taking data, counts once no pending '
+                'block remains), so records stored before that rule pick up their block times. One portal '
+                'lookup per such record. Works with or without --proposal. Never used by the unattended '
+                'runner. A failed lookup on a record '
                 'the per-tick skip would otherwise leave alone marks it schedule_lookup_failed; the '
                 'unattended runner retries a marked record only while its proposal is an active watched '
                 'proposal, so for any other code re-run --proposal <code> without --recheck-unscheduled '

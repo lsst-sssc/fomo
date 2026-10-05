@@ -950,9 +950,9 @@ class TestRecheckUnscheduledFailedBlocks(TestCase):
         urls = set(allocation_events(self.per_night_run).values_list('url', flat=True))
         for night in self.RETIRED_NIGHTS:
             self.assertNotIn(self._alloc_url(night), urls, night)
-        # The FAILED block that took nothing and the never-scheduled request keep their nights.
+        # The FAILED block that took nothing keeps its night. The never-scheduled request's record has no times
+        # (asserted above), and the count below shows no fifth night retired.
         self.assertIn(self._alloc_url('2026-07-13'), urls)
-        self.assertIn(self._alloc_url('2026-07-11'), urls)
         self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 4)
 
     @patch(PORTAL)

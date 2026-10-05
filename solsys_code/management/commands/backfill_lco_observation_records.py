@@ -152,8 +152,9 @@ class Command(BaseCommand):
 
     Immediately after a newly created ObservationRecord is saved (non-dry-run only), the
     command makes a live best-effort call to facility.update_observation_status(observation_id)
-    -- TOM Toolkit's method, running on FOMO's FomoLCOFacility, whose block choice counts a block
-    that took data -- one that started and was aborted, or one that failed after taking data -- so the new
+    -- TOM Toolkit's method, running on FOMO's FomoLCOFacility, whose block choice uses the request's
+    placed pending block while it has one and otherwise counts a block that took data -- one that started
+    and was aborted, or one that failed after taking data -- so the new
     record's status, scheduled_start, and scheduled_end are populated from LCO right away instead of
     staying unset until the next poll. A failure of that call is skip-and-logged (never fatal, never
     rolls back the already-created record) and counted in the status_sync_failed summary count.
@@ -224,8 +225,9 @@ class Command(BaseCommand):
             help=(
                 'Also look up the observed block of an already-existing record that is missing either '
                 'scheduled time, using the block rule FOMO applies (a block that started and was aborted, '
-                'or that failed after taking data, counts), so records stored before that rule pick up '
-                'their block times. One portal lookup per such record. Default off.'
+                'or that failed after taking data, counts once no pending block remains), so records '
+                'stored before that rule pick up their block times. One portal lookup per such record. '
+                'Default off.'
             ),
         )
 

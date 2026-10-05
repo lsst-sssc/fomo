@@ -311,12 +311,16 @@ def step_status_refresh(dry_run: bool) -> StepResult:
 
     This step runs FIRST in every tick. On TOM's own facility classes it would write TOM's block
     rule back over a still-PENDING record every 15 minutes, and at a request's PENDING to
-    WINDOW_EXPIRED transition it would store empty times for a block that started and was
-    aborted; after that the record is terminal, TOM's poll never looks at it again, and the
-    discovery sweep's finished-record skip (F2) never looks either -- which is exactly how the
-    live LCO2026A-003 records were left with no times (UAT G-37.1-1-alloc). On FOMO's
-    subclasses the poll keeps TOM's own update loop and error semantics and changes only which
-    block it reads (``observation_blocks.select_schedule_block``).
+    WINDOW_EXPIRED transition it would store empty times for a block that started and stopped
+    early (ABORTED, or FAILED after taking data); after that the record is terminal, TOM's poll
+    never looks at it again, and the discovery sweep's finished-record skip (F2) never looks
+    either -- which is exactly how the live LCO2026A-003 records, whose blocks are FAILED, were
+    left with no times (UAT G-37.1-1-alloc, G-37.1-6). On FOMO's subclasses the poll keeps TOM's
+    own update loop and error semantics and changes only which block it reads
+    (``observation_blocks.select_schedule_block``): while a request still has a pending block, the
+    record carries that placed block's times, so a request the scheduler places again after an
+    aborted or failed block moves to its new night on the next tick; an in-progress, aborted or
+    failed-with-data block's times are stored once no pending block remains.
 
     A dry run returns immediately without instantiating either facility -- a status
     refresh is a portal read that mutates ``ObservationRecord`` rows through the Phase 34

@@ -2515,6 +2515,40 @@ class TestRecheckUnscheduledSweep(TestCase):
 
     @patch(_PORTAL)
     @patch(_LISTING)
+    def test_the_ordinary_sweep_moves_a_pending_record_to_its_newly_placed_block(self, mock_listing, mock_portal):
+        """WR-19, developer decision 2026-10-05: while the request is pending, its record follows the placed
+        block, so the placed night retires and the aborted block's night is back on the calendar."""
+        group, record = self._stored_record(30, 'PENDING')
+        mock_listing.return_value = _page_response([group])
+
+        def run_urls():
+            return set(allocation_events(self.per_night_run).values_list('url', flat=True))
+
+        night_before_url = f'ALLOC:{self.per_night_run.pk}:2026-06-30'
+        placed_night_url = f'ALLOC:{self.per_night_run.pk}:2026-07-01'
+
+        mock_portal.side_effect = portal_side_effect({'30': 'PENDING'}, {'30': [dict(_ABORTED_BLOCK)]})
+        sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertNotIn(night_before_url, run_urls())
+
+        placed = {'state': 'PENDING', 'start': '2026-07-02T01:00:00Z', 'end': '2026-07-02T01:40:00Z'}
+        mock_portal.side_effect = portal_side_effect({'30': 'PENDING'}, {'30': [dict(_ABORTED_BLOCK), placed]})
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 2, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 2, 1, 40, tzinfo=timezone.utc))
+        self.assertIn('updated: 1', summary)
+        self.assertIn('block lookups failed: 0', summary)
+        self.assertNotIn(placed_night_url, run_urls())
+        self.assertIn(night_before_url, run_urls())
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 1)
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
     def test_without_the_flag_the_finished_record_is_not_looked_up(self, mock_listing, mock_portal):
         group, record = self._stored_record(10, 'WINDOW_EXPIRED')
         mock_listing.return_value = _page_response([group])
