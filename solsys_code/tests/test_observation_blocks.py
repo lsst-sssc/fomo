@@ -19,6 +19,107 @@ def _block(state, start='2026-07-01T01:00:00Z', end='2026-07-01T01:40:00Z'):
     return {'state': state, 'start': start, 'end': end}
 
 
+# Real block dicts, one per request, from read-only portal GETs of /api/requests/{id}/observations/ made on
+# 2026-10-05 for the LCO2026A-003 Didymos requests (UAT gap G-37.1-6): the portal reports a block that started,
+# took data and stopped early as FAILED, not ABORTED. Each request's only block is FAILED, its one configuration
+# status carries a summary with time_completed (seconds). The block ``id`` and ``priority`` values were not
+# recorded in the reply notes, so those two are arbitrary; ``site``, ``enclosure`` and ``telescope`` are the
+# Siding Spring 2 m values the run implies. The rule reads none of these.
+REAL_FAILED_BLOCKS = {
+    '4253588': {
+        'id': 900000001,
+        'priority': 10,
+        'request': 4253588,
+        'site': 'coj',
+        'enclosure': 'clma',
+        'telescope': '2m0a',
+        'state': 'FAILED',
+        'start': '2026-07-12T08:55:50Z',
+        'end': '2026-07-12T15:00:31Z',
+        'configuration_statuses': [
+            {
+                'state': 'FAILED',
+                'summary': {
+                    'state': 'FAILED',
+                    'start': '2026-07-12T08:55:50Z',
+                    'end': '2026-07-12T14:10:03Z',
+                    'time_completed': 18060.0,
+                    'reason': 'Error while executing OffsetCommand (only a fragment was recorded)',
+                },
+            }
+        ],
+    },
+    '4272067': {
+        'id': 900000002,
+        'priority': 10,
+        'request': 4272067,
+        'site': 'coj',
+        'enclosure': 'clma',
+        'telescope': '2m0a',
+        'state': 'FAILED',
+        'start': '2026-07-17T09:07:48Z',
+        'end': '2026-07-17T14:54:29Z',
+        'configuration_statuses': [
+            {
+                'state': 'FAILED',
+                'summary': {
+                    'state': 'ABORTED',
+                    'end': '2026-07-17T09:47:30Z',
+                    'time_completed': 2160.0,
+                    'reason': 'Aborting observation: Enclosure no longer open.',
+                },
+            }
+        ],
+    },
+    '4276100': {
+        'id': 900000003,
+        'priority': 10,
+        'request': 4276100,
+        'site': 'coj',
+        'enclosure': 'clma',
+        'telescope': '2m0a',
+        'state': 'FAILED',
+        'start': '2026-07-19T08:57:45Z',
+        'end': '2026-07-19T14:44:26Z',
+        'configuration_statuses': [{'state': 'FAILED', 'summary': {'time_completed': 19440.0}}],
+    },
+    '4282342': {
+        'id': 900000004,
+        'priority': 10,
+        'request': 4282342,
+        'site': 'coj',
+        'enclosure': 'clma',
+        'telescope': '2m0a',
+        'state': 'FAILED',
+        'start': '2026-07-20T09:11:47Z',
+        'end': '2026-07-20T14:16:28Z',
+        'configuration_statuses': [{'state': 'FAILED', 'summary': {'time_completed': 14850.0}}],
+    },
+}
+
+
+def failed_block(time_completed, start='2026-07-01T01:00:00Z', end='2026-07-01T01:40:00Z', summary_state='FAILED'):
+    """Build a FAILED block with one configuration status whose summary reports ``time_completed``.
+
+    Args:
+        time_completed: the value of the summary's ``time_completed`` (any type, to test odd portal data).
+        start: the block's start string.
+        end: the block's end string.
+        summary_state: the configuration summary's own state (the portal says ABORTED inside some FAILED blocks).
+
+    Returns:
+        dict: a block dict in the portal's data model.
+    """
+    return {
+        'state': 'FAILED',
+        'start': start,
+        'end': end,
+        'configuration_statuses': [
+            {'state': 'FAILED', 'summary': {'state': summary_state, 'time_completed': time_completed}}
+        ],
+    }
+
+
 def portal_side_effect(request_states, blocks_by_request):
     """Build a make_request side_effect that answers by URL, as the two portal GETs do.
 
@@ -52,7 +153,79 @@ class TestSelectScheduleBlock(SimpleTestCase):
 
     def test_blocks_that_never_ran_give_none(self):
         self.assertIsNone(select_schedule_block([_block('CANCELED')]))
-        self.assertIsNone(select_schedule_block([_block('NOT_ATTEMPTED'), _block('FAILED')]))
+        self.assertIsNone(select_schedule_block([_block('NOT_ATTEMPTED'), _block('CANCELED')]))
+
+    def test_failed_block_without_time_completed_gives_none(self):
+        """WR-04: a FAILED block counts only when it took data; every unusable value reads as no data."""
+        cases = {
+            'bare FAILED block': _block(BlockState.FAILED),
+            'time_completed 0': failed_block(0),
+            'time_completed 0.0': failed_block(0.0),
+            'time_completed negative': failed_block(-1.0),
+            'time_completed None': failed_block(None),
+            'time_completed numeric string': failed_block('18060.0'),
+            'time_completed bool': failed_block(True),
+            'time_completed NaN': failed_block(float('nan')),
+        }
+        for status_value in (None, 'missing', [5.0]):
+            block = failed_block(5.0)
+            if status_value == 'missing':
+                del block['configuration_statuses'][0]['summary']
+            else:
+                block['configuration_statuses'][0]['summary'] = status_value
+            cases[f'summary {status_value!r}'] = block
+        no_time = failed_block(5.0)
+        del no_time['configuration_statuses'][0]['summary']['time_completed']
+        cases['time_completed missing'] = no_time
+        for value in (None, {'summary': {'time_completed': 5.0}}, ['junk', None, 3]):
+            block = failed_block(5.0)
+            block['configuration_statuses'] = value
+            cases[f'configuration_statuses {value!r}'] = block
+        for label, block in cases.items():
+            with self.subTest(label):
+                self.assertIsNone(select_schedule_block([block]))
+
+    def test_each_real_failed_block_is_chosen(self):
+        # 4272067's configuration summary says ABORTED inside a FAILED block; its time completed is what counts.
+        for request_id, block in REAL_FAILED_BLOCKS.items():
+            with self.subTest(request_id):
+                self.assertIs(select_schedule_block([block]), block)
+
+    def test_failed_block_is_chosen_when_any_configuration_completed_time(self):
+        block = failed_block(0.0)
+        block['configuration_statuses'].append({'state': 'FAILED', 'summary': {'time_completed': 120.0}})
+        self.assertIs(select_schedule_block([block]), block)
+        self.assertIsNotNone(select_schedule_block([failed_block(30)]))
+
+    def test_not_attempted_and_canceled_blocks_never_give_times(self):
+        for state in ('NOT_ATTEMPTED', 'CANCELED'):
+            with self.subTest(state):
+                block = failed_block(18060.0)
+                block['state'] = state
+                self.assertIsNone(select_schedule_block([block]))
+
+    def test_failed_with_data_ranks_with_aborted_and_in_progress(self):
+        aborted = _block(BlockState.ABORTED)
+        failed = failed_block(18060.0, start='2026-07-02T01:00:00Z')
+        self.assertIs(select_schedule_block([aborted, failed]), failed)
+        self.assertIs(select_schedule_block([failed, aborted]), aborted)
+        in_progress = _block(BlockState.IN_PROGRESS)
+        self.assertIs(select_schedule_block([failed, in_progress]), in_progress)
+
+    def test_failed_with_data_beats_pending_in_either_order(self):
+        failed, pending = failed_block(18060.0), _block(BlockState.PENDING, start='2026-07-05T01:00:00Z')
+        self.assertIs(select_schedule_block([failed, pending]), failed)
+        self.assertIs(select_schedule_block([pending, failed]), failed)
+
+    def test_completed_beats_failed_with_data_in_either_order(self):
+        failed, completed = failed_block(18060.0), _block(BlockState.COMPLETED, start='2026-07-03T01:00:00Z')
+        self.assertIs(select_schedule_block([failed, completed]), completed)
+        self.assertIs(select_schedule_block([completed, failed]), completed)
+
+    def test_failed_without_data_never_displaces_another_block(self):
+        aborted, pending = _block(BlockState.ABORTED), _block(BlockState.PENDING)
+        self.assertIs(select_schedule_block([aborted, failed_block(0.0)]), aborted)
+        self.assertIs(select_schedule_block([failed_block(0.0), pending]), pending)
 
     def test_single_aborted_block_is_chosen(self):
         aborted = _block(BlockState.ABORTED)
@@ -118,6 +291,40 @@ class TestFomoFacilityStatus(TestCase):
         )
         self.assertEqual(mock_make_request.call_count, 2)
         self.assertTrue(mock_make_request.call_args_list[1].args[1].endswith('/api/requests/123/observations/'))
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_status_carries_the_failed_block_times_when_it_took_data(self, mock_make_request):
+        block = REAL_FAILED_BLOCKS['4253588']
+        mock_make_request.side_effect = portal_side_effect({'123': 'WINDOW_EXPIRED'}, {'123': [block]})
+
+        status = FomoLCOFacility().get_observation_status('123')
+
+        self.assertEqual(
+            status,
+            {'state': 'WINDOW_EXPIRED', 'scheduled_start': block['start'], 'scheduled_end': block['end']},
+        )
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_status_has_no_times_for_a_failed_block_that_took_no_data(self, mock_make_request):
+        mock_make_request.side_effect = portal_side_effect({'123': 'WINDOW_EXPIRED'}, {'123': [failed_block(0.0)]})
+
+        status = FomoLCOFacility().get_observation_status('123')
+
+        self.assertEqual(status, {'state': 'WINDOW_EXPIRED', 'scheduled_start': None, 'scheduled_end': None})
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_update_observation_status_saves_the_failed_block_times(self, mock_make_request):
+        block = REAL_FAILED_BLOCKS['4253588']
+        mock_make_request.side_effect = portal_side_effect({'123': 'WINDOW_EXPIRED'}, {'123': [block]})
+        record = ObservationRecord.objects.create(
+            target=self.target, facility='LCO', observation_id='123', status='WINDOW_EXPIRED', parameters={}
+        )
+
+        FomoLCOFacility().update_observation_status('123')
+
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 12, 8, 55, 50, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 12, 15, 0, 31, tzinfo=timezone.utc))
 
     @patch('solsys_code.observation_blocks.make_request')
     def test_status_with_no_blocks_has_no_times(self, mock_make_request):

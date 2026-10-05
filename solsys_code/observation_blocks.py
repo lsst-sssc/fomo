@@ -1,17 +1,23 @@
 """FOMO's own rule for which observation block a request's schedule comes from.
 
-Why this module exists (UAT gap G-37.1-1-alloc, and the user's 2026-10-04 decision): TOM Toolkit's
-``OCSFacility.get_observation_status()`` keeps only a COMPLETED block, else the last PENDING block,
-and returns empty times for everything else -- including ABORTED, the portal state of a block that
-started, took data and stopped early, and IN_PROGRESS. A request whose only block aborted was
-therefore stored with no ``scheduled_start``/``scheduled_end``, Phase 35 D-05's ``retired_nights()``
-retired nothing, and the run's ``ALLOC:`` night stayed beside the observation's own calendar entry.
-Under Phase 35 D-05/D-06 a block that was placed and ABORTED after taking data retires its night
-exactly like a COMPLETED one: ABORTED and IN_PROGRESS count as "placed-or-observed".
+Why this module exists (UAT gaps G-37.1-1-alloc and G-37.1-6, and the user's 2026-10-04 and 2026-10-05
+decisions): TOM Toolkit's ``OCSFacility.get_observation_status()`` keeps only a COMPLETED block, else the last
+PENDING block, and returns empty times for everything else -- including IN_PROGRESS and the two states the
+portal gives a block that started, took data and stopped early: ABORTED, and, as on every such July 2026
+Didymos block (verified on the live portal 2026-10-05), FAILED. A request whose only block stopped early was
+therefore stored with no ``scheduled_start``/``scheduled_end``, Phase 35 D-05's ``retired_nights()`` retired
+nothing, and the run's ``ALLOC:`` night stayed beside the observation's own calendar entry. Under Phase 35
+D-05/D-06 a block that was placed and stopped early after taking data retires its night exactly like a
+COMPLETED one: ABORTED, IN_PROGRESS and FAILED-with-data count as "placed-or-observed".
 
-The rule, in tiers (see :func:`select_schedule_block`): the first COMPLETED block, else the last
-ABORTED or IN_PROGRESS block, else the last PENDING block, else none. A request that never got a
-block at all therefore keeps no times and retires nothing (Phase 35 D-05 unchanged).
+A FAILED block counts only when it took data: some configuration's summary reports ``time_completed`` above
+zero (developer decision 2026-10-05). It then ranks with ABORTED and IN_PROGRESS. A FAILED block with nothing
+completed gives no times, and neither does a block the portal never attempted (NOT_ATTEMPTED) or cancelled
+(CANCELED), whatever else it carries.
+
+The rule, in tiers (see :func:`select_schedule_block`): the first COMPLETED block, else the last ABORTED,
+IN_PROGRESS or FAILED-with-data block, else the last PENDING block, else none. A request with no block that
+counts therefore keeps no times and retires nothing (Phase 35 D-05 unchanged).
 
 FOMO never edits or monkeypatches TOM Toolkit's installed code. The rule lives only on FOMO's own
 facility subclasses, :class:`FomoLCOFacility` and :class:`FomoSOARFacility`, which override the one
@@ -24,7 +30,7 @@ TOM's rule: its stock ``updatestatus`` command, the "Update status" button on it
 page (``tom_observations/views.py``, which runs that command), the Cancel button on its observation
 page (``ObservationRecordCancelView``), its REST cancel route (``PATCH /api/observations/<pk>/cancel/``,
 ``tom_observations/api_views.py``) and ``ObservationRecord.update_status()``. A request moved to a
-finished state through one of them is stored without its aborted block's times, and nothing on a
+finished state through one of them is stored without the times of a block that took data, and nothing on a
 tick looks at a finished record again, so its allocation night comes back. An operator recovers an
 LCO record by re-running the backfill command for its proposal with ``--recheck-unscheduled``.
 
@@ -50,13 +56,16 @@ class BlockState:
     """Observation-BLOCK states from ``/api/requests/{id}/observations/``.
 
     These are states of a scheduled block, not of a request; request states stay in
-    ``status_vocabulary.OCSState``.
+    ``status_vocabulary.OCSState``. The portal's block states are PENDING, IN_PROGRESS, NOT_ATTEMPTED,
+    COMPLETED, ABORTED, FAILED and CANCELED. The rule names five of them; NOT_ATTEMPTED and CANCELED never
+    give times, so they have no member here.
     """
 
     COMPLETED = 'COMPLETED'
     ABORTED = 'ABORTED'
     IN_PROGRESS = 'IN_PROGRESS'
     PENDING = 'PENDING'
+    FAILED = 'FAILED'
 
 
 class UnexpectedBlockPayloadError(ValueError):
@@ -71,23 +80,63 @@ class UnexpectedBlockPayloadError(ValueError):
     """
 
 
+def _block_took_data(block: dict[str, Any]) -> bool:
+    """Say whether a block's configurations report any completed time.
+
+    True when ``block['configuration_statuses']`` is a list with at least one entry that is a dict whose
+    ``summary`` is a dict whose ``time_completed`` is an ``int`` or ``float`` (not a ``bool``) above zero.
+    Every other value at every level -- missing, None, the wrong type, a numeric string, a bool, NaN, zero or
+    a negative number -- reads as "no data", so a block with an unusable summary never gives times and the
+    helper never raises. It reads only ``time_completed``: never the free-text ``reason`` and never the
+    summary's own ``state`` (the portal puts ABORTED inside some FAILED blocks).
+
+    Args:
+        block: one block dict from the portal's observations list.
+
+    Returns:
+        bool: True when some configuration completed some time.
+    """
+    statuses = block.get('configuration_statuses')
+    if not isinstance(statuses, list):
+        return False
+    for status in statuses:
+        if not isinstance(status, dict):
+            continue
+        summary = status.get('summary')
+        if not isinstance(summary, dict):
+            continue
+        completed = summary.get('time_completed')
+        if isinstance(completed, bool) or not isinstance(completed, int | float):
+            continue
+        # NaN is not greater than zero, so it reads as no data without a separate check.
+        if completed > 0:
+            return True
+    return False
+
+
 def select_schedule_block(blocks: Any) -> dict[str, Any] | None:
     """Choose the block a request's scheduled start and end come from.
 
-    The first COMPLETED block wins. Otherwise the LAST block that is ABORTED or IN_PROGRESS (a
-    block that is running now, or that started and was aborted after taking data). Otherwise the
-    LAST PENDING block. Otherwise None. "Last" mirrors TOM's last-PENDING convention. An earlier
-    aborted block beats a later pending block that has not run yet: data already taken outranks
-    intent, and once the pending block runs it becomes COMPLETED, which wins, or ABORTED, which as
-    the later block replaces the earlier one.
+    The first COMPLETED block wins. Otherwise the LAST block that is ABORTED or IN_PROGRESS (a block that is
+    running now, or that started and was aborted after taking data), or that is FAILED after taking data
+    (some configuration's summary reports ``time_completed`` above zero; the portal reports every such July
+    2026 Didymos block as FAILED, not ABORTED). Otherwise the LAST PENDING block. Otherwise None. "Last"
+    mirrors TOM's last-PENDING convention. An earlier started block beats a later pending block that has not
+    run yet: data already taken outranks intent, and once the pending block runs it becomes COMPLETED, which
+    wins, or stops early, which as the later block replaces the earlier one.
+
+    A FAILED block with no usable ``time_completed`` above zero (missing, None, zero, negative, NaN, a
+    string, a bool, or a summary or ``configuration_statuses`` of the wrong type) gives no times and is
+    skipped exactly like an unknown state. A NOT_ATTEMPTED or CANCELED block never gives times, even when it
+    carries a ``time_completed``.
 
     Args:
-        blocks: the decoded JSON of the portal's observations list; anything that is not a list
-            gives None, and entries that are not dicts or carry no state are ignored.
+        blocks: the decoded JSON of the portal's observations list; anything that is not a list gives None,
+            and entries that are not dicts or carry no state are ignored.
 
     Returns:
-        dict[str, Any] | None: the chosen block dict, or None when no block is COMPLETED, ABORTED,
-            IN_PROGRESS or PENDING.
+        dict[str, Any] | None: the chosen block dict, or None when no block is COMPLETED, ABORTED, IN_PROGRESS,
+            FAILED after taking data, or PENDING.
     """
     if not isinstance(blocks, list):
         return None
@@ -99,7 +148,9 @@ def select_schedule_block(blocks: Any) -> dict[str, Any] | None:
         state = block.get('state')
         if state == BlockState.COMPLETED:
             return block
-        if state in (BlockState.ABORTED, BlockState.IN_PROGRESS):
+        if state in (BlockState.ABORTED, BlockState.IN_PROGRESS) or (
+            state == BlockState.FAILED and _block_took_data(block)
+        ):
             last_started = block
         elif state == BlockState.PENDING:
             last_pending = block
@@ -157,8 +208,8 @@ class ScheduleBlockRuleMixin:
 
 
 class FomoLCOFacility(ScheduleBlockRuleMixin, LCOFacility):
-    """TOM's LCO facility reading the observed block with FOMO's rule (an aborted block counts)."""
+    """TOM's LCO facility reading the observed block with FOMO's rule (a block that took data counts)."""
 
 
 class FomoSOARFacility(ScheduleBlockRuleMixin, SOARFacility):
-    """TOM's SOAR facility reading the observed block with FOMO's rule (an aborted block counts)."""
+    """TOM's SOAR facility reading the observed block with FOMO's rule (a block that took data counts)."""

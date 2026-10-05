@@ -16,7 +16,7 @@ from solsys_code.campaign_utils import create_system_link
 from solsys_code.models import CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import observing_night
-from solsys_code.tests.test_observation_blocks import portal_side_effect
+from solsys_code.tests.test_observation_blocks import REAL_FAILED_BLOCKS, failed_block, portal_side_effect
 
 
 def _configuration(
@@ -827,3 +827,145 @@ class TestRecheckUnscheduledRetiresAllocationNight(TestCase):
         self.assertFalse([u for u in urls if '/requests/10' in u], urls)
         self.assertTrue([u for u in urls if '/requests/20' in u], urls)
         self.assertIn('schedules rechecked: 1, blocks found: 0', summary)
+
+
+class TestRecheckUnscheduledFailedBlocks(TestCase):
+    """G-37.1-6: the portal reports a block that started, took data and stopped early as FAILED. The Didymos
+    command, run with --recheck-unscheduled on the real portal blocks, stores their times and retires exactly
+    their allocation nights; the status call is NOT patched, so FOMO's block rule runs."""
+
+    FIELD_NAME = 'Didymos COJ 2026 Field #14'
+    ARGS = ('--proposal=LCO2026A-003', '--name-prefix=Didymos', '--campaign=Didymos 2026 Campaign')
+    LISTING = 'solsys_code.management.commands.backfill_lco_observation_records.make_request'
+    PORTAL = 'solsys_code.observation_blocks.make_request'
+    # The four real requests whose only block the portal reports FAILED after taking data, a synthetic request
+    # whose FAILED block took nothing (4999001), and a real never-scheduled request (4253584).
+    REAL_IDS = ('4253588', '4272067', '4276100', '4282342')
+    NO_DATA_ID = '4999001'
+    NEVER_SCHEDULED_ID = '4253584'
+    RETIRED_NIGHTS = ('2026-07-12', '2026-07-17', '2026-07-19', '2026-07-20')
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.target = NonSiderealTargetFactory.create(name='Didymos')
+        cls.field_target = NonSiderealTargetFactory.create(name=cls.FIELD_NAME)
+        cls.campaign = TargetList.objects.create(name='Didymos 2026 Campaign')
+        cls.campaign.targets.add(cls.target, cls.field_target)
+        cls.site = Observatory.objects.create(
+            obscode='E10',
+            name='Siding Spring (FTS)',
+            short_name='FTS',
+            lon=149.0708,
+            lat=-31.2733,
+            altitude=1165.0,
+            timezone='Australia/Sydney',
+        )
+        cls.per_night_run = CampaignRun.objects.create(
+            campaign=None,
+            target=cls.target,
+            proposal_code='LCO2026A-003',
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='FTS/MuSCAT4',
+            site=cls.site,
+            site_raw='E10',
+            window_start=date(2026, 7, 11),
+            window_end=date(2026, 7, 20),
+        )
+
+    def setUp(self):
+        reconcile_run(self.per_night_run)
+        self.alloc_before = allocation_events(self.per_night_run).count()
+        self.records = {
+            observation_id: self._record(observation_id)
+            for observation_id in (*self.REAL_IDS, self.NO_DATA_ID, self.NEVER_SCHEDULED_ID)
+        }
+        for record in self.records.values():
+            create_system_link(record, self.per_night_run)
+
+    def _record(self, observation_id):
+        return ObservationRecord.objects.create(
+            target=self.field_target,
+            facility='LCO',
+            observation_id=observation_id,
+            status='WINDOW_EXPIRED',
+            parameters={
+                'proposal': 'LCO2026A-003',
+                'instrument_type': '2M0-SCICAM-MUSCAT',
+                'start': '2026-07-11T00:00:00',
+                'end': '2026-07-21T00:00:00',
+            },
+        )
+
+    def _listing(self):
+        requests_ = [
+            _request(int(observation_id), target_name=self.FIELD_NAME, state='WINDOW_EXPIRED')
+            for observation_id in self.records
+        ]
+        return _page_response([_request_group(1, 'Didymos 2026 - FTS', requests=requests_)])
+
+    def _portal(self):
+        states = {observation_id: 'WINDOW_EXPIRED' for observation_id in self.records}
+        states['4276100'] = 'COMPLETED'
+        blocks = {observation_id: [dict(REAL_FAILED_BLOCKS[observation_id])] for observation_id in self.REAL_IDS}
+        # Synthetic: a FAILED block with nothing completed.
+        blocks[self.NO_DATA_ID] = [failed_block(0.0, start='2026-07-13T09:00:00Z', end='2026-07-13T14:00:00Z')]
+        blocks[self.NEVER_SCHEDULED_ID] = []
+        return portal_side_effect(states, blocks)
+
+    def _run_command(self, *extra):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        summary = call_command('backfill_lco_observation_records', *self.ARGS, *extra, stdout=stdout, stderr=stderr)
+        return summary, stdout.getvalue(), stderr.getvalue()
+
+    def _alloc_url(self, night):
+        return f'ALLOC:{self.per_night_run.pk}:{night}'
+
+    @patch(PORTAL)
+    @patch(LISTING)
+    def test_recheck_stores_failed_blocks_that_took_data_and_retires_their_nights(self, mock_listing, mock_portal):
+        mock_listing.return_value = self._listing()
+        mock_portal.side_effect = self._portal()
+
+        summary, _, stderr = self._run_command('--recheck-unscheduled')
+
+        self.assertIn('already existed: 6', summary)
+        self.assertIn('status sync failed: 0', summary)
+        self.assertIn('schedules rechecked: 6, blocks found: 4', summary)
+        self.assertEqual(stderr, '')
+        for observation_id in self.REAL_IDS:
+            record = ObservationRecord.objects.get(observation_id=observation_id)
+            block = REAL_FAILED_BLOCKS[observation_id]
+            self.assertEqual(
+                record.scheduled_start, datetime.fromisoformat(block['start'].replace('Z', '+00:00')), observation_id
+            )
+            self.assertEqual(
+                record.scheduled_end, datetime.fromisoformat(block['end'].replace('Z', '+00:00')), observation_id
+            )
+        self.assertEqual(ObservationRecord.objects.get(observation_id='4276100').status, 'COMPLETED')
+        for observation_id in (self.NO_DATA_ID, self.NEVER_SCHEDULED_ID):
+            record = ObservationRecord.objects.get(observation_id=observation_id)
+            self.assertIsNone(record.scheduled_start, observation_id)
+            self.assertIsNone(record.scheduled_end, observation_id)
+        urls = set(allocation_events(self.per_night_run).values_list('url', flat=True))
+        for night in self.RETIRED_NIGHTS:
+            self.assertNotIn(self._alloc_url(night), urls, night)
+        # The FAILED block that took nothing and the never-scheduled request keep their nights.
+        self.assertIn(self._alloc_url('2026-07-13'), urls)
+        self.assertIn(self._alloc_url('2026-07-11'), urls)
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 4)
+
+    @patch(PORTAL)
+    @patch(LISTING)
+    def test_dry_run_recheck_previews_and_writes_nothing(self, mock_listing, mock_portal):
+        mock_listing.return_value = self._listing()
+        mock_portal.side_effect = self._portal()
+
+        summary, _, _ = self._run_command('--dry-run', '--recheck-unscheduled')
+
+        mock_portal.assert_not_called()
+        self.assertIn('schedules would recheck: 6, blocks found: n/a (dry-run)', summary)
+        for record in ObservationRecord.objects.filter(observation_id__in=list(self.records)):
+            self.assertIsNone(record.scheduled_start, record.observation_id)
+            self.assertIsNone(record.scheduled_end, record.observation_id)
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before)
