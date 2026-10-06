@@ -7,7 +7,7 @@ Welcome to fomo's documentation!
 ==============================================================================
 
 This documentation site contains an installation and setup guide for local
-installs, an overview of the ``fomo`` design documents, auto-generated API documentation (by Sphinx ``auto-api``) and tutorial and demonstration notebooks.
+installs, a guide to deploying a long-running instance, an overview of the ``fomo`` design documents, auto-generated API documentation (by Sphinx ``auto-api``) and tutorial and demonstration notebooks.
 
 What is FOMO?
 -------------------
@@ -20,6 +20,7 @@ FOMO, which stands for Follow-up Observations of Moving Objects is a Target and 
 
    Home page <self>
    Installation and Getting Started <installation>
+   Deployment <deploy/deploy>
    Scout candidates and Rubin ToO filtering <scout_rubin_too>
    Design <design/design>
    API Reference <autoapi/index>

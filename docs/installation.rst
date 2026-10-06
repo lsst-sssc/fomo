@@ -106,6 +106,8 @@ Several lines of debugging output should appear. You should then be able to poin
   :alt: Screenshot of the FOMO frontpage after first running the webserver
   :align: center
 
+``runserver`` is intended for development only. To run FOMO as a long-lived service that survives reboots, see :doc:`deploy/deploy`.
+
 Log in as the admin user you created earlier using the `Login` button in the top right corner of the menu bar.
 
 You can import new Targets into FOMO by clicking on Targets->Targets in the menu bar. This will bring you to the Target overview page (which is blank at the minute). Click Create Targets->Catalog Search and select the desired service from the options. Solar System targets can be imported from:
