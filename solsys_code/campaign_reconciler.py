@@ -40,7 +40,7 @@ Field authority differs deliberately between this module's own container branch 
 per-night allocation branch it now dispatches to (D-09, Phase 35): the container branch is
 the sole writer of its key and is authoritative for every field on both create and update,
 while ``allocation_projector.project_allocation()`` only refreshes
-``title``/``description``/``target_list`` on update -- ``start_time``/``end_time``/
+``title``/``description``/``target_list``/``proposal`` on update -- ``start_time``/``end_time``/
 ``telescope``/``instrument`` are never rewritten after creation. The container branch also runs
 the D-08 attribution bridge after writing its container, so a container run's linked records
 gain the same event attribution a per-night run's do (F5, quick task 261001-smo).
@@ -70,6 +70,10 @@ from solsys_code.telescope_runs import observing_night
 logger = logging.getLogger(__name__)
 
 RUN_URL_NAMESPACE = 'RUN:'
+
+# The separator the per-target queue runs were created with (``'LCO 1m0 / Sinistro — {target}'``)
+# and the one the container title writes between the target and the rest (F12, quick task 261006-lsf).
+TARGET_TITLE_SEPARATOR = ' — '
 
 
 class ReconcileResult(NamedTuple):
@@ -200,15 +204,50 @@ def split_telescope_instrument(text: str) -> tuple[str, str]:
     return telescope.strip(), instrument.strip()
 
 
+def _container_label(run: CampaignRun) -> str:
+    """The base label of a whole-window container: the run's target first, then the instrument.
+
+    When the run has a target with a non-blank name, the label is
+    ``{name}{TARGET_TITLE_SEPARATOR}{rest}``, where ``rest`` is ``run.telescope_instrument``,
+    trimmed, with exactly one trailing ``' — {name}'`` removed if present (an exact,
+    case-sensitive match; if removing it would leave nothing, ``rest`` stays as it was). The
+    live per-target queue runs carry their target in ``telescope_instrument`` (to keep
+    ``unique_campaign_run_resolved_window`` distinct), so without that strip the target would
+    appear twice. Matching the separator plus the whole name means target ``11P`` never strips
+    ``— 112P``. A run with no target, or a blank target name, keeps ``telescope_instrument``
+    unchanged (F12, quick task 261006-lsf).
+
+    Args:
+        run: The run whose container is being titled.
+
+    Returns:
+        str: The label that ``event_title()`` appends the window suffix to.
+    """
+    if run.target_id is None:
+        return run.telescope_instrument
+    name = (run.target.name or '').strip()
+    if not name:
+        return run.telescope_instrument
+    trimmed = run.telescope_instrument.rstrip()
+    suffix = f'{TARGET_TITLE_SEPARATOR}{name}'
+    strip_suffix = trimmed.endswith(suffix) and len(trimmed) > len(suffix)
+    rest = trimmed[: -len(suffix)] if strip_suffix else run.telescope_instrument
+    return f'{name}{TARGET_TITLE_SEPARATOR}{rest}'
+
+
 def event_title(run: CampaignRun) -> str:
-    """No longer embeds a campaign label, with or without a campaign (D-12, Phase 33): the
+    """The container title: the run's target first when it has one, so a month cell shows the
+    target before the instrument (F12, quick task 261006-lsf), then the window.
+
+    No longer embeds a campaign label, with or without a campaign (D-12, Phase 33): the
     campaign an event is attributed to is rendered from ``CalendarEventMeta.run`` at display
     time by ``calendar_display_extras.campaign_decoration()`` instead -- this is the single
     campaign label now, for every attributed event, ``RUN:`` or not. Must keep the terminal
     cancelled/weathered marker (``status_vocabulary.RUN_STATUS_MARKER``, Phase 37 STATUS-01)
-    that the status ring matches on, so a cancelled/weathered run's event still gets it.
+    FIRST, because the status ring matches on the title's prefix, so a cancelled/weathered
+    run's event still gets it.
     """
-    base = run.telescope_instrument
+    base = _container_label(run)
     if run.window_start != run.window_end:
         base = f'{base} (window {run.window_start}..{run.window_end})'
     marker = RUN_STATUS_MARKER.get(run.run_status)
@@ -346,7 +385,9 @@ def _write_container_event(run: CampaignRun, *, dry_run: bool) -> ReconcileResul
     (RECON-02 queue half, RECON-03) -- a run's ``source`` field never selects this branch.
 
     The container is the ONLY writer of the bare ``RUN:{pk}`` key, so it is authoritative
-    for every field on both create and update -- its span must track window edits.
+    for every field on both create and update -- its span must track window edits. It also
+    carries its run's proposal code, so it takes that proposal's colour and legend entry
+    (F12, quick task 261006-lsf); a blank code stays blank.
     """
     url = run_container_url(run)
     telescope, instrument = split_telescope_instrument(run.telescope_instrument)
@@ -354,6 +395,7 @@ def _write_container_event(run: CampaignRun, *, dry_run: bool) -> ReconcileResul
         'title': event_title(run),
         'description': event_description(run),
         'target_list': run.campaign,
+        'proposal': run.proposal_code,
         'telescope': telescope,
         'instrument': instrument,
         'start_time': datetime.combine(run.window_start, dt_time(0, 0), tzinfo=dt_timezone.utc),

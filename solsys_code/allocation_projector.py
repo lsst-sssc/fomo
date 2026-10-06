@@ -489,7 +489,7 @@ def _sub_night_provenance_token(run: CampaignRun) -> str:
     this token feeds, not a variable the token could fail to carry.
 
     ``run.telescope_instrument`` and ``run.campaign`` are deliberately ABSENT too. They feed
-    ``title``/``description``/``target_list``, which the plain-update path (the branch that
+    ``title``/``description``/``target_list``/``proposal``, which the plain-update path (the branch that
     runs when :func:`_span_needs_remint` returns False) rewrites on every sweep regardless --
     they are not boundary inputs, and including them would make an ordinary title or
     campaign change delete and re-create the night for no boundary reason at all.
@@ -894,6 +894,7 @@ def _mint_fields(run: CampaignRun, night) -> dict[str, Any]:
         'title': allocation_night_title(run),
         'description': allocation_night_description(run, dark_line),
         'target_list': run.campaign,
+        'proposal': run.proposal_code,
         'telescope': telescope,
         'instrument': instrument,
         'start_time': start,
@@ -1018,10 +1019,11 @@ def _sync_observation_attribution(run: CampaignRun, *, dry_run: bool) -> int:
 
 
 def _label_fields(run: CampaignRun, dark_line: str | None) -> dict[str, Any]:
-    """The single builder of the three non-destructive label fields every update path in
-    this module writes: ``title``, ``description`` and ``target_list``. Every call site that
-    means "refresh this night's labels" -- the retirement decline, the plain-update preview
-    and the plain-update write -- builds its fields through this one function, so the three
+    """The single builder of the four non-destructive label fields every update path in
+    this module writes: ``title``, ``description``, ``target_list`` and ``proposal`` (the
+    run's proposal code, F12, quick task 261006-lsf). Every call site that means "refresh
+    this night's labels" -- the retirement decline, the plain-update preview, the plain-update
+    write and the legacy re-key -- builds its fields through this one function, so the four
     cannot drift apart on what "refreshing the labels" means (CR-01, 35-REVIEW.md iteration
     10).
 
@@ -1031,12 +1033,13 @@ def _label_fields(run: CampaignRun, dark_line: str | None) -> dict[str, Any]:
             description, or ``None`` when there is none to prepend.
 
     Returns:
-        dict[str, Any]: ``{'title': ..., 'description': ..., 'target_list': ...}``.
+        dict[str, Any]: ``{'title': ..., 'description': ..., 'target_list': ..., 'proposal': ...}``.
     """
     return {
         'title': allocation_night_title(run),
         'description': allocation_night_description(run, dark_line),
         'target_list': run.campaign,
+        'proposal': run.proposal_code,
     }
 
 
@@ -1048,7 +1051,7 @@ def _refresh_labels(
     *,
     dry_run: bool,
 ) -> tuple[str, CalendarEvent | None]:
-    """Refresh a surviving night's ``title``/``description``/``target_list`` via
+    """Refresh a surviving night's ``title``/``description``/``target_list``/``proposal`` via
     :func:`_label_fields`, and re-link it to ``run`` -- the one write both the retirement
     decline and the plain-update path share (CR-01, 35-REVIEW.md iteration 10).
 
@@ -1099,16 +1102,16 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
     counted once regardless of whether an event existed to delete, its url is added to
     neither the active set nor kept as a live night, and no legacy-takeover or mint logic
     runs for it. A night with no existing ``ALLOC:`` event but a writable legacy
-    ``RUN:{pk}:{night}`` event is re-keyed in place (title/description/target_list only,
+    ``RUN:{pk}:{night}`` event is re-keyed in place (title/description/target_list/proposal only,
     same primary key, no ``sun_event()`` call) rather than minted fresh. ``sun_event()``
     (both ``'sun'`` and ``'dark'``) is called only when a brand-new night is being minted --
     never on the update or re-key paths (D-13): an existing night's ``start_time``/
     ``end_time`` are never rewritten.
 
     Field authority: on **create**, writes ``title``, ``description``, ``target_list``,
-    ``telescope``, ``instrument``, ``start_time``, ``end_time``. On **update** (including a
-    re-key), writes only ``title``, ``description`` (with the preserved dark-window line)
-    and ``target_list``.
+    ``proposal``, ``telescope``, ``instrument``, ``start_time``, ``end_time``. On **update**
+    (including a re-key), writes only ``title``, ``description`` (with the preserved
+    dark-window line), ``target_list`` and ``proposal``.
 
     After the per-night loop, the attribution bridge (``_sync_observation_attribution()``)
     links every surviving observation record's own event to this run, and clears the
@@ -1335,11 +1338,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
                 totals['blocked'] += 1
                 continue
             dark_line = preserved_dark_window_line(legacy_event)
-            rekey_fields: dict[str, Any] = {
-                'title': allocation_night_title(run),
-                'description': allocation_night_description(run, dark_line),
-                'target_list': run.campaign,
-            }
+            rekey_fields: dict[str, Any] = _label_fields(run, dark_line)
             if dry_run:
                 totals['rekeyed'] += 1
                 continue
@@ -1421,7 +1420,7 @@ def project_allocation(run: CampaignRun, *, dry_run: bool = False) -> tuple[Reco
         # CR-04 (35-REVIEW.md, plan 35-23): a declined re-mint falls through to here instead
         # of `continue`-ing out of the loop. The decline refuses only the DESTRUCTIVE half
         # (the delete/create pair and its boundary rewrite, handled above) -- the night still
-        # travels the ordinary update path below, which writes title/description/target_list
+        # travels the ordinary update path below, which writes title/description/target_list/proposal
         # and is how a staff mark_cancelled/mark_weather_failure action reaches an allocation
         # night at all (allocation_night_description()'s own docstring). A declined night
         # therefore reports remint_declined AND an updated/unchanged, deliberately, because

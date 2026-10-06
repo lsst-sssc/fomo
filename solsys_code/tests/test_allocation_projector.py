@@ -3366,3 +3366,112 @@ class TestMintInputInvariant(AllocationProjectorTestBase):
         self.assertIn('run.night_start_utc', source)
         self.assertIn('run.night_end_utc', source)
         self.assertIn('_site_position_fingerprint', source)
+
+
+class TestAllocationNightCarriesProposal(AllocationProjectorTestBase):
+    """F12 (quick task 261006-lsf): every ``ALLOC:`` night carries its run's proposal code on
+    all four write paths (new, re-minted, label refresh, legacy re-key); night titles stay
+    ``<telescope> <instrument>``."""
+
+    def test_every_night_carries_run_proposal_code(self):
+        run = self._make_run(proposal_code='117.2A2N.001')
+
+        reconcile_run(run)
+
+        events = list(allocation_events(run))
+        self.assertEqual(len(events), 3)
+        for event in events:
+            self.assertEqual(event.proposal, '117.2A2N.001')
+
+    def test_blank_code_writes_blank_proposal(self):
+        run = self._make_run(proposal_code='')
+
+        reconcile_run(run)
+
+        events = list(allocation_events(run))
+        self.assertEqual(len(events), 3)
+        for event in events:
+            self.assertEqual(event.proposal, '')
+
+    def test_second_reconcile_is_unchanged(self):
+        run = self._make_run(proposal_code='117.2A2N.001')
+
+        first = reconcile_run(run)
+        self.assertEqual(first.created, 3)
+        modified_before = {e.pk: e.modified for e in allocation_events(run)}
+
+        second = reconcile_run(run)
+
+        self.assertEqual(second.unchanged, 3)
+        self.assertEqual(second.created, 0)
+        self.assertEqual(second.updated, 0)
+        for event in allocation_events(run):
+            self.assertEqual(event.modified, modified_before[event.pk])
+
+    def test_filling_a_blank_code_updates_each_night_once(self):
+        run = self._make_run(proposal_code='')
+        reconcile_run(run)
+        pks_before = set(allocation_events(run).values_list('pk', flat=True))
+
+        run.proposal_code = '117.2A2N.001'
+        run.save(update_fields=['proposal_code'])
+
+        dry = reconcile_run(run, dry_run=True)
+        self.assertEqual(dry.updated, 3)
+
+        real = reconcile_run(run)
+        self.assertEqual(real.updated, 3)
+        events = list(allocation_events(run))
+        for event in events:
+            self.assertEqual(event.proposal, '117.2A2N.001')
+        self.assertEqual({e.pk for e in events}, pks_before)
+
+        third = reconcile_run(run)
+        self.assertEqual(third.unchanged, 3)
+
+    def test_rekeyed_legacy_night_carries_proposal(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, proposal_code='117.2A2N.001')
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=run)
+        legacy_pk = legacy_event.pk
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.rekeyed, 1)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.pk, legacy_pk)
+        self.assertEqual(event.proposal, '117.2A2N.001')
+
+    def test_night_title_is_not_led_by_a_target(self):
+        run = self._make_run(target=NonSiderealTargetFactory.create(name='65803'), proposal_code='117.2A2N.001')
+
+        reconcile_run(run)
+
+        events = list(allocation_events(run))
+        self.assertEqual(len(events), 3)
+        for event in events:
+            self.assertEqual(event.title, 'NTT EFOSC2')
+
+    def test_reminted_night_carries_proposal(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, proposal_code='117.2A2N.001')
+        reconcile_run(run)
+
+        run.site = self.australian_site
+        run.site_raw = 'E10'
+        run.save(update_fields=['site', 'site_raw'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.proposal, '117.2A2N.001')

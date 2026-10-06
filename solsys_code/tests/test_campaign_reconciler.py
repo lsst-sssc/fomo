@@ -13,6 +13,7 @@ kept/migrated/retired audit trail.
 
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -36,7 +37,9 @@ from solsys_code.campaign_reconciler import (
 from solsys_code.campaign_reconciler import split_telescope_instrument as _split_telescope_instrument
 from solsys_code.models import CalendarEventDismissal, CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.status_vocabulary import RUN_STATUS_MARKER
 from solsys_code.telescope_runs import observing_night, sun_event
+from solsys_code.templatetags.calendar_display_extras import NEUTRAL_SLOT_COLOR, visible_proposals
 
 
 class CampaignReconcilerTestBase(TestCase):
@@ -1753,3 +1756,138 @@ class TestSplitTelescopeInstrumentHelper(TestCase):
     def test_only_the_first_delimiter_splits(self):
         self.assertEqual(_split_telescope_instrument('A/B/C'), ('A', 'B/C'))
         self.assertEqual(_split_telescope_instrument('A/B+C'), ('A', 'B+C'))
+
+
+class TestContainerProposalAndTargetTitle(CampaignReconcilerTestBase):
+    """F12 (quick task 261006-lsf): a whole-window container carries its run's proposal code
+    and its title leads with the run's target. Shaped like the live KEY2026B-004 per-target
+    queue runs."""
+
+    def _make_queue_run(self, **overrides) -> CampaignRun:
+        kwargs = {
+            'source': CampaignRun.Source.LCO_QUEUE,
+            'telescope_class': CampaignRun.TelescopeClass.ONE_M0,
+            'site': None,
+            'site_raw': '',
+            'campaign': None,
+            'telescope_instrument': 'LCO 1m0 / Sinistro — 10P',
+            'window_start': date(2026, 8, 1),
+            'window_end': date(2027, 1, 31),
+            'proposal_code': 'KEY2026B-004',
+            'target': NonSiderealTargetFactory.create(name='10P'),
+        }
+        kwargs.update(overrides)
+        return self._make_run(**kwargs)
+
+    def test_container_carries_run_proposal_code(self):
+        run = self._make_queue_run()
+
+        reconcile_run(run)
+
+        self.assertEqual(CalendarEvent.objects.get(url=f'RUN:{run.pk}').proposal, 'KEY2026B-004')
+
+    def test_blank_proposal_code_writes_blank_proposal(self):
+        run = self._make_queue_run(proposal_code='')
+
+        reconcile_run(run)
+
+        self.assertEqual(CalendarEvent.objects.get(url=f'RUN:{run.pk}').proposal, '')
+
+    def test_title_leads_with_target_without_repeating_it(self):
+        run = self._make_queue_run()
+
+        reconcile_run(run)
+
+        expected = '10P — LCO 1m0 / Sinistro (window 2026-08-01..2027-01-31)'
+        title = CalendarEvent.objects.get(url=f'RUN:{run.pk}').title
+        self.assertEqual(title, expected)
+        self.assertEqual(title.count('10P'), 1)
+        self.assertEqual(event_title(run), expected)
+
+    def test_title_leads_with_target_when_instrument_has_no_target_suffix(self):
+        run = self._make_queue_run(telescope_instrument='FTN/MuSCAT3')
+
+        reconcile_run(run)
+
+        self.assertEqual(
+            CalendarEvent.objects.get(url=f'RUN:{run.pk}').title,
+            '10P — FTN/MuSCAT3 (window 2026-08-01..2027-01-31)',
+        )
+
+    def test_title_without_target_keeps_current_form(self):
+        run = self._make_queue_run(target=None, telescope_instrument='LCO 1m0 / Sinistro')
+
+        reconcile_run(run)
+
+        self.assertEqual(
+            CalendarEvent.objects.get(url=f'RUN:{run.pk}').title,
+            'LCO 1m0 / Sinistro (window 2026-08-01..2027-01-31)',
+        )
+
+    def test_status_marker_stays_first(self):
+        run = self._make_queue_run(run_status=CampaignRun.RunStatus.CANCELLED)
+
+        reconcile_run(run)
+
+        self.assertEqual(
+            CalendarEvent.objects.get(url=f'RUN:{run.pk}').title,
+            RUN_STATUS_MARKER[CampaignRun.RunStatus.CANCELLED]
+            + ' 10P — LCO 1m0 / Sinistro (window 2026-08-01..2027-01-31)',
+        )
+
+    def test_single_day_window_has_no_window_suffix(self):
+        run = self._make_queue_run(window_end=date(2026, 8, 1))
+
+        reconcile_run(run)
+
+        self.assertEqual(CalendarEvent.objects.get(url=f'RUN:{run.pk}').title, '10P — LCO 1m0 / Sinistro')
+
+    def test_second_reconcile_is_unchanged(self):
+        run = self._make_queue_run()
+
+        first = reconcile_run(run)
+        self.assertEqual(first.created, 1)
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        modified_after_first = event.modified
+
+        second = reconcile_run(run)
+        self.assertEqual(second.unchanged, 1)
+        self.assertEqual(second.created, 0)
+        self.assertEqual(second.updated, 0)
+        event.refresh_from_db()
+        self.assertEqual(event.modified, modified_after_first)
+
+        dry = reconcile_run(run, dry_run=True)
+        self.assertEqual(dry.unchanged, 1)
+
+    def test_filling_a_blank_code_updates_once_then_is_unchanged(self):
+        run = self._make_queue_run(proposal_code='')
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'RUN:{run.pk}').pk
+
+        run.proposal_code = 'KEY2026B-004'
+        run.save(update_fields=['proposal_code'])
+
+        dry = reconcile_run(run, dry_run=True)
+        self.assertEqual(dry.updated, 1)
+        self.assertEqual(CalendarEvent.objects.get(url=f'RUN:{run.pk}').proposal, '')
+
+        real = reconcile_run(run)
+        self.assertEqual(real.updated, 1)
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+        self.assertEqual(event.proposal, 'KEY2026B-004')
+        self.assertEqual(event.pk, pk_before)
+
+        third = reconcile_run(run)
+        self.assertEqual(third.unchanged, 1)
+
+    def test_container_is_legended_under_its_proposal(self):
+        run = self._make_queue_run()
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'RUN:{run.pk}')
+
+        entries = visible_proposals([[SimpleNamespace(all_day_events=[event], events=[])]])
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['codes'], ['KEY2026B-004'])
+        self.assertNotEqual(entries[0]['color'], NEUTRAL_SLOT_COLOR)
