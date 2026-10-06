@@ -21,6 +21,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from tom_observations.models import ObservationRecord
 
 from solsys_code.calendar_utils import OBSERVED_SITE_PARAMETER_KEYS, derive_telescope, resolve_placement_block
+from solsys_code.observation_blocks import is_request_finished
 from solsys_code.observation_projector import PROJECTED_FACILITIES, SWEEP_COUNTER_KEYS, project_queryset, stage_for
 
 # TRIG-03/D-17/IN-04: this command's own per-facility counter keys, used to seed a facility
@@ -60,6 +61,11 @@ def resolve_observed_site(record: ObservationRecord, facility: Any) -> tuple[dic
     internally, so there is no caught exception object anywhere in this path that a message
     could accidentally embed (SYNC-09/D-13).
 
+    It reads the block with ``request_finished`` taken from the record's own status through
+    ``is_request_finished()``, which is True for every record that reaches the lookup, so the telescope it
+    stores belongs to the block the record's times came from even when the portal still lists a leftover
+    pending block (review WR-20).
+
     Args:
         record: the ObservationRecord to resolve. Mutated and saved in place on a successful
             lookup (``record.parameters`` gains the three ``OBSERVED_SITE_PARAMETER_KEYS``,
@@ -81,7 +87,9 @@ def resolve_observed_site(record: ObservationRecord, facility: Any) -> tuple[dic
     if record.parameters.get(site_key):
         return None, None
 
-    block = resolve_placement_block(record.observation_id, facility)
+    block = resolve_placement_block(
+        record.observation_id, facility, request_finished=is_request_finished(record.status, facility)
+    )
     site = block.get('site') if block is not None else None
     telescope = block.get('telescope') if block is not None else None
     enclosure = block.get('enclosure') if block is not None else None

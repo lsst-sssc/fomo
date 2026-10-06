@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from datetime import timezone as dt_timezone
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import requests
 from django.core.management import CommandError, call_command
@@ -22,8 +22,10 @@ from tom_observations.models import ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import observation_projector as op
+from solsys_code.calendar_utils import resolve_placement_block
 from solsys_code.management.commands.project_observation_calendar import _parse_proposal_arg, resolve_observed_site
 from solsys_code.tests.helpers import observations_block_response
+from solsys_code.tests.test_observation_blocks import REAL_FAILED_BLOCKS
 
 
 def _parse_summary(output: str) -> dict[str, dict[str, int]]:
@@ -483,6 +485,35 @@ class TestObservedSiteLookup(_ProjectObservationCalendarTestBase):
         event = CalendarEvent.objects.get(url=facility.get_observation_url('site-first'))
         self.assertEqual(event.telescope, 'FTS')
         self.assertTrue(event.title.startswith('[O] FTS '))
+
+    def test_the_observed_site_of_a_completed_request_comes_from_the_block_that_took_data(self) -> None:
+        """WR-20 and Pitfall 3: the telescope comes from the block the record's times came from. A completed
+        request is finished, so a leftover pending block (here at another site) does not name the telescope."""
+        record = self._make_observed_record('site-finished')
+        response = MagicMock()
+        response.json.return_value = [
+            dict(REAL_FAILED_BLOCKS['4253588']),
+            {
+                'site': 'ogg',
+                'enclosure': 'clma',
+                'telescope': '2m0a',
+                'state': 'PENDING',
+                'start': '2026-09-07T10:00:00Z',
+                'end': '2026-09-07T10:19:00Z',
+            },
+        ]
+
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            call_command('project_observation_calendar', stdout=StringIO(), stderr=StringIO())
+            # For contrast: the default, the order for a request that can still run, names the pending block.
+            default_block = resolve_placement_block('site-finished', op.facility_for(record))
+
+        record.refresh_from_db()
+        self.assertEqual(record.parameters['observed_site'], 'coj')
+        self.assertEqual(record.parameters['observed_telescope'], '2m0a')
+        event = CalendarEvent.objects.get(url=op.facility_for(record).get_observation_url('site-finished'))
+        self.assertEqual(event.telescope, 'FTS')
+        self.assertEqual(default_block['site'], 'ogg')
 
     def test_second_sweep_issues_no_portal_call_and_reports_unchanged(self) -> None:
         self._make_observed_record('site-second')

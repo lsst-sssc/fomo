@@ -38,7 +38,7 @@ from solsys_code.campaign_system_links import (
     attempt_system_link,
 )
 from solsys_code.models import WatchedProposal
-from solsys_code.observation_blocks import FomoLCOFacility, select_schedule_block
+from solsys_code.observation_blocks import FomoLCOFacility, is_request_finished, select_schedule_block
 
 logger = logging.getLogger(__name__)
 
@@ -314,7 +314,8 @@ def _resolve_schedule(
 
     Reads an embedded 'observations' block list from the request payload when present
     (no extra HTTP call either way, so this is not skipped under --dry-run) and chooses
-    the block with FOMO's rule, ``select_schedule_block()``; otherwise falls back to a live
+    the block with FOMO's rule, ``select_schedule_block()``, told from the request's own ``state`` whether
+    the request is finished (``is_request_finished()``, review WR-20); otherwise falls back to a live
     facility.get_observation_status() call -- on ``FomoLCOFacility``, so the live path
     chooses the block with the same rule -- which *is* skipped entirely under --dry-run.
     An embedded FAILED block counts only when its own configuration_statuses show time completed; one that
@@ -350,7 +351,9 @@ def _resolve_schedule(
     blocks = request.get('observations')
     embedded = blocks is not None
     if embedded:
-        current_block = select_schedule_block(blocks)
+        current_block = select_schedule_block(
+            blocks, request_finished=is_request_finished(request.get('state'), facility)
+        )
         if current_block:
             return current_block.get('start'), current_block.get('end'), False, embedded
         return None, None, False, embedded
@@ -415,7 +418,12 @@ def _schedule_lookup_is_needed(
     path that writes a state change -- the unattended status refresh, this sweep and the Didymos backfill
     command -- resolves the block with FOMO's rule (``select_schedule_block()``), so a record that reaches
     a failed state through one of them already holds its block and this skip stays correct for
-    it. TOM Toolkit's own status routes run on TOM's registered ``LCOFacility``, which ignores
+    it. That holds even when the portal still lists a pending block beside a block that took data: the rule
+    reads the request's state (developer decision 2026-10-05, review WR-20), so at the tick a request reaches
+    a failed state its record stores the block that took data, and that choice does not change if the portal
+    later marks the pending block not attempted or cancelled. A request that reaches a failed state with only
+    a pending block listed and no block that took data keeps that pending block's times, as every earlier
+    rule did (37.1-15 A-33). TOM Toolkit's own status routes run on TOM's registered ``LCOFacility``, which ignores
     aborted and failed blocks: its stock ``updatestatus`` command and the observation list's "Update status"
     button that runs it, the Cancel button on its observation page, and its REST cancel route
     ``PATCH /api/observations/<pk>/cancel/``. A record finished through one of them is stored
@@ -635,7 +643,7 @@ def sweep_proposal(
     watched-list loop (Task 3) and by the unattended runner (36-01/Plan 03) -- without going
     through ``call_command()``. Constructs its own ``FomoLCOFacility`` (TOM's LCO facility with
     FOMO's block rule, so the times of a pending request's placed block, or else of a block that took data,
-    are stored) and calls
+    are stored, and for a finished request a block that took data comes before a leftover pending block) and calls
     ``facility.set_user(user)`` here so each call gets a fresh instance (Phase 34 D-10: a
     facility instance is never shared across calls).
 
@@ -1132,9 +1140,13 @@ class Command(BaseCommand):
 
     A request in one of the facility's failed request states can still carry a block that took data --
     one that started and was aborted, or one that failed after taking data -- and FOMO's block rule
-    (first completed block, else the last pending block, else the last in-progress, aborted or failed-with-data
-    block; a failed block counts only when one of its configurations reports time completed)
-    stores that block's times, for both the embedded list and the live lookup. Records stored before
+    (for a request that can still run: first completed block, else the last pending block, else the last
+    in-progress, aborted or failed-with-data block; for a finished request -- one in a failed state, or
+    COMPLETED -- the last in-progress, aborted or failed-with-data block comes before a leftover pending block;
+    a failed block counts only when one of its configurations reports time completed)
+    stores that block's times, for both the embedded list and the live lookup, even when the portal still lists
+    a pending block beside it (developer decision 2026-10-05, review WR-20). A request that finishes with only
+    a pending block listed keeps that block's times (37.1-15 A-33). Records stored before
     that rule, and records finished through one of TOM Toolkit's own status routes, have no times and
     the skip above leaves them alone. --recheck-unscheduled (opt-in, works with --proposal and on the
     bare form) looks up once every record missing a scheduled time, including those finished records,
@@ -1228,7 +1240,8 @@ class Command(BaseCommand):
                 'Also look up once every record that is missing a scheduled time, including finished '
                 'records the per-tick skip leaves alone, using the block rule FOMO applies (a block that '
                 'started and was aborted, or that failed after taking data, counts once no pending '
-                'block remains), so records stored before that rule pick up their block times. One portal '
+                'block remains, and on a finished request even beside a leftover pending block), so '
+                'records stored before that rule pick up their block times. One portal '
                 'lookup per such record. Works with or without --proposal. Never used by the unattended '
                 'runner. A failed lookup on a record '
                 'the per-tick skip would otherwise leave alone marks it schedule_lookup_failed; the '

@@ -2549,6 +2549,100 @@ class TestRecheckUnscheduledSweep(TestCase):
 
     @patch(_PORTAL)
     @patch(_LISTING)
+    def test_the_sweep_at_which_a_request_finishes_goes_back_to_the_block_that_took_data(
+        self, mock_listing, mock_portal
+    ):
+        """WR-20, developer decision 2026-10-05: the sweep at which a request finishes is the last one that reads
+        its record, so it stores the block that took data even though the portal still lists the placed block as
+        PENDING; the next sweep leaves the finished record alone (the per-tick skip, review Q4)."""
+        group, record = self._stored_record(32, 'PENDING')
+        mock_listing.return_value = _page_response([group])
+        placed = {'state': 'PENDING', 'start': '2026-07-02T01:00:00Z', 'end': '2026-07-02T01:40:00Z'}
+
+        def run_urls():
+            return set(allocation_events(self.per_night_run).values_list('url', flat=True))
+
+        aborted_night_url = f'ALLOC:{self.per_night_run.pk}:2026-06-30'
+        placed_night_url = f'ALLOC:{self.per_night_run.pk}:2026-07-01'
+
+        # Sweep 1: the request is pending, so the record follows the placed block.
+        mock_portal.side_effect = portal_side_effect({'32': 'PENDING'}, {'32': [dict(_ABORTED_BLOCK), placed]})
+        sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 2, 1, 0, tzinfo=timezone.utc))
+        self.assertNotIn(placed_night_url, run_urls())
+
+        # Sweep 2: the window expires while the portal still lists the placed block as PENDING.
+        group['requests'][0]['state'] = 'WINDOW_EXPIRED'
+        mock_portal.side_effect = portal_side_effect({'32': 'WINDOW_EXPIRED'}, {'32': [dict(_ABORTED_BLOCK), placed]})
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'WINDOW_EXPIRED')
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertEqual(record.scheduled_end, datetime(2026, 7, 1, 1, 40, tzinfo=timezone.utc))
+        self.assertIn('updated: 1', summary)
+        self.assertIn('block lookups failed: 0', summary)
+        self.assertNotIn(aborted_night_url, run_urls())
+        self.assertIn(placed_night_url, run_urls())
+        self.assertEqual(allocation_events(self.per_night_run).count(), self.alloc_before - 1)
+
+        # Sweep 3: the portal now marks the placed block NOT_ATTEMPTED. The finished record holds both times, so
+        # no portal call is made and the record stays on the block that took data.
+        calls_before = mock_portal.call_count
+        mock_portal.side_effect = portal_side_effect(
+            {'32': 'WINDOW_EXPIRED'}, {'32': [dict(_ABORTED_BLOCK), dict(placed, state='NOT_ATTEMPTED')]}
+        )
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+        self.assertEqual(mock_portal.call_count, calls_before)
+        self.assertIn('unchanged: 1', summary)
+        self.assertIn('fallback lookups skipped: 1', summary)
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_an_embedded_block_list_on_a_finished_request_gives_the_block_that_took_data(
+        self, mock_listing, mock_portal
+    ):
+        """WR-20: the embedded branch reads the listing's own request state."""
+        group, record = self._stored_record(33, 'PENDING')
+        placed = {'state': 'PENDING', 'start': '2026-07-02T01:00:00Z', 'end': '2026-07-02T01:40:00Z'}
+        group['requests'][0]['state'] = 'WINDOW_EXPIRED'
+        group['requests'][0]['observations'] = [dict(_ABORTED_BLOCK), placed]
+        mock_listing.return_value = _page_response([group])
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertEqual(record.status, 'WINDOW_EXPIRED')
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc))
+        self.assertIn('embedded blocks: 1', summary)
+        mock_portal.assert_not_called()
+        self.assertFalse(
+            allocation_events(self.per_night_run).filter(url=f'ALLOC:{self.per_night_run.pk}:2026-06-30').exists()
+        )
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
+    def test_an_embedded_block_list_on_a_pending_request_gives_the_placed_block(self, mock_listing, mock_portal):
+        """WR-19/WR-20: while the request can still run, the embedded branch still follows the placed block."""
+        group, record = self._stored_record(34, 'PENDING')
+        placed = {'state': 'PENDING', 'start': '2026-07-02T01:00:00Z', 'end': '2026-07-02T01:40:00Z'}
+        group['requests'][0]['observations'] = [dict(_ABORTED_BLOCK), placed]
+        mock_listing.return_value = _page_response([group])
+
+        summary = sweep_proposal('LCO2026A-003', stdout=io.StringIO(), stderr=io.StringIO())
+
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 2, 1, 0, tzinfo=timezone.utc))
+        self.assertIn('embedded blocks: 1', summary)
+        mock_portal.assert_not_called()
+        self.assertFalse(
+            allocation_events(self.per_night_run).filter(url=f'ALLOC:{self.per_night_run.pk}:2026-07-01').exists()
+        )
+
+    @patch(_PORTAL)
+    @patch(_LISTING)
     def test_without_the_flag_the_finished_record_is_not_looked_up(self, mock_listing, mock_portal):
         group, record = self._stored_record(10, 'WINDOW_EXPIRED')
         mock_listing.return_value = _page_response([group])

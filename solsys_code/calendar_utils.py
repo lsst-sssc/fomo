@@ -290,18 +290,27 @@ def derive_telescope(site: str | None, telescope_code: str | None) -> str | None
     return SITE_TELESCOPE_MAP.get((site, aperture_class))
 
 
-def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[str, Any] | None:
+def resolve_placement_block(
+    observation_id: str, facility: LCOFacility, *, request_finished: bool = False
+) -> dict[str, Any] | None:
     """Call the LCO Observation Portal API once to resolve a placed record's block.
 
     Issues a single, timeout-bounded GET to /api/requests/{observation_id}/observations/
     and selects the block with FOMO's rule (``observation_blocks.select_schedule_block``) --
     the same rule that now sets scheduled_start/scheduled_end -- so telescope resolution and
-    timing always come from the same block (Pitfall 3).
+    timing always come from the same block (Pitfall 3). ``request_finished`` is passed straight to the rule: its
+    only caller, ``resolve_observed_site()``, looks up completed records only and passes
+    ``is_request_finished(record.status, facility)``, so a completed request whose list still holds a leftover
+    pending block names the telescope of the block that took data, the same block the record's times came
+    from (review WR-20).
 
     Args:
         observation_id: the record's LCO observation_id.
         facility: a shared LCOFacility/SOARFacility instance (for portal_url/api_key
             settings and auth header construction).
+        request_finished: keyword-only; True when the request is finished, so a block that took data
+            outranks a leftover pending block (see ``observation_blocks.select_schedule_block``). Defaults to
+            False, the order for a request that can still run.
 
     Returns:
         dict[str, Any] | None: the matched block dict (with 'site'/'enclosure'/
@@ -332,7 +341,7 @@ def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[
     if not isinstance(blocks, list):
         return None
 
-    return select_schedule_block(blocks)
+    return select_schedule_block(blocks, request_finished=request_finished)
 
 
 def _has_muscat_exposure_signal(parameters: dict[str, Any], n: int) -> bool:
