@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: "37.1"
-current_phase_name: close-gap-alloc-06-exact-identity-system-links-on-ingest-int
+current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
-stopped_at: Completed 37.1-14-PLAN.md
-last_updated: "2026-10-05T23:40:38.191Z"
-state_head: a39c963f676b7d97d52c500db4cdec1d1fad1e6e
+stopped_at: Completed 37.1-15-PLAN.md
+last_updated: "2026-10-06T00:28:12.464Z"
+state_head: 195a554997a9f300d394ad37465e89d7925960e8
 progress:
   total_phases: 6
   completed_phases: 38
   total_plans: 77
-  completed_plans: 76
-  percent: 99
-last_activity: 2026-10-05
-last_activity_desc: Phase 37.1 gaps-only round 7 (37.1-14) executed; verification gaps_found 131/132 (observation_blocks.py module docstring, IN-30); WR-20 awaits a developer decision
+  completed_plans: 77
+  percent: 100
+last_activity: 2026-10-06
+last_activity_desc: Phase 37.1 gap-closure round 8 (37.1-15) executed; awaiting verification
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (close-gap-alloc-06-exact-identity-system-links-on-ingest-int) — READY TO EXECUTE
-Plan: 14 of 14
-Status: All 14 plans executed — round-7 verification 2026-10-05 `gaps_found` 131/132 (one docs gap: the observation_blocks.py module docstring, lines 9-11, still says a block that stopped early retires its night exactly like a COMPLETED one; review IN-30). Round-7 review 0 critical / 1 warning / 2 info; WR-20 (the placed-block rule reads block states only, so a request that expires while the portal still lists a never-run PENDING block would keep that block's night) needs a developer decision. Full suite 2030 + 40 OK at d8e4f62; security 80/80 threats closed; Nyquist validated (40 tasks); UI review 24/24 unchanged. ALLOC-06 reverted from Complete. G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7). Next: `/gsd-plan-phase 37.1 --gaps`
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Plan: 15 of 15
+Status: All 15 plans executed -- 37.1-15 (round 8) done 2026-10-06: the block rule reads whether the request is finished (WR-20 "fix the rule"), IN-29 and IN-30 fixed; ledger open 19 of 46. ALLOC-06 stays open and G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7); A-24 and A-33 await the developer. Next: phase verification (`/gsd-verify-work 37.1`)
 
 ## Performance Metrics
 
@@ -41,6 +41,7 @@ Status: All 14 plans executed — round-7 verification 2026-10-05 `gaps_found` 1
 | Phase 37.1 P12 | 59 min | 3 tasks | 4 files |
 | Phase 37.1 P13 | 11 min | 3 tasks | 11 files |
 | Phase 37.1 P14 | 11 min | 3 tasks | 12 files |
+| Phase 37.1 P15 | 15 min | 3 tasks | 15 files |
 
 ## Decisions
 
@@ -52,9 +53,12 @@ Status: All 14 plans executed — round-7 verification 2026-10-05 `gaps_found` 1
 - [Phase 37.1]: 37.1-13 A-19: WR-04 marked fixed alongside IN-08..IN-11 (open count 24 -> 19); G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live re-run
 - [Phase 37.1]: 37.1-14: placed block wins -- select_schedule_block() returns the last PENDING block before the started tier (developer decision 2026-10-05, WR-19 option a); a record keeps carrying one block
 - [Phase 37.1]: 37.1-14 A-24: an IN_PROGRESS block yields to a PENDING block in either order (pinned by test)
+- [Phase 37.1]: select_schedule_block() takes keyword-only request_finished (default False); finished means the request state is one of the facility's terminal observing states, so a block that took data outranks a leftover PENDING block at the finishing tick (WR-20)
+- [Phase 37.1]: A finished request whose only timed block is a leftover PENDING block keeps that block's times (A-33), flagged for the developer
+- [Phase 37.1]: resolve_observed_site() passes is_request_finished(record.status, facility): a completed request is finished (A-35)
 
 ## Session
 
-**Last session:** 2026-10-05T22:26:16.859Z
-**Stopped at:** Completed 37.1-14-PLAN.md
+**Last session:** 2026-10-06T00:28:12.362Z
+**Stopped at:** Completed 37.1-15-PLAN.md
 **Resume file:** None
