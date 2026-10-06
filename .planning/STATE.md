@@ -5,8 +5,8 @@ milestone_name: Observation-First Calendar
 current_phase: "37.1"
 status: completed
 stopped_at: Phase 37.1 complete — all phases complete
-last_updated: "2026-10-06T18:27:14.920Z"
-state_head: fa94cc6cb9cb03f5d5929fcd6cbab3c8bcec18c3
+last_updated: "2026-10-06T23:07:03.133Z"
+state_head: 876a36f0879998815783fbdd5f1a6cf32d460b3c
 progress:
   total_phases: 6
   completed_phases: 39
@@ -14,7 +14,7 @@ progress:
   completed_plans: 79
   percent: 100
 last_activity: 2026-10-06
-last_activity_desc: Phase 37.1 complete — round-11 verification passed 186/186; UAT complete (16 tests, every gap resolved); ALLOC-06 Complete; milestone v2.4 ready for /gsd-complete-milestone
+last_activity_desc: Completed quick task 261006-lsf (F12 — RUN:/ALLOC: events carry their run's proposal code, target-first container titles, legend entry "No proposal recorded"); v2.4 intent review walkthrough in progress before /gsd-complete-milestone
 ---
 
 # Project State
@@ -63,6 +63,12 @@ Status: All phases complete
 - [Phase 37.1]: UAT 2026-10-06: live Didymos re-run found 4 blocks and ALLOC:1:* events went 14 -> 10 (test 11), closing G-37.1-6 and G-37.1-1-alloc; ALLOC-06 Complete
 - [Phase 37.1]: UAT 2026-10-06: A-24 and A-33 acknowledged as they stand (test 14); projector cell 7e7bd66e's pointer amended to name the no-match record and the notebook re-executed by the developer (tests 15-16, a842a97, IN-44 fixed)
 - [Phase 37.1]: A resolved UAT gap names one plan file in resolved_by (e.g. 37.1-13-PLAN.md); the list form is not read by the completion check, other fix plans go in also_fixed_by
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 261006-lsf | Fix F12: write run.proposal_code onto RUN: container and ALLOC: night events, lead the container title with the target, and relabel the empty-proposal calendar legend entry (was "Classical schedule") | 2026-10-06 | 876a36f | [261006-lsf-fix-f12-write-run-proposal-code-onto-run](./quick/261006-lsf-fix-f12-write-run-proposal-code-onto-run/) |
 
 ## Session
 
