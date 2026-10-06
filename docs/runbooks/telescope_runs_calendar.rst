@@ -59,6 +59,11 @@ numbers and is skipped, never silently merged into the first. **Fix:** add
 a proposal token to one of the two lines (or both, if they genuinely are
 two different proposals), then re-import.
 
+The token is stored as the run's **Proposal code**, and the run's calendar
+nights carry it: they are drawn in that proposal's colour and listed under
+that code in the calendar's colour legend. A line with no token gets grey
+nights listed under **No proposal recorded**.
+
 **The two summary lines a real run prints.** A run-level line reports the
 line-by-line tallies (``lines processed``, ``created``/``updated``/
 ``unchanged``/``skipped``/``skipped_collision``), followed by a
@@ -254,6 +259,13 @@ failed or weathered entry carries the terminal ring. The unused marker
 (``[U]``) adds no ring of its own -- it is shown only by that muted chip
 and its ``[U]`` text token, precisely so the signal never depends on
 colour alone.
+
+Alongside that status legend, the calendar's colour legend lists each
+proposal code visible in the month in its colour, with entries that have no
+proposal code recorded grouped last under **No proposal recorded**. See
+**Every reconciler entry carries its
+run's proposal code.** in "How do I get every campaign run onto the
+calendar?" below for which entries those are.
 
 Observation series
 ^^^^^^^^^^^^^^^^^^^^^
@@ -1752,14 +1764,36 @@ site's dark time to bound a per-night entry to.
 The run's free-text ``Telescope / Instrument`` value is split on the first
 ``/`` or ``+`` into the calendar entry's separate **Telescope** and
 **Instrument** fields in the event pop-up; a value with no delimiter goes
-wholly into Telescope. The entry's title still shows the full combined text
-either way. Entries for class-wide and satellite runs pick this up
+wholly into Telescope. A whole-window entry's title shows the combined text
+led by the run's target when the run has one, for example
+``10P — LCO 1m0 / Sinistro (window 2026-08-01..2027-01-31)``, so a month cell
+shows the target first. A trailing `` — <target>`` already at the end of the
+Telescope / Instrument text is not repeated. A run with no target keeps the
+combined text first, and a per-night entry's title is
+``<telescope> <instrument>``. Entries for class-wide and satellite runs pick this up
 automatically on the next sweep, because that whole-window entry is
 rewritten from the run every time. Per-night entries -- for a
 classically-scheduled run, or a queue-scheduled run with a resolved site --
 created before this change keep their old combined value, because a
 per-night entry's Telescope/Instrument and its sunset/sunrise window are
 deliberately never rewritten after it is first created.
+
+**Every reconciler entry carries its run's proposal code.**
+
+- Whole-window and per-night entries are written with the run's **Proposal
+  code** (the classical loader's bracketed token, or a code a staff member
+  enters in the admin), so they take that proposal's colour and legend entry,
+  next to that proposal's own observation entries.
+- An entry with no code recorded (a run whose code is blank, or a
+  hand-entered event) is drawn in the neutral grey and listed under
+  **No proposal recorded**. Before quick task 261006-lsf (2026-10-06),
+  every reconciler entry was grey and that legend entry was labelled as a
+  classical schedule, even for an LCO queue run.
+- A code or target edited in the admin reaches the run's entries on the next
+  reconcile (each unattended tick's reconcile step,
+  ``reconcile_campaign_runs``, or a staff action on the run). That reconcile
+  counts each affected entry once under ``updated``, and later reconciles
+  count it as ``unchanged``.
 
 **A night that already has an entry attributed to this run gets no
 reconciler entry at all.** The attributed entry -- whether it comes from
