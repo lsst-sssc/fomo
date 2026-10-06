@@ -49,8 +49,13 @@ INSTALLED_APPS = TOMTOOLKIT_INSTALLED_APPS + [  # noqa: F405
 
 SITE_ID = 1
 
+# WhiteNoise serves the collected static files (STATIC_ROOT) under gunicorn with DEBUG=False; it must
+# sit directly after SecurityMiddleware. With DEBUG=True it serves straight from the finders instead.
+_after_security = TOMTOOLKIT_MIDDLEWARE.index('django.middleware.security.SecurityMiddleware') + 1  # noqa: F405
 MIDDLEWARE = (
-    TOMTOOLKIT_MIDDLEWARE  # noqa: F405
+    TOMTOOLKIT_MIDDLEWARE[:_after_security]  # noqa: F405
+    + ['whitenoise.middleware.WhiteNoiseMiddleware']
+    + TOMTOOLKIT_MIDDLEWARE[_after_security:]  # noqa: F405
     + [
         # any FOMO specific middleware would go here
     ]
