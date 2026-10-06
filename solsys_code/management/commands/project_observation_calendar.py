@@ -45,10 +45,10 @@ def resolve_observed_site(record: ObservationRecord, facility: Any) -> tuple[dic
     """The D-07/D-08 one-time observed-site lookup for a successful-terminal record.
 
     Lives on the command side, never in the projector (34-RESEARCH.md Pitfall 4/Assumption
-    A3) -- the projector never makes a network call. Calls the portal-block resolver at most
-    once per record, ever: a record whose ``parameters`` already carries ``observed_site``
-    (from a previous sweep) is never looked up again, and a queued/placed record is never
-    looked up at all.
+    A3) -- the projector never makes a network call. Once a lookup for a record succeeds, the
+    portal-block resolver is not called for it again unless its observed-site parameters are removed: a record whose
+    ``parameters`` already carries ``observed_site`` (from a previous sweep) is never looked up again, a failed lookup
+    is retried on the next sweep (D-08, below), and a queued/placed record is never looked up at all.
 
     A ``None`` block (the resolver's own never-raise failure return) and a returned-but
     -unmapped ``(site, telescope)`` pair are treated as ONE bucket (D-08): both leave the
@@ -61,9 +61,10 @@ def resolve_observed_site(record: ObservationRecord, facility: Any) -> tuple[dic
     internally, so there is no caught exception object anywhere in this path that a message
     could accidentally embed (SYNC-09/D-13).
 
-    It passes the record's stored ``scheduled_start``, so the telescope it stores belongs to the block the
-    record's times came from, whichever rule stored them -- FOMO's rule, TOM Toolkit's rule through one of its
-    own routes, or an earlier FOMO rule (developer decision 2026-10-05, review WR-21). Only when no listed
+    It passes the record's stored ``scheduled_start``, so whenever a listed block starts at the stored start, the
+    telescope it stores belongs to the block the record's times came from, whichever rule stored them -- FOMO's rule,
+    TOM Toolkit's rule through one of its own routes, or an earlier FOMO rule (developer decision 2026-10-05, review
+    WR-21). Only when no listed
     block starts then does FOMO's rule decide. It is told through ``is_request_finished()``, which is True for
     every record that reaches the lookup, that the request is finished, so a block that took data comes before
     a leftover pending block (review WR-20).

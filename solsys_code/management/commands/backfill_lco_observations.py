@@ -431,8 +431,9 @@ def _schedule_lookup_is_needed(
     aborted and failed blocks: its stock ``updatestatus`` command and the observation list's "Update status"
     button that runs it, the Cancel button on its observation page, and its REST cancel route
     ``PATCH /api/observations/<pk>/cancel/``. A record finished through one of them gets TOM's
-    rule: the first completed block, else the last pending block, else no times. When the portal still lists a
-    pending block, TOM's rule stores that pending block's times, not none. Either way this skip leaves the
+    rule: the first completed block, else the last pending block, else no times. When the portal
+    lists no completed block but still lists a pending block, TOM's rule stores that pending block's times, not none;
+    when it lists neither, it stores no times. Either way this skip leaves the
     record alone, exactly like a record stored before 37.1-07 (T-37.1-42, accepted). The Didymos backfill
     command creates its record with
     the listing's state before its own lookup and reports a failure under ``status sync failed``, so
@@ -515,7 +516,8 @@ def _preserve_observed_site_keys(existing: Any, rebuilt: dict[str, Any]) -> dict
     """Return a copy of 'rebuilt' that also carries the sweep's observed-site keys from 'existing'.
 
     The projector sweep stores the OBSERVED_SITE_PARAMETER_KEYS in ObservationRecord.parameters
-    once per record, ever, and treats their presence as "already looked up".
+    once its lookup for a record succeeds, and treats their presence as "already looked up": the record is looked up
+    again only if they are removed.
     _build_parameters() never produces them, so a whole-dict comparison would see them as
     portal drift on every tick: discovery would erase them, the post_save trigger would
     re-draw the event with the coarse telescope token, and the next sweep would repeat a live
@@ -1160,10 +1162,10 @@ class Command(BaseCommand):
     a pending block listed keeps that block's times (37.1-15 A-33). Records stored before that rule with no
     times, and records finished through one of TOM Toolkit's own status routes with no times, are left alone
     by the skip above until --recheck-unscheduled looks them up once; TOM's rule stores a leftover pending
-    block's times when the portal lists one. --recheck-unscheduled (opt-in, works with --proposal and on the
-    bare form) looks up once every record missing a scheduled time, so those records pick up the times of a
-    block that took data; a linked record that gains them retires its run's allocation night in that same
-    sweep. It costs one portal lookup per such record and is never used by the unattended runner. It never
+    block's times when the portal lists one and no completed block. --recheck-unscheduled (opt-in, works with
+    --proposal and on the bare form) looks up once every record missing a scheduled time, so those records pick up
+    the times of a block that took data; a linked record that gains them retires its run's allocation night in that
+    same sweep. It costs one portal lookup per such record and is never used by the unattended runner. It never
     revisits a record that holds both times. Correct one such record with
     FomoLCOFacility().update_observation_status(<id>) (FomoSOARFacility for SOAR), then remove its
     observed_site, observed_telescope and observed_enclosure parameters, as in the runbook's "Correcting one

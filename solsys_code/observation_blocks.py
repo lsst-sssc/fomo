@@ -36,8 +36,9 @@ finished. A record carries one block, so while a request is placed again the nig
 block is not retired, and it stays unretired if the placed block completes (Phase 35 D-06 gives ground here); if the
 request instead finishes with the placed block still listed as pending, the record goes back to the block that took
 data and that night retires again. A finished request whose only timed block is a leftover PENDING block keeps that
-block's times, as every earlier rule did (37.1-15 A-33); that too holds on the live lookup path, because an embedded
-block list is re-read on every sweep and the portal can later mark that pending block not attempted or cancelled. A
+block's times, as every earlier rule did (37.1-15 A-33); that too holds only on the live lookup path;
+an embedded block list is re-read on every sweep, and there the times are lost once the portal marks that pending block
+not attempted or cancelled. A
 request with no block that counts keeps no times and retires nothing (Phase 35 D-05 unchanged).
 
 FOMO never edits or monkeypatches TOM Toolkit's installed code. The rule lives only on FOMO's own
@@ -52,13 +53,15 @@ page (``tom_observations/views.py``, which runs that command), the Cancel button
 page (``ObservationRecordCancelView``), its REST cancel route (``PATCH /api/observations/<pk>/cancel/``,
 ``tom_observations/api_views.py``) and ``ObservationRecord.update_status()``. A request moved to a
 finished state through one of them gets TOM's rule: the first COMPLETED block, else the last PENDING block, else no
-times. When the portal still lists a pending block, TOM's rule stores that pending block's times, so that block's
-night stays retired rather than the night of a block that took data; otherwise the record gets no times and its night
-comes back. Nothing FOMO runs looks such a record up again on the live path. ``--recheck-unscheduled`` on the backfill
-command for its proposal recovers an LCO record left with no times, but it never revisits a record that holds both
-times. One such record is corrected with ``FomoLCOFacility().update_observation_status(<id>)``
-(``FomoSOARFacility`` for SOAR) and then by removing its ``observed_site``, ``observed_telescope`` and
-``observed_enclosure`` parameters, so the next projector sweep looks its telescope up again.
+times. When the portal
+lists no completed block but still lists a pending block, TOM's rule stores that pending block's times, so that block's
+night stays retired rather than the night of a block that took data; when it lists neither, the record gets no times
+and its night comes back. Nothing FOMO runs looks such a record up again on the live path.
+``--recheck-unscheduled`` on the backfill command for its proposal recovers an LCO record left with no times, but it
+never revisits a record that holds both times. One such record is corrected with
+``FomoLCOFacility().update_observation_status(<id>)`` (``FomoSOARFacility`` for SOAR) and then by removing its
+``observed_site``, ``observed_telescope`` and ``observed_enclosure`` parameters, so the next projector sweep looks its
+telescope up again.
 
 A portal reply whose block list is not a list (a dict error body, or a paginated ``{'results': [...]}``
 envelope) is a failed lookup, not "no block": :meth:`ScheduleBlockRuleMixin.get_observation_status` raises

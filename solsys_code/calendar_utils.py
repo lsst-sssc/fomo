@@ -303,9 +303,10 @@ def resolve_placement_block(
     and returns the block whose start is the same instant as ``stored_start``, the record's stored
     scheduled start, whichever rule stored them -- FOMO's rule (``observation_blocks.select_schedule_block``),
     TOM Toolkit's rule through one of its own routes, or an earlier FOMO rule -- and whatever state that block
-    is in now. So the telescope it names and the times the record draws come from the same block (Pitfall 3;
-    developer decision 2026-10-05, review WR-21). Both sides are read with ``coerce_schedule_datetime()``
-    (a naive value is UTC) and compared as exact instants, microseconds included. If several blocks start at
+    is in now. So whenever a listed block starts at the stored start, the telescope it names and the times the record
+    draws come from that same block (Pitfall 3; developer decision 2026-10-05, review WR-21). Both sides are read with
+    ``coerce_schedule_datetime()`` (a naive value is UTC) and compared as exact instants, microseconds included. If
+    several blocks start at
     that instant, it returns FOMO's rule's pick from those blocks alone (told the same ``request_finished``),
     else the last of them. A block start or a stored start that cannot be read, or that overflows when
     converted to UTC, a block entry that is not a dict, a block without a start and a ``stored_start`` of
@@ -331,7 +332,9 @@ def resolve_placement_block(
 
     Returns:
         dict[str, Any] | None: the matched block dict (with 'site'/'enclosure'/
-            'telescope'/'state' keys) on success, or None if the API call failed,
+            'telescope'/'state' keys) on success; a block matched by its start is
+            returned whatever its state, even one select_schedule_block() would not
+            count; or None if the API call failed,
             timed out, or returned no usable block (see select_schedule_block). Never raises --
             every failure mode (network error, library auth/validation exception,
             malformed/non-JSON body, missing 'state' key) is caught and converted to
