@@ -317,10 +317,14 @@ def step_status_refresh(dry_run: bool) -> StepResult:
     either -- which is exactly how the live LCO2026A-003 records, whose blocks are FAILED, were
     left with no times (UAT G-37.1-1-alloc, G-37.1-6). On FOMO's subclasses the poll keeps TOM's
     own update loop and error semantics and changes only which block it reads
-    (``observation_blocks.select_schedule_block``): while a request still has a pending block, the
+    (``observation_blocks.select_schedule_block``, told from the request state the portal reports whether
+    the request is finished): while a request still has a pending block, the
     record carries that placed block's times, so a request the scheduler places again after an
     aborted or failed block moves to its new night on the next tick; an in-progress, aborted or
-    failed-with-data block's times are stored once no pending block remains.
+    failed-with-data block's times are stored once no pending block remains, and
+    at the tick the request finishes they are stored even if the portal still lists a pending block
+    (developer decision 2026-10-05, review WR-20) -- that tick is the last one that refreshes the
+    record, because TOM's update loop leaves finished records out.
 
     A dry run returns immediately without instantiating either facility -- a status
     refresh is a portal read that mutates ``ObservationRecord`` rows through the Phase 34

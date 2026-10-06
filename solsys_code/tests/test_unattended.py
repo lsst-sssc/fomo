@@ -43,7 +43,7 @@ from solsys_code.allocation_projector import allocation_events
 from solsys_code.campaign_reconciler import reconcile_run
 from solsys_code.campaign_utils import create_system_link
 from solsys_code.models import CampaignRun, WatchedProposal
-from solsys_code.observation_blocks import FomoLCOFacility
+from solsys_code.observation_blocks import FomoLCOFacility, select_schedule_block
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.status_vocabulary import DisplayState, classify_record
 from solsys_code.tests.test_backfill_lco_observations import _page_response, _request_group
@@ -1013,8 +1013,10 @@ class TestStatusRefreshKeepsBlockTimes(UnattendedTestBase):
 
 class TestStatusRefreshFollowsThePlacedBlock(UnattendedTestBase):
     """WR-19, developer decision 2026-10-05 ("Placed block wins"): while a request is still pending, its record
-    follows the block the scheduler has placed, and that night's allocation entry retires. A real
-    FomoLCOFacility runs through ``step_status_refresh()``; only the portal calls are mocked."""
+    follows the block the scheduler has placed, and that night's allocation entry retires. Once the request is
+    finished, a block that took data outranks a pending block the portal still lists (developer decision
+    2026-10-05, review WR-20). A real FomoLCOFacility runs through ``step_status_refresh()``; only the portal
+    calls are mocked."""
 
     PORTAL = 'solsys_code.observation_blocks.make_request'
     PLACED_START = '2026-07-17T09:00:00Z'
@@ -1126,6 +1128,48 @@ class TestStatusRefreshFollowsThePlacedBlock(UnattendedTestBase):
         self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 12, 8, 55, 50, tzinfo=dt_timezone.utc))
         self.assertNotIn('2026-07-12', self._nights())
         self.assertIn('2026-07-17', self._nights())
+
+    def test_a_request_that_finishes_with_a_leftover_pending_block_goes_back_to_the_block_that_took_data(self):
+        """WR-20, developer decision 2026-10-05 ("Fix the rule"): the tick at which a request finishes is the last
+        one that reads its record, so it must store the block that took data, not a pending block that never runs."""
+        self._tick('PENDING', [self.failed_0712, self.placed])
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 17, 9, 0, tzinfo=dt_timezone.utc))
+        self.assertNotIn('2026-07-17', self._nights())
+
+        # The window expires while the portal still lists the placed block as PENDING.
+        self._tick('WINDOW_EXPIRED', [self.failed_0712, self.placed])
+        self.assertEqual(self.record.status, 'WINDOW_EXPIRED')
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 12, 8, 55, 50, tzinfo=dt_timezone.utc))
+        self.assertEqual(self.record.scheduled_end, datetime(2026, 7, 12, 15, 0, 31, tzinfo=dt_timezone.utc))
+        self.assertEqual(self._display(), DisplayState.WINDOW_EXPIRED)
+        self.assertNotIn('2026-07-12', self._nights())
+        self.assertIn('2026-07-17', self._nights())
+        self.assertEqual(allocation_events(self.run).count(), self.alloc_before - 1)
+
+        # The finishing tick is the last one that reads the record: TOM's loop leaves it out afterwards, so
+        # the portal later marking the placed block NOT_ATTEMPTED changes nothing and costs no portal call.
+        settled = [self.failed_0712, dict(self.placed, state='NOT_ATTEMPTED')]
+        with patch(
+            self.PORTAL, side_effect=portal_side_effect({'4400001': 'WINDOW_EXPIRED'}, {'4400001': settled})
+        ) as portal:
+            result = unattended.step_status_refresh(dry_run=False)
+        self.assertFalse(result.failed, result.summary)
+        self.assertEqual(portal.call_count, 0)
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 12, 8, 55, 50, tzinfo=dt_timezone.utc))
+        # The settled list gives the block the record already stores.
+        self.assertEqual(select_schedule_block(settled, request_finished=True)['start'], self.failed_0712['start'])
+
+    def test_a_request_that_finishes_with_only_a_pending_block_keeps_that_block(self):
+        """A-33: a finished request whose only timed block is a leftover PENDING block keeps that block's times, as
+        every earlier rule did. This test pins that behaviour; the developer is asked to look at it."""
+        self._tick('PENDING', [self.placed])
+        self._tick('WINDOW_EXPIRED', [self.placed])
+        self.assertEqual(self.record.status, 'WINDOW_EXPIRED')
+        self.assertEqual(self.record.scheduled_start, datetime(2026, 7, 17, 9, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(self._display(), DisplayState.WINDOW_EXPIRED)
+        self.assertNotIn('2026-07-17', self._nights())
+        self.assertEqual(allocation_events(self.run).count(), self.alloc_before - 1)
 
 
 class TestExceptionLabel(UnattendedTestBase):

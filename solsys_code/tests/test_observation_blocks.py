@@ -11,6 +11,7 @@ from solsys_code.observation_blocks import (
     BlockState,
     FomoLCOFacility,
     FomoSOARFacility,
+    is_request_finished,
     select_schedule_block,
 )
 
@@ -292,6 +293,89 @@ class TestSelectScheduleBlock(SimpleTestCase):
                         expected = winners[0] if best == 0 else winners[-1]
                     self.assertIs(select_schedule_block([first, second]), expected)
 
+    def test_every_pair_of_block_states_follows_the_order_once_the_request_is_finished(self):
+        """Every ordered pair of the nine block kinds, for a finished request (WR-20, developer decision 2026-10-05).
+
+        Once the request is finished the started tier comes before a leftover PENDING block; the order for a
+        request that can still run is untouched, and ``request_finished=False`` is the default call.
+        """
+        # kind -> (builder, rank). Rank 0 (COMPLETED): the first of equal rank wins. Rank 1 (the started tier) and
+        # rank 2 (PENDING): the last of equal rank wins. Rank None never counts.
+        kinds = {
+            'COMPLETED': (lambda day: _block('COMPLETED', start=f'2026-07-{day:02d}T01:00:00Z'), 0),
+            'PENDING': (lambda day: _block('PENDING', start=f'2026-07-{day:02d}T01:00:00Z'), 2),
+            'IN_PROGRESS': (lambda day: _block('IN_PROGRESS', start=f'2026-07-{day:02d}T01:00:00Z'), 1),
+            'ABORTED': (lambda day: _block('ABORTED', start=f'2026-07-{day:02d}T01:00:00Z'), 1),
+            'FAILED with data': (lambda day: failed_block(18060.0, start=f'2026-07-{day:02d}T01:00:00Z'), 1),
+            'FAILED without data': (lambda day: failed_block(0.0, start=f'2026-07-{day:02d}T01:00:00Z'), None),
+            'NOT_ATTEMPTED': (lambda day: _block('NOT_ATTEMPTED', start=f'2026-07-{day:02d}T01:00:00Z'), None),
+            'CANCELED': (lambda day: _block('CANCELED', start=f'2026-07-{day:02d}T01:00:00Z'), None),
+            'unknown state': (lambda day: _block('SOMETHING_NEW', start=f'2026-07-{day:02d}T01:00:00Z'), None),
+        }
+        for first_name, (first_build, first_rank) in kinds.items():
+            for second_name, (second_build, second_rank) in kinds.items():
+                with self.subTest(first=first_name, second=second_name):
+                    first, second = first_build(1), second_build(2)
+                    counting = [
+                        (rank, block)
+                        for rank, block in ((first_rank, first), (second_rank, second))
+                        if rank is not None
+                    ]
+                    if not counting:
+                        expected = None
+                    else:
+                        best = min(rank for rank, _ in counting)
+                        winners = [block for rank, block in counting if rank == best]
+                        expected = winners[0] if best == 0 else winners[-1]
+                    self.assertIs(select_schedule_block([first, second], request_finished=True), expected)
+                    self.assertIs(
+                        select_schedule_block([first, second], request_finished=False),
+                        select_schedule_block([first, second]),
+                    )
+
+    def test_a_block_that_took_data_beats_a_leftover_pending_block_once_the_request_is_finished(self):
+        """WR-20: a finished request runs no further block, so a block that took data beats a pending one."""
+        pending = _block(BlockState.PENDING, start='2026-07-05T01:00:00Z')
+        started = {
+            'FAILED with data': failed_block(18060.0),
+            'ABORTED': _block(BlockState.ABORTED),
+            'IN_PROGRESS': _block(BlockState.IN_PROGRESS),
+        }
+        for label, block in started.items():
+            with self.subTest(label, order='started first'):
+                self.assertIs(select_schedule_block([block, pending], request_finished=True), block)
+            with self.subTest(label, order='pending first'):
+                self.assertIs(select_schedule_block([pending, block], request_finished=True), block)
+            with self.subTest(label, order='request can still run'):
+                self.assertIs(select_schedule_block([block, pending]), pending)
+
+    def test_a_finished_request_with_only_a_pending_block_keeps_that_block(self):
+        """A-33: with no block that took data, a leftover PENDING block still gives its times, as every earlier
+        rule did. This is flagged for the developer, not decided silently."""
+        pending = _block(BlockState.PENDING, start='2026-07-05T01:00:00Z')
+        self.assertIs(select_schedule_block([pending], request_finished=True), pending)
+        self.assertIs(select_schedule_block([failed_block(0.0), pending], request_finished=True), pending)
+        self.assertIs(select_schedule_block([pending, _block('NOT_ATTEMPTED')], request_finished=True), pending)
+        self.assertIs(
+            select_schedule_block([_block('CANCELED'), pending, _block('SOMETHING_NEW')], request_finished=True),
+            pending,
+        )
+
+    def test_finished_request_sequences(self):
+        """A request that finished after being placed again: which block the record carries."""
+        failed_day1 = failed_block(18060.0, start='2026-07-01T01:00:00Z')
+        failed_day3 = failed_block(3600.0, start='2026-07-03T01:00:00Z')
+        no_data_day3 = failed_block(0.0, start='2026-07-03T01:00:00Z')
+        canceled = _block('CANCELED', start='2026-07-02T01:00:00Z')
+        pending_day4 = _block('PENDING', start='2026-07-04T01:00:00Z')
+        pending_day1 = _block('PENDING', start='2026-07-01T01:00:00Z')
+        completed_day2 = _block('COMPLETED', start='2026-07-02T01:00:00Z')
+        finished = {'request_finished': True}
+        self.assertIs(select_schedule_block([failed_day1, canceled, pending_day4], **finished), failed_day1)
+        self.assertIs(select_schedule_block([failed_day1, failed_day3, pending_day4], **finished), failed_day3)
+        self.assertIs(select_schedule_block([failed_day1, no_data_day3, pending_day4], **finished), failed_day1)
+        self.assertIs(select_schedule_block([pending_day1, completed_day2], **finished), completed_day2)
+
     def test_rescheduled_request_sequences(self):
         """A request placed again after a block stopped early: which block the record carries."""
         failed_day1 = failed_block(18060.0, start='2026-07-01T01:00:00Z')
@@ -437,6 +521,57 @@ class TestFomoFacilityStatus(TestCase):
             FomoLCOFacility().get_observation_status('123')
 
         self.assertEqual(type(cm.exception).__name__, 'UnexpectedBlockPayloadError')
+
+    def test_the_facilitys_terminal_states_are_finished(self):
+        for facility in (FomoLCOFacility(), FomoSOARFacility()):
+            for state in ('COMPLETED', 'WINDOW_EXPIRED', 'CANCELED', 'FAILURE_LIMIT_REACHED', 'NOT_ATTEMPTED'):
+                with self.subTest(facility=facility.name, state=state):
+                    self.assertTrue(is_request_finished(state, facility))
+
+    def test_pending_and_unknown_states_can_still_run(self):
+        for facility in (FomoLCOFacility(), FomoSOARFacility()):
+            for state in ('PENDING', '', None, 'SOMETHING_NEW', {'odd': 1}):
+                with self.subTest(facility=facility.name, state=state):
+                    self.assertFalse(is_request_finished(state, facility))
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_status_on_a_finished_request_reads_the_block_that_took_data_over_a_leftover_pending_one(
+        self, mock_make_request
+    ):
+        """WR-20: the portal still lists the placed block as PENDING when the request finishes."""
+        failed = REAL_FAILED_BLOCKS['4253588']
+        pending = {'state': 'PENDING', 'start': '2026-07-17T09:00:00Z', 'end': '2026-07-17T14:00:00Z'}
+        for state in ('COMPLETED', 'WINDOW_EXPIRED', 'CANCELED', 'FAILURE_LIMIT_REACHED', 'NOT_ATTEMPTED'):
+            with self.subTest(state):
+                mock_make_request.side_effect = portal_side_effect({'123': state}, {'123': [failed, pending]})
+
+                status = FomoLCOFacility().get_observation_status('123')
+
+                self.assertEqual(
+                    status, {'state': state, 'scheduled_start': failed['start'], 'scheduled_end': failed['end']}
+                )
+        mock_make_request.side_effect = portal_side_effect({'123': 'PENDING'}, {'123': [failed, pending]})
+        self.assertEqual(
+            FomoLCOFacility().get_observation_status('123'),
+            {'state': 'PENDING', 'scheduled_start': pending['start'], 'scheduled_end': pending['end']},
+        )
+
+    @patch('solsys_code.observation_blocks.make_request')
+    def test_status_on_a_completed_request_still_reads_its_completed_block(self, mock_make_request):
+        """Q2: a COMPLETED request is finished, and its COMPLETED block still wins first, in either order."""
+        pending = {'state': 'PENDING', 'start': '2026-07-17T09:00:00Z', 'end': '2026-07-17T14:00:00Z'}
+        completed = {'state': 'COMPLETED', 'start': '2026-07-19T09:00:00Z', 'end': '2026-07-19T14:00:00Z'}
+        for label, blocks in (
+            ('pending then completed', [pending, completed]),
+            ('failed then completed', [REAL_FAILED_BLOCKS['4253588'], completed]),
+        ):
+            with self.subTest(label):
+                mock_make_request.side_effect = portal_side_effect({'123': 'COMPLETED'}, {'123': blocks})
+
+                status = FomoLCOFacility().get_observation_status('123')
+
+                self.assertEqual(status['scheduled_start'], completed['start'])
+                self.assertEqual(status['scheduled_end'], completed['end'])
 
     def _placed_pending_record(self):
         return ObservationRecord.objects.create(
