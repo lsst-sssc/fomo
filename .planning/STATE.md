@@ -6,16 +6,16 @@ current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
 stopped_at: Completed 37.1-15-PLAN.md
-last_updated: "2026-10-06T00:28:12.464Z"
-state_head: 195a554997a9f300d394ad37465e89d7925960e8
+last_updated: "2026-10-06T02:45:48.273Z"
+state_head: 28aa3d2c1b3fa587c1514329d68e8684056248c6
 progress:
   total_phases: 6
   completed_phases: 38
-  total_plans: 77
+  total_plans: 78
   completed_plans: 77
-  percent: 100
+  percent: 99
 last_activity: 2026-10-06
-last_activity_desc: Phase 37.1 gap-closure round 8 (37.1-15) executed; awaiting verification
+last_activity_desc: Phase 37.1 gap-closure plan 37.1-16 created (round 9); ready to execute
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — GAPS FOUND
-Plan: 15 of 15
-Status: All 15 plans executed — round-8 verification 2026-10-06 `gaps_found` 148/149 (truth 149, CLAUDE.md paired-docs rule: since 37.1-15 FOMO's and TOM's rules can pick different blocks for a finished request, so the five statements that the observed telescope always matches the stored times (WR-21) and the passages saying TOM-route records are left without times and recovered by `--recheck-unscheduled` (WR-22) are false for records whose times TOM's or an earlier rule stored). Fix needs a developer choice (verification human item 8): (A) `resolve_placement_block()` prefers the block matching `scheduled_start`, or (B) wording only. Round-8 review 0 critical / 3 warning / 4 info (ledger 26 of 53 open). Full suite 2044 + 40 OK at b44fb01; security 90/90 closed; Nyquist validated (43 tasks); UI review 24/24 reused. ALLOC-06 stays open; G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7). Next: `/gsd-plan-phase 37.1 --gaps`
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — READY TO EXECUTE
+Plan: 16 of 16 planned (15 executed)
+Status: Gap-closure plan 37.1-16 created 2026-10-05 (commit 28aa3d2) for round-8 truth 149. Developer decision (verification human item 8): route (A) — `resolve_placement_block()` prefers the block whose start equals the stored `scheduled_start` (WR-21); WR-22 wording only (per-record correction named, two steps); ride-alongs WR-23, IN-31, IN-32, IN-33, IN-34 all included. Plan checker: 0 blockers, 0 warnings, 2 info. ALLOC-06 stays open; G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7). Next: `/gsd-execute-phase 37.1 --gaps-only`
 
 ## Performance Metrics
 
