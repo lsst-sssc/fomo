@@ -22,8 +22,8 @@ from solsys_code import observation_projector as op
 from solsys_code.models import CalendarEventMeta, CampaignRun
 from solsys_code.observation_projector import receiver_on_group_membership_changed, receiver_on_record_save
 from solsys_code.templatetags.calendar_display_extras import (
-    CLASSICAL_SCHEDULE_LABEL,
     NEUTRAL_SLOT_COLOR,
+    NO_PROPOSAL_LABEL,
     PROPOSAL_PALETTE,
     STRIPE_OUTER_EDGE_COLOR,
     TELESCOPE_PALETTE,
@@ -167,7 +167,7 @@ class VisibleProposalsTest(TestCase):
         for p in proposals:
             color = proposal_color(p)
             normalized = (p or '').strip().upper()
-            label = normalized if normalized else CLASSICAL_SCHEDULE_LABEL
+            label = normalized if normalized else NO_PROPOSAL_LABEL
             expected_by_color.setdefault(color, set()).add(label)
 
         result = visible_proposals(weeks)
@@ -185,19 +185,23 @@ class VisibleProposalsTest(TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]['color'], NEUTRAL_SLOT_COLOR)
 
-    def test_neutral_slot_label_is_classical_schedule(self):
-        # D-06: empty-proposal legend entry is labeled 'Classical schedule'.
+    def test_no_proposal_label_text(self):
+        # F12 (quick task 261006-lsf) supersedes the v1.4 D-06 wording.
+        self.assertEqual(NO_PROPOSAL_LABEL, 'No proposal recorded')
+
+    def test_neutral_slot_label_is_no_proposal_recorded(self):
+        # F12: empty-proposal legend entry is labeled 'No proposal recorded'.
         weeks = _make_weeks([''])
         result = visible_proposals(weeks)
-        self.assertEqual(result[0]['label'], CLASSICAL_SCHEDULE_LABEL)
+        self.assertEqual(result[0]['label'], NO_PROPOSAL_LABEL)
 
     def test_neutral_slot_ordered_last(self):
-        # D-06 / 09-UI-SPEC Legend Layout: Classical schedule entry appears last.
+        # D-06 / 09-UI-SPEC Legend Layout: 'No proposal recorded' entry appears last.
         weeks = _make_weeks(['PROP-A', ''])
         result = visible_proposals(weeks)
         self.assertGreater(len(result), 0)
         self.assertEqual(result[-1]['color'], NEUTRAL_SLOT_COLOR)
-        self.assertEqual(result[-1]['label'], CLASSICAL_SCHEDULE_LABEL)
+        self.assertEqual(result[-1]['label'], NO_PROPOSAL_LABEL)
 
     def test_absent_proposal_not_in_result(self):
         # D-02: only proposals present in weeks appear in the legend.

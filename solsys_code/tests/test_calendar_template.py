@@ -267,12 +267,14 @@ class CalendarTemplateTest(TestCase):
         content = response.content.decode()
         self.assertIn('cal-legend-swatch', content)
 
-    def test_display07_classical_schedule_label_present_when_empty_proposal_events_visible(self):
-        """DISPLAY-07 D-06: the neutral-slot legend entry 'Classical schedule' appears
-        because no_proposal_event (proposal='') is visible this month."""
+    def test_display07_no_proposal_label_present_when_empty_proposal_events_visible(self):
+        """DISPLAY-07 (relabelled by F12, quick task 261006-lsf): the neutral-slot legend entry
+        'No proposal recorded' appears because no_proposal_event (proposal='') is visible this
+        month, and the v1.4 'Classical schedule' wording no longer does."""
         response = self._get_calendar()
         content = response.content.decode()
-        self.assertIn('Classical schedule', content)
+        self.assertIn('No proposal recorded', content)
+        self.assertNotIn('Classical schedule', content)
 
     # --- Phase 12 tests: DISPLAY-08/09 ---
 

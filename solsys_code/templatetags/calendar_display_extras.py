@@ -8,7 +8,8 @@ Provides simple_tags consumed by calendar.html (Plan 02):
 - telescope_color: deterministic palette color keyed by telescope name (quick-260724-osc)
 - telescope_stripe_color: deterministic stripe-palette color keyed by telescope name,
   parallel to telescope_color but gated against the gray fill (quick-260724-vb0)
-- visible_classical_telescopes: current-month classical-schedule telescope legend data (quick-260724-osc)
+- visible_classical_telescopes: current-month telescope legend data for events with no proposal
+  recorded (quick-260724-osc)
 - neutral_slot_color: assignment tag exposing NEUTRAL_SLOT_COLOR to templates (quick-260724-osc)
 - campaign_decoration: read-only campaign attribution decoration for event_form.html,
   rendered from CalendarEventMeta.run at request time (ANNOT-02, Phase 33 D-10/D-11/D-13/D-14)
@@ -146,8 +147,11 @@ STRIPE_OUTER_EDGE_COLOR = '#343a40'
 # collide with this value (see 09-RESEARCH Pitfall 1).
 NEUTRAL_SLOT_COLOR = '#5a6268'
 
-# D-06: human-readable label for classical-schedule (empty-proposal) legend entry.
-CLASSICAL_SCHEDULE_LABEL = 'Classical schedule'
+# D-06's empty-proposal legend label, relabelled by F12 (quick task 261006-lsf, 2026-10-06):
+# RUN: containers and ALLOC: nights now carry their run's proposal code, so an empty
+# proposal means only that no code is recorded (a run with a blank code, a hand-entered
+# event, a record with no proposal parameter) -- no longer "a classical schedule line".
+NO_PROPOSAL_LABEL = 'No proposal recorded'
 
 # The two title-prefix vocabularies and the observation-status legend used to live here as
 # local copies that had to stay byte-identical to their producers -- that second copy is
@@ -287,8 +291,8 @@ def visible_proposals(weeks) -> list[dict]:
     Iterates the weeks/day context already materialized by render_calendar() —
     no new database query (D-02).  Groups by resulting color so hash-colliding
     proposals share one legend entry (D-04, 09-RESEARCH Pitfall 4).  Neutral-slot
-    events (empty proposal) appear as 'Classical schedule' and are forced last
-    regardless of their hex sort position (D-06 / 09-UI-SPEC.md Legend Layout).
+    events (empty proposal) appear as 'No proposal recorded' and are forced last
+    regardless of their hex sort position (D-06 / 09-UI-SPEC.md Legend Layout; relabelled by F12).
 
     Args:
         weeks: The weeks context list passed to calendar.html — a list of lists
@@ -297,7 +301,7 @@ def visible_proposals(weeks) -> list[dict]:
 
     Returns:
         List of dicts with keys 'color' (hex string), 'codes' (sorted list of
-        proposal code strings or [CLASSICAL_SCHEDULE_LABEL] for the neutral
+        proposal code strings or [NO_PROPOSAL_LABEL] for the neutral
         slot), and 'label' (comma-joined string for display).  Sorted by color
         hex ascending, with the NEUTRAL_SLOT_COLOR entry appended last.
     """
@@ -315,7 +319,7 @@ def visible_proposals(weeks) -> list[dict]:
             for event in list(all_day) + list(timed):
                 normalized = (event.proposal or '').strip().upper()
                 color = proposal_color(event.proposal)
-                label = normalized if normalized else CLASSICAL_SCHEDULE_LABEL
+                label = normalized if normalized else NO_PROPOSAL_LABEL
                 by_color[color].add(label)
 
     result = []
@@ -348,7 +352,7 @@ def neutral_slot_color() -> str:
     """Expose NEUTRAL_SLOT_COLOR to templates without a magic literal (quick-260724-osc).
 
     Lets calendar.html compare an already-computed bg_color to this value to decide
-    whether an all-day event is classical-schedule (no proposal) vs. proposal-having,
+    whether an all-day event has no proposal recorded vs. is proposal-having,
     without re-deriving that distinction a second way.
 
     Returns:
@@ -432,10 +436,10 @@ def telescope_stripe_color(telescope: str) -> str:
 
 @register.simple_tag
 def visible_classical_telescopes(weeks) -> list[dict]:
-    """Compute the set of telescopes visible in the currently-rendered month, classical-schedule only.
+    """Compute the set of telescopes visible in the currently-rendered month, for events with no proposal recorded only.
 
     Mirrors visible_proposals's weeks iteration and dual dict/attribute day support, but
-    scoped to classical-schedule events only (empty proposal) — proposal-having events
+    scoped to events with no proposal recorded (empty proposal) — proposal-having events
     already encode identity via their proposal fill and are excluded here even when their
     telescope field is set. Groups by resulting color so hash-colliding telescopes share
     one legend entry, same collision handling as visible_proposals.
@@ -464,7 +468,7 @@ def visible_classical_telescopes(weeks) -> list[dict]:
             for event in list(all_day) + list(timed):
                 normalized_proposal = (event.proposal or '').strip().upper()
                 if normalized_proposal:
-                    continue  # only classical-schedule (empty-proposal) events contribute
+                    continue  # only no-proposal-recorded (empty-proposal) events contribute
                 normalized_telescope = (event.telescope or '').strip().upper()
                 color = telescope_color(event.telescope)
                 by_color[color].add(normalized_telescope)
