@@ -142,7 +142,9 @@ request means while it is pending. Once the request is finished -- its state is
 again -- a block that took data comes before a pending block the portal still
 lists, which will never run: the first completed block, else the last block
 that is in progress, was aborted or failed after taking data, else that
-leftover pending block. A failed block counts only if it took data: at least
+leftover pending block. That holds on the live lookup; a block list embedded in
+the portal's listing (it carries none today) is re-read on every sweep.
+A failed block counts only if it took data: at least
 one of its configurations reports some time completed. The LCO portal can
 report a block that started, took data and then stopped early as failed rather
 than aborted -- every such block on the July 2026 Didymos requests was reported
@@ -180,7 +182,10 @@ block that took data, whose night retires again, and the placed night's
 allocation entry comes back: a finished request runs no further block. A
 request that finishes with only a pending block listed, and no block that took
 data, keeps that pending block's times, so its night stays retired although
-nothing was observed there; every earlier version of the rule did the same. A
+nothing was observed there; every earlier version of the rule did the same.
+On the live lookup that stays so; an embedded block list is re-read on every
+sweep, and there the record loses those times once the portal marks that block
+not attempted or cancelled. A
 request with a single block -- like each of the July 2026 Didymos requests --
 is not affected.
 
@@ -208,7 +213,8 @@ every state, final as of this phase:
    * - ``[X]``
      - Window expired -- drawn over the whole request window when no block
        counts, or over the block when one started and was aborted or failed
-       after taking data.
+       after taking data, or, when no block took data, over a placed block
+       that never ran (see the one-block paragraph above).
    * - ``[C]``
      - Cancelled -- by whichever layer owns the entry: a staff decision on
        a campaign run (the approval queue's "Mark Cancelled" button, see
@@ -293,12 +299,17 @@ cannot see a write path that bypasses ``save()`` entirely --
 ``QuerySet.update()``, ``bulk_create()``, and anything editing rows outside
 Django. ``project_observation_calendar`` is the backstop sweep for exactly
 those paths, plus the one-time observed-telescope lookup for a newly observed
-record (a single live portal call per record, ever). That lookup reads the
-block FOMO's block choice gives a finished request (see "How do LCO/SOAR queue
-observations get onto the calendar?" above), so the telescope it names is the
-one the record's times came from, even when the portal still lists a leftover
-pending block. It needs no arguments -- omitting every flag sweeps every
-LCO/SOAR record:
+record (a single live portal call per record, ever). That lookup names the
+telescope of the block whose start is the record's stored scheduled start, so
+it is always the block the record's times came from, whichever rule stored
+them -- FOMO's, TOM Toolkit's through one of its own routes, or an earlier
+version of FOMO's. Only when no listed block starts then does it use FOMO's
+block choice for a finished request (see "How do LCO/SOAR queue observations
+get onto the calendar?" above), in which a block that took data comes before a
+leftover pending block. A record whose telescope is already stored is never
+looked up again, even if its times later change (see "Correcting one record
+that already holds both times" below). It needs no arguments -- omitting
+every flag sweeps every LCO/SOAR record:
 
 .. code-block:: console
 
@@ -626,8 +637,11 @@ status before it looks up the block and reports a failed lookup under
 ``--recheck-unscheduled``. A status change made through one of TOM Toolkit's
 own routes -- its ``updatestatus`` command, the **Update status** button on its
 observation list, its Cancel button or its REST cancel route (see "What runs,
-and when" below) -- still uses TOM's rule and leaves such a record without
-times, and the per-tick skip then leaves it alone too. A brand-new request, a
+and when" below) -- still uses TOM's rule: the first completed block, else the
+last pending block, else no times. So when the portal still lists a pending
+block, TOM's rule stores that pending block's times, not none, and that block's
+night retires rather than the night of a block that took data; either way the
+per-tick skip then leaves the record alone too. A brand-new request, a
 record still in a non-terminal state, a record whose state changed, and a
 record marked after a failed lookup are all still looked up. With the portal's
 listing carrying no observed blocks, this keeps a tick's lookups roughly equal
@@ -635,10 +649,13 @@ to the number of unfinished and new requests as a proposal ages, instead of
 growing with every request ever made.
 
 **Re-checking records with no scheduled time.** Records stored before this
-release, and any finished through one of TOM's own routes, are brought up to
-date with ``--recheck-unscheduled``, which looks up once every record that is
-missing a scheduled time, including the finished records the per-tick skip
-leaves alone. Each such record costs one portal lookup. A record that gains
+release with no times, and any finished through one of TOM's own routes with no
+times, are brought up to date with ``--recheck-unscheduled``, which looks up
+once every record that is missing a scheduled time, including the finished
+records the per-tick skip leaves alone. ``--recheck-unscheduled`` never
+revisits a record that holds both times, such as one TOM's rule stored with a
+leftover pending block's times; see "Correcting one record that already holds
+both times" below. Each such record costs one portal lookup. A record that gains
 the times of a block that took data retires its night on the linked per-night
 run's allocation calendar in the same sweep; a request with no block that
 counts stays without times and keeps its night. The unattended runner never
@@ -676,6 +693,37 @@ record. ``block lookups failed`` reaching 0 means the same, but another
 request in the proposal whose lookup keeps failing can hold that count above 0
 after the marked record is resolved. A dry run makes no lookup and marks
 nothing.
+
+**Correcting one record that already holds both times.** It applies to a
+finished record whose stored block is not the one FOMO's rule chooses -- for
+example one stored through TOM's routes with a leftover pending block's times.
+Nothing FOMO runs revisits such a record. Step 1: in
+``python3 manage.py shell``, run
+``FomoLCOFacility().update_observation_status(<id>)`` (from
+``solsys_code.observation_blocks``; ``FomoSOARFacility`` for a SOAR record). It
+makes two read-only portal calls and stores FOMO's block and the request's
+state in one save. The calendar entry moves, and a linked per-night run's
+allocation night follows. Step 2, when the record's parameters already hold an
+observed telescope: remove ``observed_site``, ``observed_telescope`` and
+``observed_enclosure``, and save the record with
+``update_fields=['parameters']``. The observed-telescope lookup is made once,
+and without this step the entry keeps naming the old block's telescope. The
+next project_sweep step (or ``project_observation_calendar --proposal <code>``)
+then looks the telescope up again from the block the new times came from, with
+one more portal call. Step 2 alone corrects a record whose telescope an
+earlier release stored from a different block than its times.
+
+.. code-block:: console
+
+   >> python3 manage.py shell
+   >> from tom_observations.models import ObservationRecord
+   >> from solsys_code.observation_blocks import FomoLCOFacility
+   >> FomoLCOFacility().update_observation_status('4253588')
+   >> kw = dict(facility='LCO', observation_id='4253588')
+   >> record = ObservationRecord.objects.get(**kw)
+   >> keys = ('observed_site', 'observed_telescope', 'observed_enclosure')
+   >> [record.parameters.pop(key, None) for key in keys]
+   >> record.save(update_fields=['parameters'])
 
 The summary also reports ``embedded blocks``, ``fallback lookups needed`` and
 ``fallback lookups skipped`` -- how many requests in this run carried an
@@ -1776,8 +1824,8 @@ this fixed order, in one process:
    replacing TOM's stock ``updatestatus`` command. It never touches Gemini or
    ESO, which have no facility read-back to refresh. It reads each request's
    block with FOMO's own block choice (see "How do LCO/SOAR queue observations
-   get onto the calendar?"), so a tick never erases the times of an in-progress
-   or aborted block, or of a block that failed after taking data. While a
+   get onto the calendar?"), so a tick never drops an in-progress, aborted or
+   failed-with-data block's times for empty ones (TOM's rule would). While a
    request still has a pending block, the tick stores that placed block's times
    instead, so a request placed again after an aborted or failed block moves to
    its new night on the next tick. At the tick a request finishes, though, a
@@ -1814,19 +1862,23 @@ command, the **Update status** button on TOM's observation list page (it
 runs that same command), the Cancel button on TOM's own observation page,
 and TOM's REST cancel route ``PATCH /api/observations/<pk>/cancel/``. A
 request moved to an expired, cancelled or other finished state through one
-of them is stored without the times of a block that took data, its run's
-allocation night comes back, and nothing on a tick looks at a finished record
-again. Run ``run_unattended --step status_refresh`` rather than updatestatus or
-the Update status button. If one of those routes was used on an LCO record,
-re-run the backfill command for its proposal with ``--recheck-unscheduled``: for
+of them gets TOM's rule: when the portal still lists a pending block, TOM's
+rule stores that pending block's times, so that night stays retired rather
+than the night of a block that took data; otherwise it stores no times and its
+run's allocation night comes back. Neither the status refresh nor the discovery
+sweep's live lookup looks at a finished record again. Run
+``run_unattended --step status_refresh`` rather than updatestatus or
+the Update status button. If one of those routes left an LCO record with no
+times, re-run the backfill command for its proposal with
+``--recheck-unscheduled``: for
 the Didymos records, the form in "How do I backfill ObservationRecords for LCO
 observations submitted outside FOMO?"; for the watched proposals,
 ``backfill_lco_observations --recheck-unscheduled``; for any other proposal,
 ``backfill_lco_observations --proposal <code> --recheck-unscheduled`` (the
-unattended runner never passes the flag). The backfill commands read LCO records
-only, so a SOAR record finished through one of those routes has no re-run and
-keeps empty times (this matters only when its request had already started a
-block).
+unattended runner never passes the flag). A record left with a pending block's
+times, and any SOAR record (the backfill commands read LCO records only), is
+corrected one at a time as in "Correcting one record that already holds both
+times" above.
 
 A step that fails never stops the later ones: every tick runs all five
 steps, records each one's own outcome, and exits non-zero at the end only
