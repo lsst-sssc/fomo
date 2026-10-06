@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — GAPS FOUND
 Plan: 15 of 15
-Status: All 15 plans executed -- 37.1-15 (round 8) done 2026-10-06: the block rule reads whether the request is finished (WR-20 "fix the rule"), IN-29 and IN-30 fixed; ledger open 19 of 46. ALLOC-06 stays open and G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7); A-24 and A-33 await the developer. Next: phase verification (`/gsd-verify-work 37.1`)
+Status: All 15 plans executed — round-8 verification 2026-10-06 `gaps_found` 148/149 (truth 149, CLAUDE.md paired-docs rule: since 37.1-15 FOMO's and TOM's rules can pick different blocks for a finished request, so the five statements that the observed telescope always matches the stored times (WR-21) and the passages saying TOM-route records are left without times and recovered by `--recheck-unscheduled` (WR-22) are false for records whose times TOM's or an earlier rule stored). Fix needs a developer choice (verification human item 8): (A) `resolve_placement_block()` prefers the block matching `scheduled_start`, or (B) wording only. Round-8 review 0 critical / 3 warning / 4 info (ledger 26 of 53 open). Full suite 2044 + 40 OK at b44fb01; security 90/90 closed; Nyquist validated (43 tasks); UI review 24/24 reused. ALLOC-06 stays open; G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live-host re-run (UAT test 6, then test 7). Next: `/gsd-plan-phase 37.1 --gaps`
 
 ## Performance Metrics
 
