@@ -296,8 +296,9 @@ class TestSelectScheduleBlock(SimpleTestCase):
     def test_every_pair_of_block_states_follows_the_order_once_the_request_is_finished(self):
         """Every ordered pair of the nine block kinds, for a finished request (WR-20, developer decision 2026-10-05).
 
-        Once the request is finished the started tier comes before a leftover PENDING block; the order for a
-        request that can still run is untouched, and ``request_finished=False`` is the default call.
+        Once the request is finished the started tier comes before a leftover PENDING block. For a request that
+        can still run, the order is checked against an expectation computed independently from the same ranks with
+        the PENDING and started tiers swapped (review IN-33 (3)).
         """
         # kind -> (builder, rank). Rank 0 (COMPLETED): the first of equal rank wins. Rank 1 (the started tier) and
         # rank 2 (PENDING): the last of equal rank wins. Rank None never counts.
@@ -316,21 +317,28 @@ class TestSelectScheduleBlock(SimpleTestCase):
             for second_name, (second_build, second_rank) in kinds.items():
                 with self.subTest(first=first_name, second=second_name):
                     first, second = first_build(1), second_build(2)
-                    counting = [
-                        (rank, block)
-                        for rank, block in ((first_rank, first), (second_rank, second))
-                        if rank is not None
-                    ]
-                    if not counting:
-                        expected = None
-                    else:
+
+                    def expected_for(ranks, first=first, second=second):
+                        counting = [
+                            (rank, block)
+                            for rank, block in zip(ranks, (first, second), strict=True)
+                            if rank is not None
+                        ]
+                        if not counting:
+                            return None
                         best = min(rank for rank, _ in counting)
                         winners = [block for rank, block in counting if rank == best]
-                        expected = winners[0] if best == 0 else winners[-1]
-                    self.assertIs(select_schedule_block([first, second], request_finished=True), expected)
+                        return winners[0] if best == 0 else winners[-1]
+
+                    # While the request can still run, PENDING (1) comes before the started tier (2).
+                    swap = {0: 0, 1: 2, 2: 1, None: None}
+                    self.assertIs(
+                        select_schedule_block([first, second], request_finished=True),
+                        expected_for((first_rank, second_rank)),
+                    )
                     self.assertIs(
                         select_schedule_block([first, second], request_finished=False),
-                        select_schedule_block([first, second]),
+                        expected_for((swap[first_rank], swap[second_rank])),
                     )
 
     def test_a_block_that_took_data_beats_a_leftover_pending_block_once_the_request_is_finished(self):
@@ -528,6 +536,16 @@ class TestFomoFacilityStatus(TestCase):
                 with self.subTest(facility=facility.name, state=state):
                     self.assertTrue(is_request_finished(state, facility))
 
+    def test_the_terminal_states_are_a_list_so_an_odd_state_never_raises(self):
+        """IN-34: is_request_finished() relies on get_terminal_observing_states() returning a list, as TOM
+        Toolkit's OCS facilities do. A list is searched with ==, so a dict, a list or a set state gives False
+        without raising; a set or frozenset of states would raise TypeError for an unhashable one."""
+        for facility in (FomoLCOFacility(), FomoSOARFacility()):
+            with self.subTest(facility=facility.name):
+                self.assertIs(type(facility.get_terminal_observing_states()), list)
+                for odd_state in ({'odd': 1}, ['COMPLETED'], {'COMPLETED'}):
+                    self.assertFalse(is_request_finished(odd_state, facility))
+
     def test_pending_and_unknown_states_can_still_run(self):
         for facility in (FomoLCOFacility(), FomoSOARFacility()):
             for state in ('PENDING', '', None, 'SOMETHING_NEW', {'odd': 1}):
@@ -564,6 +582,8 @@ class TestFomoFacilityStatus(TestCase):
         for label, blocks in (
             ('pending then completed', [pending, completed]),
             ('failed then completed', [REAL_FAILED_BLOCKS['4253588'], completed]),
+            ('completed then pending', [completed, pending]),
+            ('completed then failed', [completed, REAL_FAILED_BLOCKS['4253588']]),
         ):
             with self.subTest(label):
                 mock_make_request.side_effect = portal_side_effect({'123': 'COMPLETED'}, {'123': blocks})
