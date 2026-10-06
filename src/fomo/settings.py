@@ -154,6 +154,9 @@ FORMAT_MODULE_PATH = [
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, '_static')
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+# Files WhiteNoise serves at the site root (/favicon.ico, /apple-touch-icon.png) for clients that probe for
+# them directly. The page <link> favicon is static/tom_common/img/favicon-32.ico, overriding TOM Toolkit's.
+WHITENOISE_ROOT = os.path.join(BASE_DIR, 'root_files')
 MEDIA_ROOT = os.path.join(BASE_DIR, 'data')
 MEDIA_URL = '/data/'
 
