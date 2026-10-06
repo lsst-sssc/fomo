@@ -299,11 +299,13 @@ cannot see a write path that bypasses ``save()`` entirely --
 ``QuerySet.update()``, ``bulk_create()``, and anything editing rows outside
 Django. ``project_observation_calendar`` is the backstop sweep for exactly
 those paths, plus the one-time observed-telescope lookup for a newly observed
-record (a single live portal call per record, ever). That lookup names the
-telescope of the block whose start is the record's stored scheduled start, so
-it is always the block the record's times came from, whichever rule stored
-them -- FOMO's, TOM Toolkit's through one of its own routes, or an earlier
-version of FOMO's. Only when no listed block starts then does it use FOMO's
+record (a live portal call that is not repeated once it succeeds, unless the
+record's observed-site parameters are removed). That lookup names the
+telescope of the block whose start is the record's stored scheduled start:
+whenever a listed block starts at the stored start, it is the block the
+record's times came from, whichever rule stored them -- FOMO's, TOM Toolkit's
+through one of its own routes, or an earlier version of FOMO's. Only when no
+listed block starts then does it use FOMO's
 block choice for a finished request (see "How do LCO/SOAR queue observations
 get onto the calendar?" above), in which a block that took data comes before a
 leftover pending block. A record whose telescope is already stored is never
@@ -638,15 +640,16 @@ status before it looks up the block and reports a failed lookup under
 own routes -- its ``updatestatus`` command, the **Update status** button on its
 observation list, its Cancel button or its REST cancel route (see "What runs,
 and when" below) -- still uses TOM's rule: the first completed block, else the
-last pending block, else no times. So when the portal still lists a pending
-block, TOM's rule stores that pending block's times, not none, and that block's
-night retires rather than the night of a block that took data; either way the
-per-tick skip then leaves the record alone too. A brand-new request, a
-record still in a non-terminal state, a record whose state changed, and a
-record marked after a failed lookup are all still looked up. With the portal's
-listing carrying no observed blocks, this keeps a tick's lookups roughly equal
-to the number of unfinished and new requests as a proposal ages, instead of
-growing with every request ever made.
+last pending block, else no times. So when the portal lists no completed
+block but still lists a pending block, TOM's rule stores that pending block's
+times, not none, and that block's night retires rather than the night of a
+block that took data; when it lists neither, it stores no times. Whichever it
+stores, the per-tick skip then leaves the record alone too. A brand-new
+request, a record still in a non-terminal state, a record whose state changed,
+and a record marked after a failed lookup are all still looked up. With the
+portal's listing carrying no observed blocks, this keeps a tick's lookups
+roughly equal to the number of unfinished and new requests as a proposal ages,
+instead of growing with every request ever made.
 
 **Re-checking records with no scheduled time.** Records stored before this
 release with no times, and any finished through one of TOM's own routes with no
@@ -718,8 +721,10 @@ earlier release stored from a different block than its times.
    >> python3 manage.py shell
    >> from tom_observations.models import ObservationRecord
    >> from solsys_code.observation_blocks import FomoLCOFacility
-   >> FomoLCOFacility().update_observation_status('4253588')
-   >> kw = dict(facility='LCO', observation_id='4253588')
+   >> # SOAR record: FomoSOARFacility for FomoLCOFacility, 'SOAR' for 'LCO'
+   >> observation_id = '<id>'  # the record's request id
+   >> FomoLCOFacility().update_observation_status(observation_id)
+   >> kw = dict(facility='LCO', observation_id=observation_id)
    >> record = ObservationRecord.objects.get(**kw)
    >> keys = ('observed_site', 'observed_telescope', 'observed_enclosure')
    >> [record.parameters.pop(key, None) for key in keys]
@@ -1862,11 +1867,13 @@ command, the **Update status** button on TOM's observation list page (it
 runs that same command), the Cancel button on TOM's own observation page,
 and TOM's REST cancel route ``PATCH /api/observations/<pk>/cancel/``. A
 request moved to an expired, cancelled or other finished state through one
-of them gets TOM's rule: when the portal still lists a pending block, TOM's
-rule stores that pending block's times, so that night stays retired rather
-than the night of a block that took data; otherwise it stores no times and its
-run's allocation night comes back. Neither the status refresh nor the discovery
-sweep's live lookup looks at a finished record again. Run
+of them gets TOM's rule: the first completed block, else the last pending
+block, else no times. When the portal lists no completed block but still lists
+a pending block, TOM's rule stores that pending block's times, so that night
+stays retired rather than the night of a block that took data; when it lists
+neither, it stores no times and its run's allocation night comes back. Neither
+the status refresh nor the discovery sweep's live lookup looks at a finished
+record again. Run
 ``run_unattended --step status_refresh`` rather than updatestatus or
 the Update status button. If one of those routes left an LCO record with no
 times, re-run the backfill command for its proposal with
