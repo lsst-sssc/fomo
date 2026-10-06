@@ -5,17 +5,17 @@ milestone_name: Observation-First Calendar
 current_phase: "37.1"
 current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
-stopped_at: Completed 37.1-16-PLAN.md
-last_updated: "2026-10-06T14:13:02.105Z"
-state_head: 1a1eec1ba93298b5ae48cbccafb3640b088c31b0
+stopped_at: Completed 37.1-17-PLAN.md
+last_updated: "2026-10-06T15:06:43.757Z"
+state_head: e606e33c95194dccd9d99937efccaa430bb188a7
 progress:
   total_phases: 6
   completed_phases: 38
   total_plans: 79
-  completed_plans: 78
-  percent: 99
+  completed_plans: 79
+  percent: 100
 last_activity: 2026-10-06
-last_activity_desc: Phase 37.1 round-9 verification gaps_found 165/166 (truth 149 closed; truth 166 = review WR-24, stale backfill-notebook demo); next /gsd-plan-phase 37.1 --gaps
+last_activity_desc: Phase 37.1 plan 37.1-17 executed (WR-24 fallback record in the backfill notebook, IN-35 to IN-38 wording, WR-25 accepted); next /gsd-verify-work 37.1 (round-10 verification)
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — READY TO EXECUTE
-Plan: 16 of 16
-Status: Round 9 (2026-10-06): 37.1-16 executed; full-suite gate 2053 + 40 OK at 56bf08d (also the regression gate); deep review 0 critical / 2 warning / 4 info (WR-24, WR-25, IN-35 to IN-38; ledger open 25 of 59); verification gaps_found 165/166 (b5f1271). Truth 149 (WR-21) is closed in code. The one gap, truth 166, is review WR-24: backfill_lco_observations_demo.ipynb cell d4a7c2e1 prints a false "can still run" contrast for 900662 and no executed cell shows the no-match fallback that projector cell 7e7bd66e cites. WR-25 (a matched never-run block becomes the permanent observed telescope, no log signal) is human item 7, a developer decision. ALLOC-06 stays open until the developer's live-host re-run (UAT tests 6 and 7). Next: `/gsd-plan-phase 37.1 --gaps`
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Plan: 17 of 17
+Status: Plan 37.1-17 complete; ready for round-10 verification (ALLOC-06 stays open pending the live-host re-run)
 
 ## Performance Metrics
 
@@ -43,6 +43,7 @@ Status: Round 9 (2026-10-06): 37.1-16 executed; full-suite gate 2053 + 40 OK at 
 | Phase 37.1 P14 | 11 min | 3 tasks | 12 files |
 | Phase 37.1 P15 | 15 min | 3 tasks | 15 files |
 | Phase 37.1 P16 | 39 min | 3 tasks | 12 files |
+| Phase 37.1 P17 | 13 min | 3 tasks | 8 files |
 
 ## Decisions
 
@@ -59,9 +60,10 @@ Status: Round 9 (2026-10-06): 37.1-16 executed; full-suite gate 2053 + 40 OK at 
 - [Phase 37.1]: resolve_observed_site() passes is_request_finished(record.status, facility): a completed request is finished (A-35)
 - [Phase 37.1]: 37.1-16: WR-21 fixed by code (developer decision 2026-10-05): resolve_placement_block() returns the block whose start is the record's stored scheduled_start, falling back to the rule only when none matches; ties go to the rule among the tied blocks, else the last (A-43, A-44) — The telescope shown on the calendar must belong to the block the record's times came from, whichever rule stored them
 - [Phase 37.1]: 37.1-16: WR-22 stays wording only; the per-record correction is update_observation_status() then removing the three observed-site parameters (A-45); ALLOC-06 stays open until the developer's live-host re-run — The recheck flag never revisits a record holding both times; its behaviour is fenced by an AST probe against d6b105b
+- [Phase 37.1]: 37.1-17: WR-24 fixed by "Add fallback record" (developer decision 2026-10-06): backfill notebook cell d4a7c2e1 passes every record stored start and record 900664 shows the no-match fallback with executed output; WR-25 accepted as is (ledger skipped); IN-35 to IN-38 fixed as wording only; ALLOC-06 stays open pending the live-host re-run
 
 ## Session
 
-**Last session:** 2026-10-06T04:31:46.750Z
-**Stopped at:** Completed 37.1-16-PLAN.md
+**Last session:** 2026-10-06T15:06:39.685Z
+**Stopped at:** Completed 37.1-17-PLAN.md
 **Resume file:** None
