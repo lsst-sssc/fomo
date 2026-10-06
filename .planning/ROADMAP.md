@@ -554,3 +554,13 @@ Full phase detail for all shipped milestones lives in their respective `mileston
 🚧 **v2.4 Observation-First Calendar** — Phases 33-37 plus 37.1 (inserted 2026-10-02), started 2026-09-03.
 
 Coverage: 30/30 v1 requirements mapped (ALLOC-06 added 2026-10-02 → Phase 37.1), no orphans, no duplicates. Next: `/gsd-discuss-phase 37.1`.
+
+## Backlog
+
+### Phase 999.1: Follow-up — Phase 37.1 deferred UAT follow-up: Test 1 (BACKLOG)
+
+**Goal:** Resolve the UAT checkpoint deferred during Phase 37.1 verification
+**Source phase:** 37.1
+**Deferred at:** 2026-10-06 during /gsd-verify-work 37.1 session completion
+**Follow-ups:**
+- [ ] Test 1: Some way of designating part-completed observations which have Window Expired but took some data (maybe '[P]' for Partial or a lower case '[o]' for part observed?) from those for which the window expired but were never scheduled. (deferred 2026-10-04)
