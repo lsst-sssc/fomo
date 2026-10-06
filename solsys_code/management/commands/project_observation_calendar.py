@@ -61,10 +61,15 @@ def resolve_observed_site(record: ObservationRecord, facility: Any) -> tuple[dic
     internally, so there is no caught exception object anywhere in this path that a message
     could accidentally embed (SYNC-09/D-13).
 
-    It reads the block with ``request_finished`` taken from the record's own status through
-    ``is_request_finished()``, which is True for every record that reaches the lookup, so the telescope it
-    stores belongs to the block the record's times came from even when the portal still lists a leftover
-    pending block (review WR-20).
+    It passes the record's stored ``scheduled_start``, so the telescope it stores belongs to the block the
+    record's times came from, whichever rule stored them -- FOMO's rule, TOM Toolkit's rule through one of its
+    own routes, or an earlier FOMO rule (developer decision 2026-10-05, review WR-21). Only when no listed
+    block starts then does FOMO's rule decide. It is told through ``is_request_finished()``, which is True for
+    every record that reaches the lookup, that the request is finished, so a block that took data comes before
+    a leftover pending block (review WR-20).
+
+    A record whose observed site is already stored is never looked up again, even if its times later change.
+    The runbook's "Correcting one record that already holds both times" gives the per-record correction.
 
     Args:
         record: the ObservationRecord to resolve. Mutated and saved in place on a successful
@@ -88,7 +93,10 @@ def resolve_observed_site(record: ObservationRecord, facility: Any) -> tuple[dic
         return None, None
 
     block = resolve_placement_block(
-        record.observation_id, facility, request_finished=is_request_finished(record.status, facility)
+        record.observation_id,
+        facility,
+        request_finished=is_request_finished(record.status, facility),
+        stored_start=record.scheduled_start,
     )
     site = block.get('site') if block is not None else None
     telescope = block.get('telescope') if block is not None else None

@@ -291,18 +291,31 @@ def derive_telescope(site: str | None, telescope_code: str | None) -> str | None
 
 
 def resolve_placement_block(
-    observation_id: str, facility: LCOFacility, *, request_finished: bool = False
+    observation_id: str,
+    facility: LCOFacility,
+    *,
+    request_finished: bool = False,
+    stored_start: datetime | str | None = None,
 ) -> dict[str, Any] | None:
     """Call the LCO Observation Portal API once to resolve a placed record's block.
 
     Issues a single, timeout-bounded GET to /api/requests/{observation_id}/observations/
-    and selects the block with FOMO's rule (``observation_blocks.select_schedule_block``) --
-    the same rule that now sets scheduled_start/scheduled_end -- so telescope resolution and
-    timing always come from the same block (Pitfall 3). ``request_finished`` is passed straight to the rule: its
-    only caller, ``resolve_observed_site()``, looks up completed records only and passes
-    ``is_request_finished(record.status, facility)``, so a completed request whose list still holds a leftover
-    pending block names the telescope of the block that took data, the same block the record's times came
-    from (review WR-20).
+    and returns the block whose start is the same instant as ``stored_start``, the record's stored
+    scheduled start, whichever rule stored them -- FOMO's rule (``observation_blocks.select_schedule_block``),
+    TOM Toolkit's rule through one of its own routes, or an earlier FOMO rule -- and whatever state that block
+    is in now. So the telescope it names and the times the record draws come from the same block (Pitfall 3;
+    developer decision 2026-10-05, review WR-21). Both sides are read with ``coerce_schedule_datetime()``
+    (a naive value is UTC) and compared as exact instants, microseconds included. If several blocks start at
+    that instant, it returns FOMO's rule's pick from those blocks alone (told the same ``request_finished``),
+    else the last of them. A block start or a stored start that cannot be read, or that overflows when
+    converted to UTC, a block entry that is not a dict, a block without a start and a ``stored_start`` of
+    None never matches and never raises.
+
+    Only when no block matches, or ``stored_start`` is None, does FOMO's rule decide, over the whole list --
+    the same rule that now sets scheduled_start/scheduled_end. ``request_finished`` is passed straight to the
+    rule (review WR-20): its only caller, ``resolve_observed_site()``, looks up completed records only and
+    passes ``is_request_finished(record.status, facility)``, so a completed request whose times match no listed
+    block names the telescope of the block that took data rather than a leftover pending block.
 
     Args:
         observation_id: the record's LCO observation_id.
@@ -310,7 +323,11 @@ def resolve_placement_block(
             settings and auth header construction).
         request_finished: keyword-only; True when the request is finished, so a block that took data
             outranks a leftover pending block (see ``observation_blocks.select_schedule_block``). Defaults to
-            False, the order for a request that can still run.
+            False, the order for a request that can still run. It decides only when no block starts at
+            ``stored_start`` and, among blocks that do, only to break a tie.
+        stored_start: keyword-only; the record's stored ``scheduled_start`` (an aware or naive ``datetime``,
+            or a portal ISO-8601 string). The block starting at that instant is the block the record's times
+            came from. Defaults to None, which skips the match.
 
     Returns:
         dict[str, Any] | None: the matched block dict (with 'site'/'enclosure'/
@@ -341,7 +358,33 @@ def resolve_placement_block(
     if not isinstance(blocks, list):
         return None
 
-    return select_schedule_block(blocks, request_finished=request_finished)
+    try:
+        stored = coerce_schedule_datetime(stored_start)
+    except (ValueError, OverflowError):
+        stored = None
+    candidates = blocks
+    tied = False
+    if stored is not None:
+        matching = []
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            try:
+                started = coerce_schedule_datetime(block.get('start'))
+            except (ValueError, OverflowError):
+                continue
+            if started == stored:
+                matching.append(block)
+        if len(matching) == 1:
+            return matching[0]
+        if matching:
+            # A-43: several blocks start at the stored instant, so the rule chooses among them alone.
+            candidates, tied = matching, True
+
+    chosen = select_schedule_block(candidates, request_finished=request_finished)
+    if chosen is None and tied:
+        return candidates[-1]  # none of the tied blocks counts: the last, as the portal lists them in creation order
+    return chosen
 
 
 def _has_muscat_exposure_signal(parameters: dict[str, Any], n: int) -> bool:

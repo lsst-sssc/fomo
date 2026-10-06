@@ -24,8 +24,9 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 from solsys_code import observation_projector as op
 from solsys_code.calendar_utils import resolve_placement_block
 from solsys_code.management.commands.project_observation_calendar import _parse_proposal_arg, resolve_observed_site
+from solsys_code.observation_blocks import FomoLCOFacility
 from solsys_code.tests.helpers import observations_block_response
-from solsys_code.tests.test_observation_blocks import REAL_FAILED_BLOCKS
+from solsys_code.tests.test_observation_blocks import REAL_FAILED_BLOCKS, portal_side_effect
 
 
 def _parse_summary(output: str) -> dict[str, dict[str, int]]:
@@ -434,7 +435,13 @@ class TestObservedSiteLookup(_ProjectObservationCalendarTestBase):
     observed-site lookup. No test performs a real HTTP call."""
 
     def _make_observed_record(
-        self, observation_id: str, facility: str = 'LCO', instrument_type: str = '2M0-SCICAM-MUSCAT'
+        self,
+        observation_id: str,
+        facility: str = 'LCO',
+        instrument_type: str = '2M0-SCICAM-MUSCAT',
+        *,
+        scheduled_start: datetime | None = None,
+        scheduled_end: datetime | None = None,
     ) -> ObservationRecord:
         """Create a COMPLETED, with-block record via a NORMAL save (receiver connected).
 
@@ -450,8 +457,8 @@ class TestObservedSiteLookup(_ProjectObservationCalendarTestBase):
             facility=facility,
             observation_id=observation_id,
             status='COMPLETED',
-            scheduled_start=datetime(2026, 9, 6, 10, 0, tzinfo=dt_timezone.utc),
-            scheduled_end=datetime(2026, 9, 6, 10, 19, tzinfo=dt_timezone.utc),
+            scheduled_start=scheduled_start or datetime(2026, 9, 6, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=scheduled_end or datetime(2026, 9, 6, 10, 19, tzinfo=dt_timezone.utc),
             parameters={
                 'proposal': 'TESTPROP',
                 'instrument_type': instrument_type,
@@ -486,10 +493,23 @@ class TestObservedSiteLookup(_ProjectObservationCalendarTestBase):
         self.assertEqual(event.telescope, 'FTS')
         self.assertTrue(event.title.startswith('[O] FTS '))
 
-    def test_the_observed_site_of_a_completed_request_comes_from_the_block_that_took_data(self) -> None:
-        """WR-20 and Pitfall 3: the telescope comes from the block the record's times came from. A completed
-        request is finished, so a leftover pending block (here at another site) does not name the telescope."""
-        record = self._make_observed_record('site-finished')
+    def test_the_observed_site_comes_from_the_block_the_records_times_came_from(self) -> None:
+        """WR-21, Pitfall 3 and review IN-33 (2): the telescope comes from the block whose start is the record's
+        stored scheduled start, whichever rule stored the times. The portal lists a block that took data (coj) and a
+        leftover pending block (ogg); a record stored with the pending block's times (as TOM Toolkit's rule stores
+        them) names ogg, one stored with the took-data block's times names coj, and one whose times match no listed
+        block gets the rule's choice for a finished request (coj)."""
+        failed = self._make_observed_record(
+            'site-on-failed',
+            scheduled_start=datetime(2026, 7, 12, 8, 55, 50, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 12, 15, 0, 31, tzinfo=dt_timezone.utc),
+        )
+        pending = self._make_observed_record(
+            'site-on-pending',
+            scheduled_start=datetime(2026, 9, 7, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 7, 10, 19, tzinfo=dt_timezone.utc),
+        )
+        neither = self._make_observed_record('site-on-neither')
         response = MagicMock()
         response.json.return_value = [
             dict(REAL_FAILED_BLOCKS['4253588']),
@@ -503,17 +523,80 @@ class TestObservedSiteLookup(_ProjectObservationCalendarTestBase):
             },
         ]
 
-        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+        with patch('solsys_code.calendar_utils.make_request', return_value=response) as mocked:
             call_command('project_observation_calendar', stdout=StringIO(), stderr=StringIO())
+            self.assertEqual(mocked.call_count, 3)
             # For contrast: the default, the order for a request that can still run, names the pending block.
-            default_block = resolve_placement_block('site-finished', op.facility_for(record))
+            default_block = resolve_placement_block('site-on-neither', op.facility_for(neither))
 
+        for record, site, telescope in ((failed, 'coj', 'FTS'), (pending, 'ogg', 'FTN'), (neither, 'coj', 'FTS')):
+            with self.subTest(observation_id=record.observation_id):
+                record.refresh_from_db()
+                self.assertEqual(record.parameters['observed_site'], site)
+                self.assertEqual(record.parameters['observed_telescope'], '2m0a')
+                event = CalendarEvent.objects.get(
+                    url=op.facility_for(record).get_observation_url(record.observation_id)
+                )
+                self.assertEqual(event.telescope, telescope)
+                self.assertTrue(event.title.startswith(f'[O] {telescope} '))
+        event = CalendarEvent.objects.get(url=op.facility_for(pending).get_observation_url('site-on-pending'))
+        self.assertEqual(event.start_time, datetime(2026, 9, 7, 10, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(default_block['site'], 'ogg')
+
+    def test_the_documented_correction_moves_a_record_to_the_rules_block_and_then_its_telescope(self) -> None:
+        """WR-22 and A-45: the runbook's two-step correction of a finished record that holds a leftover pending
+        block's times. Step 1, ``update_observation_status()``, stores FOMO's block in one save; the stored
+        telescope stays until step 2 removes the three observed-site parameters, and then one sweep looks it up
+        again from the block the new times came from."""
+        pending_block = {
+            'site': 'ogg',
+            'enclosure': 'clma',
+            'telescope': '2m0a',
+            'state': 'PENDING',
+            'start': '2026-09-07T10:00:00Z',
+            'end': '2026-09-07T10:19:00Z',
+        }
+        blocks = [dict(REAL_FAILED_BLOCKS['4253588']), pending_block]
+        record = self._make_observed_record(
+            '4253588',
+            scheduled_start=datetime(2026, 9, 7, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 9, 7, 10, 19, tzinfo=dt_timezone.utc),
+        )
+        record.parameters.update({'observed_site': 'ogg', 'observed_telescope': '2m0a', 'observed_enclosure': 'clma'})
+        record.save(update_fields=['parameters'])
+        event_url = op.facility_for(record).get_observation_url('4253588')
+
+        # Step 1: FOMO's facility stores the block FOMO's rule chooses, with the request's state.
+        with patch(
+            'solsys_code.observation_blocks.make_request',
+            side_effect=portal_side_effect({'4253588': 'COMPLETED'}, {'4253588': blocks}),
+        ):
+            FomoLCOFacility().update_observation_status('4253588')
+        record.refresh_from_db()
+        self.assertEqual(record.scheduled_start, datetime(2026, 7, 12, 8, 55, 50, tzinfo=dt_timezone.utc))
+
+        # The stored telescope is not looked up again, so the sweep makes no portal call and keeps 'ogg'.
+        response = MagicMock()
+        response.json.return_value = blocks
+        with patch('solsys_code.calendar_utils.make_request', return_value=response) as mocked:
+            call_command('project_observation_calendar', stdout=StringIO(), stderr=StringIO())
+            self.assertEqual(mocked.call_count, 0)
+        record.refresh_from_db()
+        self.assertEqual(record.parameters['observed_site'], 'ogg')
+        self.assertEqual(CalendarEvent.objects.get(url=event_url).telescope, 'FTN')
+
+        # Step 2: remove the three observed-site parameters; one sweep looks the telescope up again.
+        for key in ('observed_site', 'observed_telescope', 'observed_enclosure'):
+            record.parameters.pop(key)
+        record.save(update_fields=['parameters'])
+        with patch('solsys_code.calendar_utils.make_request', return_value=response) as mocked:
+            call_command('project_observation_calendar', stdout=StringIO(), stderr=StringIO())
+            self.assertEqual(mocked.call_count, 1)
         record.refresh_from_db()
         self.assertEqual(record.parameters['observed_site'], 'coj')
-        self.assertEqual(record.parameters['observed_telescope'], '2m0a')
-        event = CalendarEvent.objects.get(url=op.facility_for(record).get_observation_url('site-finished'))
+        event = CalendarEvent.objects.get(url=event_url)
         self.assertEqual(event.telescope, 'FTS')
-        self.assertEqual(default_block['site'], 'ogg')
+        self.assertEqual(event.start_time, datetime(2026, 7, 12, 8, 55, 50, tzinfo=dt_timezone.utc))
 
     def test_second_sweep_issues_no_portal_call_and_reports_unchanged(self) -> None:
         self._make_observed_record('site-second')
