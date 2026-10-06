@@ -15,7 +15,7 @@ progress:
   completed_plans: 79
   percent: 100
 last_activity: 2026-10-06
-last_activity_desc: Phase 37.1 plan 37.1-17 executed (WR-24 fallback record in the backfill notebook, IN-35 to IN-38 wording, WR-25 accepted); next /gsd-verify-work 37.1 (round-10 verification)
+last_activity_desc: Phase 37.1 round-10 verification human_needed 180/180 (truth 166 closed); 8 human items in 37.1-UAT.md tests 11-16; next /gsd-verify-work 37.1
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — EXECUTING
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — HUMAN VERIFICATION NEEDED
 Plan: 17 of 17
-Status: Plan 37.1-17 complete; ready for round-10 verification (ALLOC-06 stays open pending the live-host re-run)
+Status: Round 10 (2026-10-06): 37.1-17 executed (WR-24 fallback record 900664 in the backfill demo; IN-35 to IN-38 wording; WR-25 accepted); full-suite gate 2053 + 40 OK at 08eb0b0 (also the regression gate); deep review 0 critical / 0 warning / 7 info (IN-39 to IN-45; ledger open 26 of 66); verification human_needed 180/180 (ff4e033) -- truth 166 closed, no gaps. 8 human items merged into 37.1-UAT.md as tests 11-16 (test 7 still pending). ALLOC-06 stays open until the developer's live-host re-run (UAT tests 11 and 7). Next: `/gsd-verify-work 37.1`
 
 ## Performance Metrics
 
