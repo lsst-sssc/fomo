@@ -134,23 +134,34 @@ The event narrows as the record's own fields change:
 
 FOMO chooses the block itself: the first completed block, else the last pending
 block, else the last block that is in progress, that started and was aborted,
-or that failed after taking data. A failed block counts only if it took data:
-at least one of its configurations reports some time completed. The LCO portal
-can report a block that started, took data and then stopped early as failed
-rather than aborted -- every such block on the July 2026 Didymos requests was
-reported failed. A failed block with no time completed, and a block the portal
-never attempted or cancelled, never gives times. So while a request still has a
+or that failed after taking data.
+That is the order while the request can still run, which for an LCO or SOAR
+request means while it is pending. Once the request is finished -- its state is
+``COMPLETED``, ``WINDOW_EXPIRED``, ``CANCELED``, ``FAILURE_LIMIT_REACHED`` or
+``NOT_ATTEMPTED``, after which a record that holds both times is not looked up
+again -- a block that took data comes before a pending block the portal still
+lists, which will never run: the first completed block, else the last block
+that is in progress, was aborted or failed after taking data, else that
+leftover pending block. A failed block counts only if it took data: at least
+one of its configurations reports some time completed. The LCO portal can
+report a block that started, took data and then stopped early as failed rather
+than aborted -- every such block on the July 2026 Didymos requests was reported
+failed. A failed block with no time completed, and a block the portal never
+attempted or cancelled, never gives times. So while a request still has a
 pending block, the record follows that placed block: it is drawn ``[S]`` on the
-upcoming night, and that night's allocation entry retires. A block that is in
-progress, was aborted or failed after taking data counts only once no pending
-block remains (the LCO scheduler places a new block for a request whose block
-is still running only after one of that block's configurations has failed, so
-an in-progress block yields to that pending block too). FOMO does not leave
-this to TOM's own status call, which ignores in-progress, aborted and failed
-blocks. A request whose block was aborted or failed after taking data, with no
-pending block left, is therefore drawn over that block, with the marker its
-request state gives it (usually ``[X]`` once the window has expired), and only
-a request with no block that counts is drawn over its whole request window.
+upcoming night, and that night's allocation entry retires. That stops when the
+request finishes: if a block took data, the record then follows that block,
+even if the portal still lists a pending block. A block that is in progress,
+was aborted or failed after taking data counts only once no pending block
+remains or the request is finished (the LCO scheduler places a new block for a
+request whose block is still running only after one of that block's
+configurations has failed, so an in-progress block yields to that pending block
+too). FOMO does not leave this to TOM's own status call, which ignores
+in-progress, aborted and failed blocks. A request whose block was aborted or
+failed after taking data, with no pending block left or once the request is
+finished, is therefore drawn over that block, with the marker its request state
+gives it (usually ``[X]`` once the window has expired), and only a request with
+no block that counts is drawn over its whole request window.
 
 A record carries one block. Until the scheduler places a new block for a
 request whose block was aborted or failed after taking data, the record stays
@@ -162,9 +173,16 @@ the placed block completes, because the record then carries the completed
 block. If the placed block instead fails after taking data, the record keeps
 that later block and its night. If it fails with nothing completed and no
 pending block remains, the record goes back to the earlier block, whose night
-retires again, and the later night's allocation entry comes back. A request
-with a single block -- like each of the July 2026 Didymos requests -- is not
-affected.
+retires again, and the later night's allocation entry comes back. If the
+request instead finishes -- for example its window expires -- while the portal
+still lists the placed block as pending, the record goes back to the earlier
+block that took data, whose night retires again, and the placed night's
+allocation entry comes back: a finished request runs no further block. A
+request that finishes with only a pending block listed, and no block that took
+data, keeps that pending block's times, so its night stays retired although
+nothing was observed there; every earlier version of the rule did the same. A
+request with a single block -- like each of the July 2026 Didymos requests --
+is not affected.
 
 The event's title carries a compact marker naming that stage, e.g.
 ``[Q] 2m0 3I/ATLAS``. **One module, ``solsys_code/status_vocabulary.py``,
@@ -274,9 +292,13 @@ The ``post_save`` receiver above covers ``ObservationRecord.save()``, but it
 cannot see a write path that bypasses ``save()`` entirely --
 ``QuerySet.update()``, ``bulk_create()``, and anything editing rows outside
 Django. ``project_observation_calendar`` is the backstop sweep for exactly
-those paths, plus the one-time observed-telescope lookup for a newly
-observed record (a single live portal call per record, ever). It needs no
-arguments -- omitting every flag sweeps every LCO/SOAR record:
+those paths, plus the one-time observed-telescope lookup for a newly observed
+record (a single live portal call per record, ever). That lookup reads the
+block FOMO's block choice gives a finished request (see "How do LCO/SOAR queue
+observations get onto the calendar?" above), so the telescope it names is the
+one the record's times came from, even when the portal still lists a leftover
+pending block. It needs no arguments -- omitting every flag sweeps every
+LCO/SOAR record:
 
 .. code-block:: console
 
@@ -555,20 +577,20 @@ counts as a campaign member from the next run. ``links skipped`` counts a
 record whose link check or link write failed; the failure is named on
 stderr by its error class only and never stops the sweep.
 
-**Scheduled times.** Unlike the sibling command's post-create live status
-call, this command resolves each request's observed block from an embedded
-block list on the RequestGroup payload when the portal supplies one, or
-otherwise falls back to a live, best-effort
-``get_observation_status()`` call per request (skipped
-entirely under ``--dry-run``). Both paths use FOMO's block choice -- the first
-completed block, else the last pending block, else the last in-progress block,
-block that started and was aborted, or block that failed after taking data
-(see "How do LCO/SOAR queue observations get onto the calendar?" above) --
-because TOM Toolkit's own status call ignores aborted and failed blocks. A
-request with no block that counts has no times. A failed fallback lookup (a
-timeout, a portal error, or a reply whose block list is not a list) is logged
-and counted under ``block lookups failed``, is never fatal, and never erases
-anything. A record that already exists keeps its stored
+**Scheduled times.** Unlike the sibling command's post-create live status call,
+this command resolves each request's observed block from an embedded block list
+on the RequestGroup payload when the portal supplies one, or otherwise falls
+back to a live, best-effort ``get_observation_status()`` call per request
+(skipped entirely under ``--dry-run``). Both paths use FOMO's block choice --
+the first completed block, else the last pending block, else the last
+in-progress block, block that started and was aborted, or block that failed
+after taking data; once the request is finished, a block that took data comes
+before a leftover pending block (see "How do LCO/SOAR queue observations get
+onto the calendar?" above) -- because TOM Toolkit's own status call ignores
+aborted and failed blocks. A request with no block that counts has no times. A
+failed fallback lookup (a timeout, a portal error, or a reply whose block list
+is not a list) is logged and counted under ``block lookups failed``, is never
+fatal, and never erases anything. A record that already exists keeps its stored
 ``scheduled_start``/``scheduled_end`` and its stored status: a state change the
 portal reported is held back until a lookup for it succeeds, so the record's
 allocation night stays as it was and the next run looks the request up again. A
@@ -581,33 +603,36 @@ lookup marks an existing record the same way (see below).
 
 The live lookup is not made for a record that is already finished. When the
 record's stored state is one of the terminal states reported by
-``LCOFacility.get_terminal_observing_states()`` and equals the state the
-portal reports for the request, the record is compared on status and
-parameters only and its stored ``scheduled_start``/``scheduled_end`` are left
-as they are. The exception is a completed record that is still missing its
-scheduled times: it keeps being looked up until the portal supplies them, so a
-failed lookup is retried rather than frozen. A request in one of the
-facility's failed request states (``WINDOW_EXPIRED``, ``CANCELED``,
-``FAILURE_LIMIT_REACHED`` or ``NOT_ATTEMPTED``) can still carry a block that
-took data -- one that started and was aborted, or one that failed after
-taking data. Every status change the discovery sweep and the unattended runner
-store comes with that block: the sweep stores a state change only together with
-a lookup that succeeded (see the failed-lookup rule above), and the unattended
-status refresh writes nothing for a request whose lookup fails. That is what
-keeps the per-tick skip safe for those records. The Didymos backfill
+``LCOFacility.get_terminal_observing_states()`` and equals the state the portal
+reports for the request, the record is compared on status and parameters only
+and its stored ``scheduled_start``/``scheduled_end`` are left as they are. The
+exception is a completed record that is still missing its scheduled times: it
+keeps being looked up until the portal supplies them, so a failed lookup is
+retried rather than frozen. A request in one of the facility's failed request
+states (``WINDOW_EXPIRED``, ``CANCELED``, ``FAILURE_LIMIT_REACHED`` or
+``NOT_ATTEMPTED``) can still carry a block that took data -- one that started
+and was aborted, or one that failed after taking data. Every status change the
+discovery sweep and the unattended runner store comes with that block: the
+sweep stores a state change only together with a lookup that succeeded (see the
+failed-lookup rule above), and the unattended status refresh writes nothing for
+a request whose lookup fails. FOMO's block choice reads the request's state, so
+at the change to a failed state that block is stored even if the portal still
+lists a pending block beside it, and the stored block does not change if the
+portal later marks that pending block not attempted. That is what keeps the
+per-tick skip safe for those records. The Didymos backfill
 (``backfill_lco_observation_records``) creates a record with the listing's
 status before it looks up the block and reports a failed lookup under
 ``status sync failed``; such a record is recovered by re-running it with
-``--recheck-unscheduled``. A status change made through one of TOM Toolkit's own
-routes -- its ``updatestatus`` command, the **Update status** button on its
+``--recheck-unscheduled``. A status change made through one of TOM Toolkit's
+own routes -- its ``updatestatus`` command, the **Update status** button on its
 observation list, its Cancel button or its REST cancel route (see "What runs,
 and when" below) -- still uses TOM's rule and leaves such a record without
 times, and the per-tick skip then leaves it alone too. A brand-new request, a
-record still in a non-terminal state, a record whose state changed, and a record
-marked after a failed lookup are all still looked up. With the portal's listing
-carrying no observed blocks, this keeps a tick's lookups roughly equal to the
-number of unfinished and new requests as a proposal ages, instead of growing
-with every request ever made.
+record still in a non-terminal state, a record whose state changed, and a
+record marked after a failed lookup are all still looked up. With the portal's
+listing carrying no observed blocks, this keeps a tick's lookups roughly equal
+to the number of unfinished and new requests as a proposal ages, instead of
+growing with every request ever made.
 
 **Re-checking records with no scheduled time.** Records stored before this
 release, and any finished through one of TOM's own routes, are brought up to
@@ -1415,12 +1440,15 @@ that "unlink to restore" sentence applies to). A block counts once it is
 placed, in progress, completed, started and aborted, or failed after taking
 data, while a request that expired or was cancelled without ever getting a
 block retires nothing and its night stays. A record carries one block, so a
-request the scheduler places again retires only the night of the block FOMO
-now chooses (the placed one while the request is pending): the night of an
-earlier block that was aborted or failed after taking data shows its
-allocation entry again, and keeps it if the placed block completes. A failed
-block that took no data, and a block the portal never attempted or cancelled,
-retires nothing either;
+request the scheduler places again retires only the night of the block FOMO now
+chooses (the placed one while the request can still run, and the block that
+took data once the request is finished, even if a pending block is still
+listed): the night of an earlier block that was aborted or failed after taking
+data shows its allocation entry again, and keeps it if the placed block
+completes. If the request instead finishes while the placed block is still
+listed as pending, the earlier night retires again. A failed block that took no
+data, and a block the portal never attempted or cancelled, retires nothing
+either;
 (2) a boundary-affecting
 field changed since the night was last minted -- either a sub-night window
 field (the run's own dawn/dusk or dark-window overrides), or a correction
@@ -1744,19 +1772,20 @@ What runs, and when
 Every 15 minutes (``*/15 * * * *``), ``run_unattended`` runs five steps, in
 this fixed order, in one process:
 
-1. **status_refresh** -- the FOMO-owned LCO/SOAR observation-status
-   refresh, replacing TOM's stock ``updatestatus`` command. It never
-   touches Gemini or ESO, which have no facility read-back to refresh. It
-   reads each request's block with FOMO's own block choice (see "How do
-   LCO/SOAR queue observations get onto the calendar?"), so a tick never
-   erases the times of an in-progress or aborted block, or of a block that
-   failed after taking data. While a request still has a pending block, the
-   tick stores that placed block's times instead, so a request placed again
-   after an aborted or failed block moves to its new night on the next tick.
-   A reply whose block
-   list is not a list counts as a failed record
-   (``UnexpectedBlockPayloadError``), never as an empty block list, so it
-   never erases a stored time either.
+1. **status_refresh** -- the FOMO-owned LCO/SOAR observation-status refresh,
+   replacing TOM's stock ``updatestatus`` command. It never touches Gemini or
+   ESO, which have no facility read-back to refresh. It reads each request's
+   block with FOMO's own block choice (see "How do LCO/SOAR queue observations
+   get onto the calendar?"), so a tick never erases the times of an in-progress
+   or aborted block, or of a block that failed after taking data. While a
+   request still has a pending block, the tick stores that placed block's times
+   instead, so a request placed again after an aborted or failed block moves to
+   its new night on the next tick. At the tick a request finishes, though, a
+   block that took data is stored even if the portal still lists a pending
+   block, because no later tick refreshes a finished record. A reply whose
+   block list is not a list counts as a failed record
+   (``UnexpectedBlockPayloadError``), never as an empty block list, so it never
+   erases a stored time either.
 2. **project_sweep** -- the observation projector's backstop sweep (the
    same logic ``project_observation_calendar`` runs), including the
    one-time observed-telescope lookup for a newly observed record.
