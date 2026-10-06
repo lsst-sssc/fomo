@@ -228,8 +228,12 @@ class Command(BaseCommand):
                 'scheduled time, using the block rule FOMO applies (a block that started and was aborted, '
                 'or that failed after taking data, counts once no pending block remains, and on a '
                 'finished request even beside a leftover pending block), so records '
-                'stored before that rule pick up their block times. One portal lookup per such record. '
-                'Default off.'
+                'missing a scheduled time pick up their block times. One portal lookup per such record. '
+                'It never revisits a record that holds both times, such as a finished record holding a '
+                "leftover pending block's times (TOM's rule stores those); correct one with "
+                'FomoLCOFacility().update_observation_status(<id>) (FomoSOARFacility for SOAR), then '
+                'remove its observed_site, observed_telescope and observed_enclosure parameters, as the '
+                'runbook describes. Default off.'
             ),
         )
 

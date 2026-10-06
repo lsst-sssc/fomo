@@ -337,7 +337,9 @@ def _resolve_schedule(
         skip_live_lookup: when True, a request without an embedded block returns
             (None, None, False, embedded) without any live call, exactly like a dry run.
             The caller sets this for a record already finished at the same portal state
-            (F2). An embedded block is still read either way, because that costs nothing.
+            (F2). An embedded block is still read either way, because that costs nothing; so for a finished
+            record an embedded block list is re-read on every sweep and its chosen block can change (an A-33
+            pending block later marked not attempted or cancelled gives no times), unlike the live lookup.
 
     Returns:
         tuple[Any, Any, bool, bool]: (scheduled_start, scheduled_end, lookup_failed,
@@ -423,16 +425,25 @@ def _schedule_lookup_is_needed(
     a failed state its record stores the block that took data, and that choice does not change if the portal
     later marks the pending block not attempted or cancelled. A request that reaches a failed state with only
     a pending block listed and no block that took data keeps that pending block's times, as every earlier
-    rule did (37.1-15 A-33). TOM Toolkit's own status routes run on TOM's registered ``LCOFacility``, which ignores
+    rule did (37.1-15 A-33). That holds on the live lookup; an embedded block list is re-read on every sweep, so
+    there that pending block's times can be erased once the portal marks it not attempted or cancelled. TOM
+    Toolkit's own status routes run on TOM's registered ``LCOFacility``, which ignores
     aborted and failed blocks: its stock ``updatestatus`` command and the observation list's "Update status"
     button that runs it, the Cancel button on its observation page, and its REST cancel route
-    ``PATCH /api/observations/<pk>/cancel/``. A record finished through one of them is stored
-    without its block's times, and this skip then leaves it alone exactly like a record
-    stored before 37.1-07 (T-37.1-42, accepted). The Didymos backfill command creates its record with
+    ``PATCH /api/observations/<pk>/cancel/``. A record finished through one of them gets TOM's
+    rule: the first completed block, else the last pending block, else no times. When the portal still lists a
+    pending block, TOM's rule stores that pending block's times, not none. Either way this skip leaves the
+    record alone, exactly like a record stored before 37.1-07 (T-37.1-42, accepted). The Didymos backfill
+    command creates its record with
     the listing's state before its own lookup and reports a failure under ``status sync failed``, so
-    such a record is recovered with ``recheck_unscheduled=True`` like a legacy one. Both kinds are
-    brought up to date by an operator run with ``recheck_unscheduled=True``, which also looks up a
-    failed-state record that is missing either time, once per run. The unattended runner never passes
+    such a record is recovered with ``recheck_unscheduled=True`` like a legacy one. A record of either kind
+    that is missing either time is brought up to date by an operator run with ``recheck_unscheduled=True``,
+    once per run, which also looks up a failed-state record that is missing either time. That run never
+    revisits a record that holds both times, such as one TOM's rule stored with a leftover pending block's
+    times; correct one such record with ``FomoLCOFacility().update_observation_status(<id>)``
+    (``FomoSOARFacility`` for SOAR) and then by removing its ``observed_site``, ``observed_telescope`` and
+    ``observed_enclosure`` parameters, so the next projector sweep looks its telescope up again. The unattended
+    runner never passes
     it, so F2's bounded per-tick lookups stay as they are. If that recheck lookup fails, the record is
     marked as above, so the next ordinary sweep of its proposal looks it up again: on every unattended
     tick for an active WatchedProposal row, and otherwise only on the operator's next manual run
@@ -1146,13 +1157,17 @@ class Command(BaseCommand):
     a failed block counts only when one of its configurations reports time completed)
     stores that block's times, for both the embedded list and the live lookup, even when the portal still lists
     a pending block beside it (developer decision 2026-10-05, review WR-20). A request that finishes with only
-    a pending block listed keeps that block's times (37.1-15 A-33). Records stored before
-    that rule, and records finished through one of TOM Toolkit's own status routes, have no times and
-    the skip above leaves them alone. --recheck-unscheduled (opt-in, works with --proposal and on the
-    bare form) looks up once every record missing a scheduled time, including those finished records,
-    so they pick up the times of a block that took data; a linked record that gains them retires its
-    run's allocation night in that same sweep. It costs one portal lookup per such record and is never used by
-    the unattended runner.
+    a pending block listed keeps that block's times (37.1-15 A-33). Records stored before that rule with no
+    times, and records finished through one of TOM Toolkit's own status routes with no times, are left alone
+    by the skip above until --recheck-unscheduled looks them up once; TOM's rule stores a leftover pending
+    block's times when the portal lists one. --recheck-unscheduled (opt-in, works with --proposal and on the
+    bare form) looks up once every record missing a scheduled time, so those records pick up the times of a
+    block that took data; a linked record that gains them retires its run's allocation night in that same
+    sweep. It costs one portal lookup per such record and is never used by the unattended runner. It never
+    revisits a record that holds both times. Correct one such record with
+    FomoLCOFacility().update_observation_status(<id>) (FomoSOARFacility for SOAR), then remove its
+    observed_site, observed_telescope and observed_enclosure parameters, as in the runbook's "Correcting one
+    record that already holds both times".
 
     Every Target the sweep touches -- matched by fuzzy name or newly built from orbital
     elements -- is collected into a TargetList named '<proposal>_targets', created on the
@@ -1241,9 +1256,13 @@ class Command(BaseCommand):
                 'records the per-tick skip leaves alone, using the block rule FOMO applies (a block that '
                 'started and was aborted, or that failed after taking data, counts once no pending '
                 'block remains, and on a finished request even beside a leftover pending block), so '
-                'records stored before that rule pick up their block times. One portal '
-                'lookup per such record. Works with or without --proposal. Never used by the unattended '
-                'runner. A failed lookup on a record '
+                'records missing a scheduled time pick up their block times. One portal '
+                'lookup per such record. It never revisits a record that holds both times, such as a '
+                "finished record holding a leftover pending block's times (TOM's rule stores those); "
+                'correct one with FomoLCOFacility().update_observation_status(<id>) (FomoSOARFacility '
+                'for SOAR), then remove its observed_site, observed_telescope and observed_enclosure '
+                'parameters, as the runbook describes. Works with or without --proposal. Never used by the '
+                'unattended runner. A failed lookup on a record '
                 'the per-tick skip would otherwise leave alone marks it schedule_lookup_failed; the '
                 'unattended runner retries a marked record only while its proposal is an active watched '
                 'proposal, so for any other code re-run --proposal <code> without --recheck-unscheduled '

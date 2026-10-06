@@ -26,15 +26,19 @@ put the started tier above PENDING). Once the request is finished, the order is 
 last ABORTED, IN_PROGRESS or FAILED-with-data block, else the last leftover PENDING block, else none (developer
 decision 2026-10-05 on review WR-20: a finished request runs no further block, so a block that took data outranks a
 pending block the portal still lists, and the tick at which the request finishes is the last one that reads its
-record). While a request can still run (its state is not terminal; for LCO and SOAR that is PENDING), its record
-follows the block the scheduler has placed: drawn as scheduled on the upcoming night, whose allocation night retires.
+record). That holds on the live lookup path; an embedded block list is re-read on every sweep, so there a record
+whose block stops counting loses its times (for example an A-33 pending block that the portal later marks not
+attempted or cancelled). While a request can still run (its state is not terminal; for LCO and SOAR that is
+PENDING), its record follows the block the scheduler has placed: drawn as scheduled on the upcoming night, whose
+allocation night retires.
 An aborted, in-progress or failed-with-data block counts once no pending block remains, or once the request is
 finished. A record carries one block, so while a request is placed again the night of its earlier aborted or failed
 block is not retired, and it stays unretired if the placed block completes (Phase 35 D-06 gives ground here); if the
 request instead finishes with the placed block still listed as pending, the record goes back to the block that took
 data and that night retires again. A finished request whose only timed block is a leftover PENDING block keeps that
-block's times, as every earlier rule did (37.1-15 A-33). A request with no block that counts keeps no times and
-retires nothing (Phase 35 D-05 unchanged).
+block's times, as every earlier rule did (37.1-15 A-33); that too holds on the live lookup path, because an embedded
+block list is re-read on every sweep and the portal can later mark that pending block not attempted or cancelled. A
+request with no block that counts keeps no times and retires nothing (Phase 35 D-05 unchanged).
 
 FOMO never edits or monkeypatches TOM Toolkit's installed code. The rule lives only on FOMO's own
 facility subclasses, :class:`FomoLCOFacility` and :class:`FomoSOARFacility`, which override the one
@@ -47,9 +51,14 @@ TOM's rule: its stock ``updatestatus`` command, the "Update status" button on it
 page (``tom_observations/views.py``, which runs that command), the Cancel button on its observation
 page (``ObservationRecordCancelView``), its REST cancel route (``PATCH /api/observations/<pk>/cancel/``,
 ``tom_observations/api_views.py``) and ``ObservationRecord.update_status()``. A request moved to a
-finished state through one of them is stored without the times of a block that took data, and nothing on a
-tick looks at a finished record again, so its allocation night comes back. An operator recovers an
-LCO record by re-running the backfill command for its proposal with ``--recheck-unscheduled``.
+finished state through one of them gets TOM's rule: the first COMPLETED block, else the last PENDING block, else no
+times. When the portal still lists a pending block, TOM's rule stores that pending block's times, so that block's
+night stays retired rather than the night of a block that took data; otherwise the record gets no times and its night
+comes back. Nothing FOMO runs looks such a record up again on the live path. ``--recheck-unscheduled`` on the backfill
+command for its proposal recovers an LCO record left with no times, but it never revisits a record that holds both
+times. One such record is corrected with ``FomoLCOFacility().update_observation_status(<id>)``
+(``FomoSOARFacility`` for SOAR) and then by removing its ``observed_site``, ``observed_telescope`` and
+``observed_enclosure`` parameters, so the next projector sweep looks its telescope up again.
 
 A portal reply whose block list is not a list (a dict error body, or a paginated ``{'results': [...]}``
 envelope) is a failed lookup, not "no block": :meth:`ScheduleBlockRuleMixin.get_observation_status` raises
@@ -138,7 +147,12 @@ def is_request_finished(state: Any, facility: Any) -> bool:
     2026-10-05, review WR-20). For LCO and SOAR those are COMPLETED, WINDOW_EXPIRED, CANCELED,
     FAILURE_LIMIT_REACHED and NOT_ATTEMPTED: TOM Toolkit's ``get_terminal_observing_states()``, the list its own
     update loop uses to stop refreshing a record. Any other value, including PENDING, None or a state the portal
-    adds later, reads as "can still run". List membership never hashes, so an odd state value never raises.
+    adds later, reads as "can still run".
+
+    The function relies on ``get_terminal_observing_states()`` returning a list, as TOM Toolkit's OCS facilities do
+    (``FomoLCOFacility`` and ``FomoSOARFacility`` included; a test pins that). List membership compares with ==
+    and never hashes, so an odd state value such as a dict or a list never raises. A facility returning a set or
+    frozenset would raise TypeError for an unhashable state.
 
     Args:
         state: the portal's request state, or a stored record's status.
@@ -169,8 +183,9 @@ def select_schedule_block(blocks: Any, *, request_finished: bool = False) -> dic
     two middle tiers swap: after the first COMPLETED block comes the LAST ABORTED, IN_PROGRESS or
     FAILED-with-data block, and only then the LAST PENDING block, a leftover the portal still lists (developer
     decision 2026-10-05, review WR-20). This matters at the one tick that is never repeated, the request's change
-    to a finished state: a finished record that holds both times is not looked up again. A finished request whose
-    only timed block is a leftover PENDING block still gets that block's times (37.1-15 A-33).
+    to a finished state: a finished record that holds both times is not looked up again (on the live lookup; an
+    embedded block list is re-read on every sweep, so there the chosen block can change later). A finished request
+    whose only timed block is a leftover PENDING block still gets that block's times (37.1-15 A-33).
 
     The portal lists a request's blocks in creation order (the observation portal orders them by block id).
     "First" and "last" lean on that order only within a tier -- the first COMPLETED block, the last PENDING
