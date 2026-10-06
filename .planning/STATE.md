@@ -3,7 +3,7 @@ gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
 current_phase: "37.1"
-current_phase_name: close-gap-alloc-06-exact-identity-system-links-on-ingest-int
+current_phase_name: "Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)"
 status: executing
 stopped_at: Completed 37.1-16-PLAN.md
 last_updated: "2026-10-06T14:13:02.105Z"
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-09-18 — after Phase 36 complete)
 
 ## Current Position
 
-Phase: 37.1 (close-gap-alloc-06-exact-identity-system-links-on-ingest-int) — READY TO EXECUTE
+Phase: 37.1 (Close gap: ALLOC-06 — exact-identity system links on ingest (intent review Q1) (INSERTED)) — READY TO EXECUTE
 Plan: 16 of 16
 Status: Round 9 (2026-10-06): 37.1-16 executed; full-suite gate 2053 + 40 OK at 56bf08d (also the regression gate); deep review 0 critical / 2 warning / 4 info (WR-24, WR-25, IN-35 to IN-38; ledger open 25 of 59); verification gaps_found 165/166 (b5f1271). Truth 149 (WR-21) is closed in code. The one gap, truth 166, is review WR-24: backfill_lco_observations_demo.ipynb cell d4a7c2e1 prints a false "can still run" contrast for 900662 and no executed cell shows the no-match fallback that projector cell 7e7bd66e cites. WR-25 (a matched never-run block becomes the permanent observed telescope, no log signal) is human item 7, a developer decision. ALLOC-06 stays open until the developer's live-host re-run (UAT tests 6 and 7). Next: `/gsd-plan-phase 37.1 --gaps`
 
