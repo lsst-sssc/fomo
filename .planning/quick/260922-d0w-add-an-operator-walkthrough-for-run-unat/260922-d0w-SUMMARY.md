@@ -9,7 +9,7 @@ requires:
   - phase: 36-unattended-operation
     provides: solsys_code/unattended.py (STEPS registry, run_tick(), per-step StepResult summaries)
 provides:
-  - "Walking through a first tick" operator walkthrough subsection in docs/runbooks/telescope_runs_calendar.rst
+  - '"Walking through a first tick" operator walkthrough subsection in docs/runbooks/telescope_runs_calendar.rst'
   - Corrected --step reference in "Running it by hand" (now names all five steps)
   - Corrected WatchedProposal bookkeeping labels (Last swept at / Last sweep summary) in three places
   - Fixed pre-existing docutils inline-literal warning at the .gitignore'd construct

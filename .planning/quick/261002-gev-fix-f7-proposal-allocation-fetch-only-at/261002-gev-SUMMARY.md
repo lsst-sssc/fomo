@@ -8,7 +8,7 @@ provides:
   - proposal_codes_to_fetch() narrowed to LCO/SOAR-fetchable codes
   - proposal_codes_not_fetchable()
   - refresh_all() 5-tuple with not_fetchable
-  - "not fetchable: N" in the proposal_allocation step summary
+  - '"not fetchable: N" in the proposal_allocation step summary'
 affects: [solsys_code/proposal_allocation.py, solsys_code/unattended.py, runbook, CLAUDE.md map]
 tech-stack:
   added: []

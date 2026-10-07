@@ -6,7 +6,7 @@ tags: [django, zoneinfo, campaignrun, allocation-projector, calendar-events]
 
 requires:
   - phase: 35 (Allocation Layer & Classical Cutover)
-    provides: night_start_utc/night_end_utc sub-night fields, the ALLOC: allocation projector, the sign-of-offset date rule 35-REVIEW.md NF-03 found broken
+    provides: 'night_start_utc/night_end_utc sub-night fields, the ALLOC: allocation projector, the sign-of-offset date rule 35-REVIEW.md NF-03 found broken'
 provides:
   - "_night_span_utc(): a per-run observing-night UTC span (zoneinfo-only, sun_event()-free) replacing the sign-of-offset boolean"
   - "_time_of_day_to_datetime() rewritten to a distance-to-span candidate resolution, no hour threshold"

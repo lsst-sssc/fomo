@@ -5,7 +5,7 @@ subsystem: calendar
 tags: [one-off-repair, calendar-events, allocation-nights, sqlite]
 requires:
   - phase: 35
-    provides: ALLOC: allocation-night projector (the nights that supersede the orphans)
+    provides: 'ALLOC: allocation-night projector (the nights that supersede the orphans)'
 provides:
   - retire_orphan_events.py: reviewable, dry-run-default script that retires the ten orphan CalendarEvents (pks 44-52, 334)
 affects: [v2.4 walkthrough Q1-Q7]

@@ -1,11 +1,12 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "UAT Phase 36 Test 3 'The heartbeat's dead-man half' — operator set healthchecks.io Grace to 20 min per the runbook; check still green 28 min after last ping. Only after the operator found the separate 'Period' setting (default 1 day) and set it to 15 min did the check go Late then Down with an alert email. FOMO itself logged nothing and sent nothing (mechanism correct)."
 created: 2026-09-17T00:00:00Z
-updated: 2026-09-17T00:00:00Z
+updated: 2026-10-06
 gap_id: G-36-3
 phase: 36-unattended-operation
 mode: diagnose-only
+resolved_by: "plan 36-06 (G-36-3), commit 561f9ea -- runbook now sets healthchecks Period to 15 min and Grace to ~20 min"
 ---
 
 ## Current Focus

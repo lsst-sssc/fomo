@@ -1,8 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "G-35-4 observatory-edit-leaves-nights-stale: Correcting an Observatory row's lat/lon/altitude/timezone in place (without changing run.site) should cause the next reconcile sweep to re-mint already-projected allocation nights at that site with boundaries derived from the corrected coordinates, counted and logged, rather than leaving them silently stale with unchanged=1. Round-5 repro showed ReconcileResult(created=0, updated=0, unchanged=1, retired=0) with token v2|1|none|none unchanged before and after. Owner decided 2026-09-16 to fix in round 6. Mode: find_root_cause_only."
 created: 2026-09-16T00:00:00Z
-updated: 2026-09-16T00:00:00Z
+updated: 2026-10-06
+resolved_by: "plans 35-23/35-24; owner closed G-35-4 as already satisfied, commit a2e3fb6"
 ---
 
 ## Current Focus

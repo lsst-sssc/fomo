@@ -1,8 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "the no active WatchedProposal prints twice, once uncolored and once in red"
 created: 2026-09-18T00:00:00Z
-updated: 2026-09-18T00:00:00Z
+updated: 2026-10-06
+resolved_by: "plan 36-09 (G-36-5), commits be955cf / 93ef89c -- each check line now goes to exactly one stream (check_unattended.py:615)"
 ---
 
 ## Current Focus

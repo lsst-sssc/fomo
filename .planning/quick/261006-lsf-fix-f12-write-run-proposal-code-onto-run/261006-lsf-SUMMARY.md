@@ -5,9 +5,9 @@ subsystem: calendar-reconciler
 tags: [F12, calendar, proposal, legend, reconciler, allocation-projector]
 requires: [ALLOC-01, PROJ-06, UNUSED-01]
 provides:
-  - RUN: containers and ALLOC: nights carry CampaignRun.proposal_code
+  - 'RUN: containers and ALLOC: nights carry CampaignRun.proposal_code'
   - target-first container titles
-  - "No proposal recorded" legend entry
+  - '"No proposal recorded" legend entry'
 affects: [solsys_code/campaign_reconciler.py, solsys_code/allocation_projector.py, solsys_code/templatetags/calendar_display_extras.py]
 key-files:
   modified:

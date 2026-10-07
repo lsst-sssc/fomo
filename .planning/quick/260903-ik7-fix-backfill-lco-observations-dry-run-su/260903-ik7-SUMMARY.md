@@ -23,9 +23,9 @@ tech-stack:
   patterns:
     - Single comparison helper (_changed_record_fields) called by both the write branch
       and the dry-run branch, so updated-vs-unchanged can never drift between modes.
-    - compare_schedule flag: schedule fields are compared only when the request's schedule
+    - 'compare_schedule flag: schedule fields are compared only when the request''s schedule
       was actually resolved (embedded observations block present), never against a None
-      the dry-run fallback-skip produced.
+      the dry-run fallback-skip produced.'
     - Per-invocation de-dup set for the dry-run target counter, matching what a real run's
       save-then-match sequence naturally produces.
 

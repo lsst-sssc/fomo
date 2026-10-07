@@ -6,7 +6,7 @@ tags: [django, calendar-reconciliation, ownership-predicate, test-coverage, docs
 
 requires:
   - phase: 35 (Allocation Layer & Classical Cutover)
-    provides: the ALLOC:/RUN: two-namespace reconciler and allocation projector this fix corrects
+    provides: 'the ALLOC:/RUN: two-namespace reconciler and allocation projector this fix corrects'
 provides:
   - "_clearable_declined_and_unattributed() -- one shared total-partition helper used at all four delete/detach call sites"
   - "_may_write() widened to police both the RUN: and ALLOC: namespaces"

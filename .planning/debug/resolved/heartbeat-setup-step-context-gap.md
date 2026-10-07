@@ -1,12 +1,13 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "the \"HeartBeat\" paragraph just starts \"Export `FOMO_HEARTBEAT_URL` in the environment\". There needs to be info or a step before this that says what it is, where to set it up, which website to go to, what to set period and grace time to"
 created: 2026-09-17T00:00:00Z
-updated: 2026-09-17T00:00:00Z
+updated: 2026-10-06
 gap_id: G-36-1
 phase: 36-unattended-operation
 mode: diagnose-only
 bug_class: Bohrbug (deterministic — a top-down read of the setup procedure reproduces the gap every time; no timing, no state)
+resolved_by: "plan 36-07 (G-36-1), commit 30ca224 -- runbook now introduces the heartbeat service before exporting FOMO_HEARTBEAT_URL"
 ---
 
 ## Current Focus
