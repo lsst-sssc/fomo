@@ -30,6 +30,11 @@ Requirements
   * scipy
   * spiceypy
 
+* whitenoise>=6.6 (serves static files when ``DEBUG=False``)
+
+The optional ``deploy`` extra (``pip install -e '.[deploy]'``) adds gunicorn>=23 for running FOMO as a
+long-lived service; see :doc:`deploy/deploy`.
+
 
 Setting Up Your Virtual Environment
 ---------------------------------------
