@@ -20,25 +20,28 @@ from .models import CampaignRun, CampaignRunObservation, ObservationRecordDismis
 
 # D-08 / UI-SPEC Approval-Status Badge Contract: fixed 3-entry dict, badge class never derived
 # from the raw DB string (mirrors calendar_display_extras.py's constant-lookup pattern shape).
+# The values are Bootstrap 5 ``text-bg-*`` classes: the Bootstrap 4 ``badge-*`` colour names
+# render white-on-white under the Bootstrap 5.3 this site loads (F14, quick task 261006-nga).
 APPROVAL_BADGE_CLASSES = {
-    CampaignRun.ApprovalStatus.PENDING_REVIEW: 'badge-warning',
-    CampaignRun.ApprovalStatus.APPROVED: 'badge-success',
-    CampaignRun.ApprovalStatus.REJECTED: 'badge-danger',
+    CampaignRun.ApprovalStatus.PENDING_REVIEW: 'text-bg-warning',
+    CampaignRun.ApprovalStatus.APPROVED: 'text-bg-success',
+    CampaignRun.ApprovalStatus.REJECTED: 'text-bg-danger',
 }
 
 # UI-SPEC Run-Status Badge Contract: deliberately muted so it never competes with the
-# mandatory approval_status badge. Dead-end outcomes use badge-light (+ grey border added in
-# render_run_status), NOT badge-danger -- danger-red is reserved exclusively for
-# approval_status=rejected (see UI-SPEC rationale).
+# mandatory approval_status badge. Dead-end outcomes use text-bg-light (+ grey border added in
+# render_run_status), NOT text-bg-danger -- danger-red is reserved exclusively for
+# approval_status=rejected (see UI-SPEC rationale). Bootstrap 5 ``text-bg-*`` classes, for the
+# same reason as APPROVAL_BADGE_CLASSES above (F14, quick task 261006-nga).
 RUN_STATUS_BADGE_CLASSES = {
-    CampaignRun.RunStatus.REQUESTED: 'badge-secondary',
-    CampaignRun.RunStatus.PLANNED: 'badge-secondary',
-    CampaignRun.RunStatus.OBSERVED: 'badge-info',
-    CampaignRun.RunStatus.REDUCED: 'badge-info',
-    CampaignRun.RunStatus.PUBLISHED: 'badge-primary',
-    CampaignRun.RunStatus.CANCELLED: 'badge-light',
-    CampaignRun.RunStatus.NOT_AWARDED: 'badge-light',
-    CampaignRun.RunStatus.WEATHER_TECH_FAILURE: 'badge-light',
+    CampaignRun.RunStatus.REQUESTED: 'text-bg-secondary',
+    CampaignRun.RunStatus.PLANNED: 'text-bg-secondary',
+    CampaignRun.RunStatus.OBSERVED: 'text-bg-info',
+    CampaignRun.RunStatus.REDUCED: 'text-bg-info',
+    CampaignRun.RunStatus.PUBLISHED: 'text-bg-primary',
+    CampaignRun.RunStatus.CANCELLED: 'text-bg-light',
+    CampaignRun.RunStatus.NOT_AWARDED: 'text-bg-light',
+    CampaignRun.RunStatus.WEATHER_TECH_FAILURE: 'text-bg-light',
 }
 
 # WR-02/CANON-02/D-18: stored code -> human label for the telescope-class column. Derived
@@ -184,6 +187,10 @@ class CampaignRunTable(tables.Table):
         pk that cannot be resolved, or one with no entry in ``self.tallies`` (e.g. no view
         ever attached one after construction, WR-05), renders a muted not-available
         token instead of raising or falling back to a live query.
+
+        The group/record counts and the four segments sit on two lines that never wrap
+        internally, so the column is never narrower than its longer line and the cell is
+        always exactly two lines (F14, quick task 261006-nga).
         """
         pk = Accessor('pk').resolve(record, quiet=True)
         tally = self.tallies.get(pk) if pk is not None else None
@@ -207,7 +214,8 @@ class CampaignRunTable(tables.Table):
         groups = tally['groups']
         records = tally['records']
         return format_html(
-            '<span title="{}">{} group{} · {} record{} · {}</span>',
+            '<span title="{}"><span class="d-block text-nowrap">{} group{} · {} record{}</span>'
+            '<span class="d-block text-nowrap">{}</span></span>',
             title,
             groups,
             '' if groups == 1 else 's',
@@ -228,9 +236,9 @@ class CampaignRunTable(tables.Table):
         sidesteps that pre-processing and gives the raw code for both dict and model rows.
         """
         value = Accessor('run_status').resolve(record, quiet=True)
-        css = RUN_STATUS_BADGE_CLASSES.get(value, 'badge-secondary')
+        css = RUN_STATUS_BADGE_CLASSES.get(value, 'text-bg-secondary')
         label = CampaignRun.RunStatus(value).label
-        style = 'border: 1px solid #6c757d;' if css == 'badge-light' else ''
+        style = 'border: 1px solid #6c757d;' if css == 'text-bg-light' else ''
         return format_html('<span class="badge {}" style="{}">{}</span>', css, style, label)
 
     def render_approval_status(self, record):
@@ -239,7 +247,7 @@ class CampaignRunTable(tables.Table):
         See render_run_status docstring -- same raw-value-via-Accessor rationale applies.
         """
         value = Accessor('approval_status').resolve(record, quiet=True)
-        css = APPROVAL_BADGE_CLASSES.get(value, 'badge-secondary')
+        css = APPROVAL_BADGE_CLASSES.get(value, 'text-bg-secondary')
         label = CampaignRun.ApprovalStatus(value).label
         return format_html('<span class="badge {}">{}</span>', css, label)
 
@@ -258,12 +266,15 @@ class CampaignRunTable(tables.Table):
         short-circuits to the table's placeholder), which is the intended appearance: blank
         means "not a class-wide allocation", while an unresolved site is carried by the site
         column's own warning styling, not by this one (D-13).
+
+        The badge is dark text on a light background with a grey border (the muted
+        CANON-02/D-18 token), so it is readable without hovering (F14, quick task 261006-nga).
         """
         value = Accessor('telescope_class').resolve(record, quiet=True)
         if not value:
             return ''
         return format_html(
-            '<span class="badge badge-light" style="border: 1px solid #6c757d;" title="{}">{}</span>',
+            '<span class="badge text-bg-light" style="border: 1px solid #6c757d;" title="{}">{}</span>',
             TELESCOPE_CLASS_LABELS.get(value, value),
             value,
         )
@@ -315,8 +326,8 @@ class CampaignRunTable(tables.Table):
         if start is None:  # both null by the model's own invariant
             original_obs_date_raw = Accessor('original_obs_date_raw').resolve(record, quiet=True) or ''
             if original_obs_date_raw:
-                return format_html('<span class="badge badge-secondary" title="{}">TBD</span>', original_obs_date_raw)
-            return format_html('<span class="badge badge-secondary">TBD</span>')
+                return format_html('<span class="badge text-bg-secondary" title="{}">TBD</span>', original_obs_date_raw)
+            return format_html('<span class="badge text-bg-secondary">TBD</span>')
         if start == end:
             return start  # single-night row (D-05)
         return format_html('{} -&gt; {}', start, end)  # D-05: literal "->", not an en-dash

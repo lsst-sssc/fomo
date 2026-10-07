@@ -10,6 +10,7 @@ non-sidereal-only fixtures for this project) and a plain `is_staff=True` `User` 
 prior `is_staff` test precedent exists in this codebase per 15-RESEARCH.md Wave 0 Gaps).
 """
 
+import re
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from unittest import mock
@@ -31,7 +32,12 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import campaign_tally, campaign_views
 from solsys_code.allocation_projector import allocation_night_url
-from solsys_code.campaign_tables import CampaignRunTable, _campaign_run_row_id
+from solsys_code.campaign_tables import (
+    APPROVAL_BADGE_CLASSES,
+    RUN_STATUS_BADGE_CLASSES,
+    CampaignRunTable,
+    _campaign_run_row_id,
+)
 from solsys_code.campaign_views import CampaignListView
 from solsys_code.models import CampaignRun, CampaignRunObservation, ProposalTimeAllocation
 from solsys_code.observation_projector import receiver_on_record_save
@@ -1642,3 +1648,93 @@ class TestProgressColumnOnClassWideRun(CampaignTallyViewTestBase):
         self.assertEqual(rollup['nights_observed'], 2)
         self.assertEqual(rollup['nights_scheduled'], 1)
         self.assertEqual(rollup['nights_failed'], 1)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestCampaignTableBadgesAndProgressLayout(CampaignTallyViewTestBase):
+    """F14 (quick task 261006-nga): every badge on the campaign table uses a Bootstrap 5
+    colour class (the Bootstrap 4 names render white-on-white under the 5.3 this site loads),
+    and the Progress cell is two lines that never wrap internally."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_telescope_class_badge_is_dark_text_on_a_light_background(self):
+        run = self._make_run(telescope_class=CampaignRun.TelescopeClass.ONE_M0)
+        cell = str(CampaignRunTable([run]).rows[0].get_cell('telescope_class'))
+        for token in (
+            'class="badge text-bg-light"',
+            '>1m0<',
+            'title="1m0 class allocation"',
+            'border: 1px solid #6c757d;',
+        ):
+            self.assertIn(token, cell)
+        dict_cell = str(CampaignRunTable([]).render_telescope_class({'telescope_class': '1m0'}))
+        self.assertEqual(dict_cell, cell)
+
+    def test_every_badge_uses_a_bootstrap5_colour_class(self):
+        table = CampaignRunTable([])
+        for value in list(APPROVAL_BADGE_CLASSES.values()) + list(RUN_STATUS_BADGE_CLASSES.values()):
+            self.assertTrue(value.startswith('text-bg-'), value)
+        rendered = []
+        for status in CampaignRun.RunStatus.values:
+            html = str(table.render_run_status({'run_status': status}))
+            self.assertIn(f'class="badge {RUN_STATUS_BADGE_CLASSES[status]}"', html)
+            rendered.append(html)
+        for status in (
+            CampaignRun.RunStatus.CANCELLED,
+            CampaignRun.RunStatus.NOT_AWARDED,
+            CampaignRun.RunStatus.WEATHER_TECH_FAILURE,
+        ):
+            self.assertIn('border: 1px solid #6c757d;', str(table.render_run_status({'run_status': status})))
+        for status in CampaignRun.ApprovalStatus.values:
+            html = str(table.render_approval_status({'approval_status': status}))
+            self.assertIn(f'class="badge {APPROVAL_BADGE_CLASSES[status]}"', html)
+            rendered.append(html)
+        tbd_run = CampaignRun.objects.create(
+            campaign=self.campaign, telescope_instrument='TBD Badge Scope', contact_person='Badge Contact'
+        )
+        tbd_cell = str(CampaignRunTable([tbd_run]).rows[0].get_cell('window_start'))
+        self.assertIn('class="badge text-bg-secondary"', tbd_cell)
+        rendered.append(tbd_cell)
+        for html in rendered:
+            self.assertIsNone(re.search(r'\bbadge-[a-z]', html), html)
+
+    def test_progress_cell_puts_counts_and_segments_on_two_unbreakable_lines(self):
+        run = self._make_run()
+        tally = {
+            'groups': 2,
+            'records': 3,
+            'nights_observed': 1,
+            'nights_scheduled': 1,
+            'nights_failed': 1,
+            'nights_unused': None,
+            'unused_is_estimate': True,
+            'unused_known': False,
+        }
+        table = CampaignRunTable([run])
+        table.tallies = {run.pk: tally}
+        cell = str(table.rows[0].get_cell('progress'))
+        self.assertEqual(cell.count('class="d-block text-nowrap"'), 2)
+        first, second = re.findall(r'<span class="d-block text-nowrap">(.*?)</span>', cell)
+        self.assertEqual(first, '2 groups · 3 records')
+        self.assertEqual(second, '[O] 1 [S] 1 [X/F] 1 [U] not yet known')
+        title = ', '.join(segment['label'] for segment in campaign_tally.tally_segments(tally))
+        self.assertIn(f'title="{title}"', cell)
+
+    def test_public_table_row_carries_the_readable_badge_and_two_line_progress_cell(self):
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            source=CampaignRun.Source.LCO_QUEUE,
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        start = content.index(f'id="run-{run.pk}"')
+        raw_row = content[start : content.index('</tr>', start)]
+        self.assertIn('class="badge text-bg-light"', raw_row)
+        self.assertIn('>1m0<', raw_row)
+        self.assertEqual(raw_row.count('d-block text-nowrap'), 2)
+        self.assertIn('[O] 0', ' '.join(raw_row.split()))
