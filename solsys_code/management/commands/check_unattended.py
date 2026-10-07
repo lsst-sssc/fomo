@@ -416,8 +416,7 @@ def check_base_url() -> CheckResult:
             ok=False,
             hard=False,
             detail=(
-                'FOMO_BASE_URL: unset or still the localhost dev default -- emailed links '
-                'will not work off this host'
+                'FOMO_BASE_URL: unset or still the localhost dev default -- emailed links will not work off this host'
             ),
         )
     return CheckResult(name='FOMO_BASE_URL', ok=True, hard=False, detail='FOMO_BASE_URL: set')
@@ -534,7 +533,7 @@ def check_facility_credentials() -> CheckResult:
             ok=False,
             hard=False,
             detail=(
-                f'{", ".join(missing)} api_key not set -- the unattended tick\'s status_refresh '
+                f"{', '.join(missing)} api_key not set -- the unattended tick's status_refresh "
                 'step will fail on every non-terminal record for that facility'
             ),
         )

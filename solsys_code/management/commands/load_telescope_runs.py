@@ -31,9 +31,9 @@ _CLASSICAL_RUN_STATUS = {
 # Adding one status word to KNOWN_STATUSES without a matching entry here would turn that
 # indexing into an uncaught KeyError that aborts the whole import/cutover mid-run, after
 # partial commits, with no reason report. Fail loudly at import time instead.
-assert (
-    set(_CLASSICAL_RUN_STATUS) == KNOWN_STATUSES
-), 'every telescope_runs.KNOWN_STATUSES member needs a CampaignRun.RunStatus mapping in _CLASSICAL_RUN_STATUS'
+assert set(_CLASSICAL_RUN_STATUS) == KNOWN_STATUSES, (
+    'every telescope_runs.KNOWN_STATUSES member needs a CampaignRun.RunStatus mapping in _CLASSICAL_RUN_STATUS'
+)
 
 
 def _window_token_to_time(token: str | None) -> time | None:

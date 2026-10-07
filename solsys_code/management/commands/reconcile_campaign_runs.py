@@ -128,13 +128,13 @@ class Command(BaseCommand):
             if result.detach_declined:
                 self.stderr.write(
                     f'Run pk={run.pk}: {result.detach_declined} superseded entr'
-                    f"{'y' if result.detach_declined == 1 else 'ies'} left attributed -- a person confirmed "
+                    f'{"y" if result.detach_declined == 1 else "ies"} left attributed -- a person confirmed '
                     'them, and an automated sweep never clears a human confirmation'
                 )
             if result.remint_declined:
                 self.stderr.write(
                     f'Run pk={run.pk}: {result.remint_declined} allocation night'
-                    f"{'' if result.remint_declined == 1 else 's'} kept "
+                    f'{"" if result.remint_declined == 1 else "s"} kept '
                     f"{'its' if result.remint_declined == 1 else 'their'} existing boundaries -- a person's "
                     'confirmation, an observation link, or an unverified companion row outranks this '
                     "automated correction; see the runbook's remint_declined section for the remedy"

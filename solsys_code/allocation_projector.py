@@ -930,7 +930,7 @@ def retired_nights(run: CampaignRun, site_zone: ZoneInfo) -> set:
             # G-34-2 portal-string case: the projector never raises on a record it cannot
             # read -- the record simply retires nothing.
             logger.warning(
-                'retired_nights: could not coerce schedule bounds for observation_record ' 'pk=%s: %s',
+                'retired_nights: could not coerce schedule bounds for observation_record pk=%s: %s',
                 record.pk,
                 type(exc).__name__,
             )

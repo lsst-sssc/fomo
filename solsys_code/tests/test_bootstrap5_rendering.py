@@ -23,7 +23,7 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, tag
 from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import sync_playwright
@@ -41,6 +41,7 @@ from solsys_code.models import (
 from solsys_code.solsys_code_observatory.models import Observatory
 
 
+@tag('functional')
 class TestBootstrap5Rendering(StaticLiveServerTestCase):
     """Functional suite proving BS5 JS behavior and crispy BS5 layout markup render correctly."""
 

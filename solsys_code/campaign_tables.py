@@ -204,11 +204,11 @@ class CampaignRunTable(tables.Table):
         for segment in segments:
             words.append(segment['label'])
             if not segment['known']:
-                segment_bits.append(f"{segment['marker']} not yet known")
+                segment_bits.append(f'{segment["marker"]} not yet known')
             elif segment['is_estimate']:
-                segment_bits.append(f"{segment['marker']} ≈{segment['count']}")
+                segment_bits.append(f'{segment["marker"]} ≈{segment["count"]}')
             else:
-                segment_bits.append(f"{segment['marker']} {segment['count']}")
+                segment_bits.append(f'{segment["marker"]} {segment["count"]}')
         segments_text = ' '.join(segment_bits)
         title = ', '.join(words)
         groups = tally['groups']

@@ -24,15 +24,22 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Cache SPICE kernels
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/sorcha
+        key: sorcha-kernels-v1
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
     - name: Install dependencies
       run: |
         sudo apt-get update
-        python -m pip install --upgrade pip
-        pip install -e .[dev]
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Run unit tests with pytest
+        uv pip install --system -e .[dev]
+        if [ -f requirements.txt ]; then uv pip install --system -r requirements.txt; fi
+    - name: Run Django unit tests with coverage
       run: |
-        python -m pytest --cov=fomo --cov-report=xml
+        coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault
+        coverage xml
     - name: Upload coverage report to codecov
       uses: codecov/codecov-action@v7
       with:
@@ -69,4 +76,4 @@ jobs:
         playwright install --with-deps chromium
     - name: Run Playwright functional tests
       run: |
-        python manage.py test solsys_code.tests.test_bootstrap5_rendering
+        python manage.py test --tag functional

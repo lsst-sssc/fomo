@@ -632,7 +632,7 @@ def _message_reconcile_side_effects(request, result) -> None:
         messages.info(
             request,
             f'{result.remint_declined} allocation night{"" if result.remint_declined == 1 else "s"} kept '
-            f'{"its" if result.remint_declined == 1 else "their"} existing boundaries -- a person\'s '
+            f"{'its' if result.remint_declined == 1 else 'their'} existing boundaries -- a person's "
             'confirmation, an observation link, or an unverified companion row outranks this automated '
             'correction.',
         )

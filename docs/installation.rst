@@ -10,22 +10,24 @@ Installation and Getting Started
 Requirements
 -----------------------------
 
-``fomo`` has the following requirements that will be automatically installed  using pip or conda when you install the requirements from the ``pytproject.toml`` file in the fomo package:
+``fomo`` has the following requirements that will be automatically installed  using pip or conda when you install the requirements from the ``pyproject.toml`` file in the fomo package:
 
-* python 3.11 or later
+* python 3.10 or later
 * astropy
-* tomtoolkit>=3.0.0a3
-* tom_alertstreams
-* tom_fink>=1.0.0
-* tom-registration
-* numpy>=2.0
+* tomtoolkit>=3.1.0
+* tom_alertstreams>=1.3.0
+* tom_fink>=2.0.1
+* tom_eso>=0.3.1
+* tom_jpl>=0.3.0
+* timezonefinder>=6.0
+* numpy>1.24 (tomtoolkit currently caps this below 2.2)
 * sorcha (which has several other dependencies of which the ones below are likely to be the largest or most troublesome):
 
   * assist
   * numba
   * pandas
   * rebound
-  * sbpy (>0.6.0 needed for Astropy 7.2+)
+  * sbpy (>=0.6.0 needed for Astropy 7.2+)
   * scipy
   * spiceypy
 
