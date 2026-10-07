@@ -100,7 +100,7 @@ from solsys_code.scout_views import (
 )
 from solsys_code.views import Ephemeris, MakeEphemerisView, ProtectedUserDeleteView
 ```
-URL list: main's two shadow routes `targets/` (`scout_target_list`) and `targets/export/` (`scout_target_export`) go first (with main's comment; earlier pattern wins), then branch's `observatory/`, `ephem/`, `makeephem/`, main's `scout/rubin-too/` and `scout/rubin-too/stats/`, branch's `calendar/` (with DISPLAY-09 comment), `campaigns/`, `alerts/`, `users/<int:pk>/delete/`, and last `path('', include('tom_common.urls'))`. Keep the branch's explanatory comments (urls.py lines 25-37). Expected warning: `urls.W005` for namespace `calendar`.
+URL list: main's two shadow routes `targets/` (`scout_target_list`) and `targets/export/` (`scout_target_export`) go first (with main's comment; earlier pattern wins), then branch's `observatory/`, `ephem/`, `makeephem/`, main's `scout/rubin-too/` and `scout/rubin-too/stats/`, branch's `calendar/` (with DISPLAY-09 comment), `campaigns/`, `users/<int:pk>/delete/`, and last `path('', include('tom_common.urls'))`. Keep the branch's DISPLAY-09, VIEW-01 and WR-10 comments; the `alerts/` include and its three-line comment are main's deletion (ada2000), not branch content (corrected by 38-05, CR-01). Expected warning: `urls.W005` for namespace `calendar`.
 
 ### `.pre-commit-config.yaml` (auto-merges; two edits afterwards)
 
