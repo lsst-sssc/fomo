@@ -12,6 +12,7 @@ files:
 audit_acknowledged:
   milestone: v2.4
   at: 2026-10-06
+resolves_phase: 40
 ---
 
 ## Problem
