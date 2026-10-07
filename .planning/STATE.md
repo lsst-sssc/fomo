@@ -1,20 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v2.4
-milestone_name: Observation-First Calendar
-status: Awaiting next milestone
-stopped_at: v2.4 milestone completed and archived
-last_updated: "2026-10-07T04:07:04.948Z"
+milestone: v2.5
+milestone_name: Main Sync & Consolidation
+status: planning
+last_updated: "2026-10-07T05:56:57.680Z"
 last_activity: 2026-10-06
-last_activity_desc: Milestone v2.4 completed and archived
-state_head: f45e17ee803ad93c736f5371c7fb4908091a5493
 progress:
-  total_phases: 6
-  completed_phases: 39
-  total_plans: 79
-  completed_plans: 79
-  percent: 100
-current_phase: "37.1"
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-10-06 — after the v2.4 milestone)
 
 ## Current Position
 
-Phase: Milestone v2.4 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-10-06 — Milestone v2.4 completed and archived
+Status: Defining requirements
+Last activity: 2026-10-06 — Milestone v2.5 started
 
 ## Performance Metrics
 

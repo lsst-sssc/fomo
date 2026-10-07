@@ -103,14 +103,19 @@ Validated in Phase 27: all five CANON requirements (CANON-01 through CANON-05) a
 
 **Milestone v2.4 "Observation-First Calendar" is complete (shipped 2026-10-06).** All phases (33, 34, 35, 36, 37, 37.1) shipped. Awaiting `/gsd-new-milestone`.
 
-## Next Milestone Goals
+## Current Milestone: v2.5 Main Sync & Consolidation
 
-Not yet defined — `/gsd-new-milestone` will question, research and write fresh requirements. Inputs already on hand:
+**Goal:** Bring the long-running `issue37-telescope-runs-calendar` branch back in step with `main` and clear the debt v2.4 carried forward, so the next feature milestone starts from a current, clean base.
 
-- The 13 intent-review todos dated 2026-10-07 (F8 is the major one) and the two new seeds: SEED-261007-5pe (a proposal-centric `Proposal` record linking `WatchedProposal`, `ProposalTimeAllocation` and runs) and SEED-261007-j63 (per-site obscode sets for LCO site codes).
-- The open 37.1 review warnings (WR-05, WR-13 to WR-18): Bootstrap 4 class names on the attribution page, notebooks byte-copying the developer database, the notebook guard, and the `Undo` paging behaviour on dismissed rows.
-- Backlog Phase 999.1: a marker for part-completed observations (window expired after some data was taken).
-- System-link outcomes are not yet reported in the discovery step's tick summary (SCHED-09 visibility for ALLOC-06).
+**Target features:**
+- **Sync with `main`** — merge `origin/main` into the branch (62 commits since the 2026-08-03 merge base `756680f`; merge, not rebase) and adopt exactly what `main` already requires: `tomtoolkit>=3.1.0` (we run 3.0.1), `tom_jpl>=0.3.0`, `ruff` 0.16.9 via `ruff-pre-commit` (replacing the `==0.2.1` pin and the `CLAUDE.md` text that documents it), LINCC python-project-template v2.2.0, the Django test runner in CI, `coverage` in the dev extras. Drop the dead pytest configuration (`[tool.pytest.ini_options]`, `pytest`/`pytest-cov` extras, the legacy `tests/` suite). Full suite green on the new versions. Draft PR #43's body rewritten to describe v2.4; it stays a draft.
+- **Review-warning cleanup** — the seven open Phase 37.1 warnings (WR-05, WR-13 to WR-18). The WR-05 finding that the calendar create/update endpoints have no authentication is handled first.
+- **Todo triage and fixes** — the 19 pending todos and backlog Phase 999.1 sorted into fix-now / drop / park with a one-line reason each; fix-now items become requirements of this milestone, the rest are closed or stay as todos.
+- **SEED-261007-5pe update** — the gist of the TOM Toolkit Slack "multi proposal support" thread folded into the seed so the Proposal-record design starts from it in a later milestone. No code.
+
+**Out of scope for v2.5:** merging PR #43 to `main`; speculative version bumps beyond `main`'s floors (Django 5.2.18, astropy, sorcha wait); implementing SEED-261007-5pe or SEED-261007-j63; the ESO seeds (SEED-001/002); SUBMIT-06/07.
+
+**Why now:** the branch's merge base with `main` is two months old and the draft PR predates all of v2.4. `main` has moved its tooling (ruff 0.16.9, the Django runner in CI, TOM 3.1.0) and the proposal-record design in SEED-5pe should not be made against TOM 3.0.1 while upstream is discussing multi-proposal support.
 
 ## Core Value
 
@@ -490,9 +495,15 @@ Every run expands into per-night (or per-day) events; a classical TAC-awarded ru
 
 ### Active
 
-No active requirements — v2.4 shipped 2026-10-06 with all 30 requirements validated above. Requirements for the next milestone are defined by `/gsd-new-milestone`.
+v2.5 Main Sync & Consolidation (defined 2026-10-06; REQ-IDs in `.planning/REQUIREMENTS.md`):
 
-Candidates carried forward (not committed to any milestone): the 19 todos and 4 seeds deferred at the v2.4 close (`.planning/STATE.md` Deferred Items) — notably the intent-review routings (F8 and smaller items as todos; SEED-261007-5pe, a proposal-centric `Proposal` record; SEED-261007-j63, per-site obscode sets) and the open 37.1 review warnings (WR-05, WR-13 to WR-18); SEED-003 (still marked dormant although v2.4's unattended operation was scoped from it — review whether it can be closed); ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup); SEED-004 (upstream the projector to tomtoolkit). Dropped, not deferred: v2.3's OUTCOME-01..04 and ADAPT-01..06.
+- [ ] The branch is merged with `origin/main` and carries `main`'s dependency floors and tooling (tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9, LINCC template 2.2.0, Django runner in CI); the dead pytest configuration is gone; the full suite passes on the new versions.
+- [ ] Draft PR #43's description reflects v2.4.
+- [ ] The seven open Phase 37.1 review warnings are closed (WR-05 first).
+- [ ] The 19 pending todos and backlog Phase 999.1 are triaged; fix-now items are fixed.
+- [ ] SEED-261007-5pe records the TOM Toolkit multi-proposal Slack thread.
+
+Still carried forward, not in this milestone: SEED-261007-5pe implementation and SEED-261007-j63; SEED-003 (still marked dormant although v2.4's unattended operation was scoped from it — review whether it can be closed); ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup); SEED-004 (upstream the projector to tomtoolkit). Dropped, not deferred: v2.3's OUTCOME-01..04 and ADAPT-01..06.
 
 ### Out of Scope
 
@@ -695,4 +706,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-06 after v2.4 milestone (Observation-First Calendar shipped: Phases 33-37.1, 79 plans, 30/30 requirements; Phase 37 Validated entries written; override close with 25 deferred items).*
+*Last updated: 2026-10-06 after starting milestone v2.5 (Main Sync & Consolidation: merge main, adopt its tooling floors, clear the 37.1 review warnings, triage the carried-forward todos).*
