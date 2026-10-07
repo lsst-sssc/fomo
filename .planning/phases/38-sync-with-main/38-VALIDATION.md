@@ -52,10 +52,15 @@ created: "2026-10-07"
 | 38-04-01 | 04 | 4 | SYNC-08 | T-38-17, T-38-21 | leak grep over `git ls-files`; body rejects `/home/` and api_key text | integration | 2 `<automated>` blocks: snapshot tree/ancestry/fast-forward/leak check; PR body D-12 elements | ✅ | ✅ green |
 | 38-04-02 | 04 | 4 | SYNC-08 | T-38-17, T-38-18 | blocking-human approval before any push | manual (checkpoint:decision) | — (developer answered `publish`; recorded in 38-04-SUMMARY.md) | — | ✅ green |
 | 38-04-03 | 04 | 4 | SYNC-05, SYNC-08 | T-38-18, T-38-19, T-38-20 | fast-forward pushes only; `isDraft` re-checked; worktree removed | integration | 4 `<automated>` blocks: remote tips/ancestry/tree equality; `gh pr view` draft + body; three CI runs success with the coverage step and no pytest; worktree gone | ✅ | ✅ green |
+| 38-05-01 | 05 | 5 | SYNC-04, SYNC-07 | T-38-22, T-38-23, T-38-24 | `alerts/` include deleted (main's ada2000); tom_alerts not re-installed; route set = main + calendar/campaigns/user-delete before tom_common | unit + integration (TDD: RED `FAILED (failures=3)` → `RED_EVIDENCE_OK` → GREEN) | 7 `<automated>` blocks: `manage.py test solsys_code.tests.test_urls` (Ran 4, OK); RED evidence classified; route-set/order/AST check; `manage.py check` only urls.W005; TestUserDeleteView + test_scout_views; both ruff hooks; test commit precedes fix, numstat `0 4`, nothing pushed | ✅ | ✅ green |
+| 38-05-02 | 05 | 5 | SYNC-04, SYNC-07 | T-38-23, T-38-25 | planning-doc edits limited to six named lines, each marked "corrected by 38-05"; no SUMMARY/REVIEW/VERIFICATION edited | integration (full suite) + docs | 3 `<automated>` blocks: old `alerts/` wording absent + 38-01 frontmatter parses; docs commit numstat 4/4, 1/1, 1/1 in exactly the planned files; full suite log newer than the fix, `Ran 2182 tests`, exact `OK`, no skipped, all four test_urls tests present | ✅ | ✅ green |
+| 38-06-01 | 06 | 6 | SYNC-04 | T-38-26, T-38-30 | snapshot tree = v2.5 tree minus `.planning/`; leak grep over `ls-files`; changed paths exactly the two 38-05 files; no edit in the worktree | integration (git) | 2 `<automated>` blocks: one snapshot commit on the PR head with parent = pre-push tip, tree equality, origin/main contained; leak check + no tom_alerts in the snapshot's urls.py + test_urls.py present | ✅ | ✅ green |
+| 38-06-02 | 06 | 6 | SYNC-04, SYNC-08 | T-38-27 | blocking-human decision before anything leaves the machine; `ls-remote` still at the recorded tips while waiting | manual (checkpoint:decision) | — (developer answered `publish`; recorded in 38-06-SUMMARY.md) | — | ✅ green |
+| 38-06-03 | 06 | 6 | SYNC-04, SYNC-05, SYNC-08 | T-38-27, T-38-28, T-38-29 | plain fast-forward pushes only; `isDraft` re-checked, no `gh pr edit`; branch guard before each push; worktree removed | integration | 4 `<automated>` blocks: both remotes equal local and descend from the recorded tips, PR head tree = v2.5 tree minus `.planning/`, no tom_alerts in the PR's urls.py diff; `gh pr view` draft + D-12 body; three CI runs success on 846be34 with the coverage step and no pytest; worktree gone | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
-All 36 automated verify commands across the ten executed tasks carry a `<fails_when>` direction (`gsd_run check verify-failure-directions 38` → status ok, 0 non-ok) and every SUMMARY reports `Self-Check: PASSED`.
+All 52 automated verify commands across the fourteen executed tasks (36 in 38-01..38-04, 16 in the gap-closure plans 38-05 and 38-06) carry a `<fails_when>` direction (`gsd_run check verify-failure-directions 38` → status ok, 0 non-ok) and every SUMMARY reports `Self-Check: PASSED`.
 
 ---
 
@@ -69,21 +74,21 @@ Existing infrastructure covers all phase requirements.
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| CI runs the Django test runner with coverage on a push | SYNC-05 | GitHub Actions runs remotely; the workflows trigger only on `push` to `main` and `pull_request` to `main` | Done in 38-04 Task 3 (automated via `gh run list/view` against snapshot `1a68a76`): "Unit test and code coverage" ran `build (3.10/3.11/3.12)` + `functional-tests` with the `Run Django unit tests with coverage` step, no pytest job; "Run pre-commit hooks" and "Build documentation" also succeeded. To re-check by hand: open the Actions tab for PR #43's head commit |
-| Developer approval of the staged merge resolution and of publishing PR #43 | SYNC-01, SYNC-08 | blocking-human checkpoints (D-01, D-11) — a judgment, not a test | Answers recorded verbatim in 38-01-SUMMARY.md (`approve`) and 38-04-SUMMARY.md (`publish`) |
+| CI runs the Django test runner with coverage on a push | SYNC-05 | GitHub Actions runs remotely; the workflows trigger only on `push` to `main` and `pull_request` to `main` | Done in 38-04 Task 3 (automated via `gh run list/view` against snapshot `1a68a76`): "Unit test and code coverage" ran `build (3.10/3.11/3.12)` + `functional-tests` with the `Run Django unit tests with coverage` step, no pytest job; "Run pre-commit hooks" and "Build documentation" also succeeded. Repeated in 38-06 Task 3 against the gap-closure re-snapshot `846be34` (same three workflows, all success; first CI run of `test_urls.py` on Python 3.10/3.12). To re-check by hand: open the Actions tab for PR #43's head commit |
+| Developer approval of the staged merge resolution and of publishing PR #43 | SYNC-01, SYNC-08 | blocking-human checkpoints (D-01, D-11) — a judgment, not a test | Answers recorded verbatim in 38-01-SUMMARY.md (`approve`), 38-04-SUMMARY.md (`publish`) and 38-06-SUMMARY.md (`publish`, the gap-closure re-snapshot) |
 
 ---
 
 ## Validation Sign-Off
 
-- [x] All tasks have `<automated>` verify or Wave 0 dependencies (the two checkpoint tasks are human gates with recorded answers)
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (the three checkpoint tasks are human gates with recorded answers)
 - [x] Sampling continuity: no 3 consecutive tasks without automated verify
 - [x] Wave 0 covers all MISSING references (none)
 - [x] No watch-mode flags
 - [x] Feedback latency < 600s (targeted runs ≤ 60 s; the full suite ran 457–550 s)
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** validated 2026-10-07 by the execute-phase verify:post hook (State A audit; 0 gaps, 0 escalations)
+**Approval:** validated 2026-10-07 by the execute-phase verify:post hook (State A audit; 0 gaps, 0 escalations); re-audited 2026-10-07 after the gap-closure run (38-05, 38-06 added to the map; 0 gaps, 0 escalations)
 
 ## Validation Audit 2026-10-07
 
@@ -95,3 +100,14 @@ Existing infrastructure covers all phase requirements.
 | Automated commands | 36 |
 | Executed tasks | 10 |
 | Checkpoint tasks | 2 |
+
+## Validation Audit 2026-10-07
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Automated commands | 52 |
+| Executed tasks | 14 |
+| Checkpoint tasks | 3 |
