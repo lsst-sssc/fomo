@@ -476,6 +476,53 @@
 
 ---
 
+## Milestone: v2.4 — Observation-First Calendar
+
+**Shipped:** 2026-10-06
+**Phases:** 6 (33, 34, 35, 36, 37, 37.1 inserted) | **Plans:** 79 | **Tasks:** 218 | **Commits:** 940 (2026-09-03 → 2026-10-06)
+
+### What Was Built
+
+- Phase 33: `CalendarEventMeta` gained real `observation_record`/`observation_group` links, and the campaign reconciler was inverted from owner to annotator. Campaign decoration is rendered at display time from the link, so re-projecting an event can never erase it.
+- Phase 34: the observation projector. A FOMO-owned `post_save` receiver gives every LCO/SOAR `ObservationRecord` one calendar event that narrows on every save, backstopped by the `project_observation_calendar` sweep; `sync_lco_observation_calendar` was retired with its 38 tests classified one by one. SCHED-06 was proven live on real `KEY2026B-004` records.
+- Phase 35: the allocation layer. `allocation_projector.py` projects `ALLOC:` intent nights keyed by the site-local observing night and retires or restores them as observations link and unlink; `load_telescope_runs` writes campaign-less `CampaignRun`s; `cutover_classical_allocations` converted the real developer database (241 → 233 events, no duplicates or orphans). 25 plans, 18 of them gap closure across six rounds.
+- Phase 36: unattended operation — `run_unattended` / `check_unattended`, an admin-editable `WatchedProposal` list, email and heartbeat failure layers, and class-name-only error reporting proven by credential-hygiene tests.
+- Phase 37: one status vocabulary (`status_vocabulary.py`), public per-run and per-campaign tallies (`campaign_tally.py`), visibly unused allocation nights, a proposal-level unused-time figure, and provenance-blind coverage gaps.
+- Phase 37.1 (inserted from the intent review): exact-identity system links on ingest (ALLOC-06), proven live on the Didymos re-run (`ALLOC:1:*` events 14 → 10). 17 plans, 14 of them gap closure.
+- 30/30 requirements shipped; the full suite grew from 793 (v2.2, Phase 28) to 2095 tests at close.
+
+### What Worked
+
+- Spikes before the milestone, not inside it. Five `/gsd-spike`s against 146 real `KEY2026B-004` records settled the layering (post_save over TOM's state-change hook, link-not-text attribution, site-local night keys) before v2.4 was even defined, and the locked constraints held for every phase. Superseding v2.3 instead of re-scoping it kept the requirements honest.
+- Proving behaviour against the real developer database and the live host, not only fixtures: the classical cutover's before/after counts, the SCHED-06 live narrowing, the heartbeat's dead-man alert and the Didymos re-run each closed a requirement on real evidence.
+- An intent review after the audit (`v2.4-INTENT-REVIEW.md`) caught a real requirement gap the 29/29 audit had passed: allocation nights only retired after manual staff attribution. It became ALLOC-06 and Phase 37.1 rather than a post-ship surprise.
+
+### What Was Inefficient
+
+- Gap-closure depth. Phase 35 needed six rounds and 18 gap-closure plans, and the same dry-run/real-run inversion-guard parity bug came back four times (NF-10 → NF-20 → WR-01 → round 4) before it was fixed by deleting the fallback. Phase 37.1 ran 14 gap-closure plans. Most findings were real, but each round re-opened the paired-docs obligation and the verifier.
+- Verification went stale. Phases 34-37 (and 37.1, after two late quick tasks) all closed with verification reports that later commits had overtaken; the milestone closed as an override on the strength of a full-suite run rather than re-run verifiers.
+- Close-time bookkeeping again: 11 of the 36 open items at close were already finished. Seven quick-task SUMMARY files had `status: complete` inside frontmatter that was not valid YAML (unquoted `ALLOC:`/`RUN:` colons), so the parser discarded the whole block; four diagnose-only debug sessions had their fixes land in later plans but were never moved to `resolved/`.
+
+### Patterns Established
+
+- Supersede, don't re-scope, when the spikes show a milestone's core requirements describe the wrong design (v2.3 → v2.4).
+- A post-audit intent review, walked through with the developer, as a distinct gate from the requirements audit: the audit checks what was promised was built; the intent review checks the promise was right.
+- Paired docs scoped by directory (`docs/runbooks/`) plus an explicit module → notebook map in CLAUDE.md, extended whenever a module gains a notebook (closed the Phase 35 NF-24 enforcement hole).
+
+### Key Lessons
+
+1. YAML frontmatter values containing `: ` must be quoted. This repo's namespace prefixes (`ALLOC:`, `RUN:`) make that common, and a single bad value silently voids the whole block for every GSD parser, which then reports the task as `unknown`. Validate frontmatter when a SUMMARY is written, not at milestone close.
+2. A diagnose-only debug session needs a closing step in the plan that fixes it (set `status: resolved`, move it to `debug/resolved/`); otherwise it reads as open work for weeks.
+3. When the same bug class recurs across gap-closure rounds, look for a structural fix (fewer code paths, a deleted fallback) rather than another patch — Phase 35's fourth parity fix was a deletion.
+4. Re-run the verifier after late quick tasks that touch a verified phase's files, or plan for an override close: a passed report goes stale as soon as later commits touch the files it covers.
+
+### Cost Observations
+
+- 940 commits over 34 days; 6 phases, 79 plans, 218 tasks; 24 quick tasks.
+- Notable: the highest plan count of any milestone so far (79, vs. v2.2's 33), driven by gap closure — 32 of the 79 plans were gap-closure plans in Phases 35 and 37.1 alone. Model mix was not tracked.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -493,6 +540,7 @@
 | v2.0 | ~4 | 4 | First milestone with a second, independent feature area (campaign coordination, distinct from calendar sync); deep code review caught critical bugs pre-close in 3 of 4 phases; first milestone audit generated before its own last (deferrable) phase completed, requiring a freshness re-check at close; first quick-task fix triggered by manual UAT immediately before close, not by automated verification; first worktree-isolation base-mismatch caught by the fail-closed guard, recovered via non-isolated fallback |
 | v2.1 | ~10 | 8 | Largest milestone by phase count; investigation spike + schema migration + organic gap-closure phases (weather handling, range-window projection debug fix); first PR-style Findings.md review pass done as a distinct pre-close step, catching a High-severity unguarded-calendar-sync gap 544 green tests missed; second recurrence of worktree-isolation base-mismatch (v2.0, v2.1); two debug-session bookkeeping false positives/staleness caught and fixed at close |
 | v2.2 | ~13 | 6 (incl. inserted 27.1) | Highest plan count yet (33, vs. v2.1's 26) despite fewer phases; first spike reopened mid-milestone by a project-owner domain correction (26-04/26-05); first milestone where a real gap opened between last-phase completion and formal close (~4 weeks), during which quick tasks accumulated for bulk pre-close audit; a root-cause tech-debt phase (30) closed a finding three earlier phases (26/27/27.1) had each independently logged and deferred as "pre-existing, out of scope" |
+| v2.4 | — | 6 (incl. inserted 37.1) | Highest plan count yet (79) driven by gap closure (Phase 35: six rounds, 18 plans; 37.1: 14); v2.3 superseded rather than re-scoped after pre-milestone spikes; first post-audit intent review, which added ALLOC-06 / Phase 37.1; first pipeline running unattended on the real host; closed as an override (stale verification on 34-37.1, 25 deferred items) after 11 false-positive open items were fixed at close |
 
 ### Cumulative Quality
 
@@ -509,6 +557,7 @@
 | v2.0 | +138 (model + import + read-path + write-path + coverage-gap + pre-close quick-task fix; all 332 under `./manage.py test solsys_code`) | - | 0 |
 | v2.1 | +212 (spike + migration + import/gap + site disambiguation + submission matching + weather handling + runbook + range-window fix + pre-close quick-task fix; all 544 under `./manage.py test solsys_code`) | - | 0 |
 | v2.2 | +249 known through Phase 28 (spike + canonical schema + gap closure + attribution; 793 under `python manage.py test` as of Phase 28 — the last full-suite recount captured; Phase 29's rewritten 124-test approval-queue suite and Phase 30's +12 targeted tests are additional but not re-totaled) | - | 0 |
+| v2.4 | 2095 under `python manage.py test solsys_code --exclude-tag=ephemeris_segfault` at close (+1302 over v2.2's last recount of 793) | - | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
@@ -526,3 +575,4 @@
 11. STATE.md's `status` field can go stale relative to the authoritative `gsd-tools query init.progress`/`init.manager` verification data — a phase can be fully executed and verified while STATE.md still says `status: verifying` and points at a stale "next step". Cross-check with `/gsd-progress` before trusting STATE.md's status in isolation (v1.7 close).
 12. Worktree-isolation base-mismatch against a stale `origin/main` has now recurred twice (v2.0 quick task `260705-l1v`, v2.1 quick task `260718-dih`) — the fail-closed guard always recovers it safely via a non-isolated fallback dispatch, but running the `worktree.base-check` pre-check by default before dispatching single-task quick executors would avoid the wasted round-trip entirely. ✓ Validated (2×).
 12. Investigation-only/spike milestones should define success criteria as documented findings + an explicit recommendation, never as shipped code — this framing (established at v1.7's roadmap stage) kept the phase from scope-creeping into premature implementation before the Bridge-vs-Bypass question was answered.
+13. Quick-task bookkeeping at close has now cost manual triage at v1.2, v1.3, v2.2 and v2.4. v2.4's variant: `status: complete` was present but inside invalid YAML (unquoted `ALLOC:`/`RUN:` colons), which voided the whole frontmatter. Validate SUMMARY frontmatter when it is written (any YAML parser), not at milestone close.
