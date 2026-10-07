@@ -123,10 +123,15 @@ WSGI_APPLICATION = 'fomo.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/2.1/ref/settings/#databases
 
+# FOMO_DATABASE_PATH lets the pre-executed demo notebooks under
+# docs/notebooks/pre_executed/ run against a throwaway copy of the developer database
+# instead of writing through to it (UAT G-33-4). An unset (or empty-string) variable
+# leaves every command, test run and dev server pointed at fomo_db.sqlite3 exactly as
+# before. Production overrides still belong in local_settings.py.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'fomo_db.sqlite3'),
+        'NAME': os.getenv('FOMO_DATABASE_PATH') or os.path.join(BASE_DIR, 'fomo_db.sqlite3'),
     }
 }
 
@@ -185,6 +190,13 @@ STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 MEDIA_ROOT = os.path.join(BASE_DIR, 'data')
 MEDIA_URL = '/data/'
 
+# The root logger's INFO level is load-bearing for the unattended path's credential hygiene
+# (Phase 36, SC 4 / D-17): two DEBUG-level sites format a raw exception message from a portal
+# call (backfill_lco_observations.py `_resolve_schedule`, unattended.py `step_reconcile`), which
+# can carry an API key or the heartbeat ping URL. Accepted as-is on 2026-09-18 (36-UAT.md Test 2,
+# 36-REVIEW.md WR-22) on the condition that this level stays at INFO. Before raising it to DEBUG
+# -- in local_settings.py or here -- change both sites to log `type(exc).__name__` only and add
+# the assertLogs(level='DEBUG') hygiene test WR-22 describes.
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -229,6 +241,11 @@ FACILITIES = {
     # so this entry mirrors 'LCO' exactly. It exists so SOARSettings('SOAR') resolves
     # a real 'api_key' key (D-04); 'portal_url' already resolves via LCOSettings'
     # inherited default even without this entry.
+    # IN-31 (36-REVIEW.md iteration 5): if this 'portal_url' is ever repointed away from
+    # observe.lco.global (e.g. a NOIRLab-hosted SOAR portal), remove the
+    # FACILITIES['SOAR']['api_key'] line from the LCO_API_KEY fold at the end of this file --
+    # it copies the LCO portal key, and repointing this URL without removing that line sends
+    # the LCO Observation Portal key to a third-party host.
     'SOAR': {
         'portal_url': 'https://observe.lco.global',
         'api_key': '',
@@ -397,14 +414,53 @@ PLOTLY_THEME = 'plotly_white'
 # EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/DEFAULT_FROM_EMAIL in local_settings.py (below).
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
+# Phase 36 (SCHED-08/09/10, D-15): the unattended runner's own configuration -- every value
+# is environment-sourced, none is ever a CLI argument or embedded in the committed crontab
+# template. Follows the FOMO_DATABASE_PATH single-setting os.getenv() shape above.
+# FOMO_BASE_URL: used to build the admin/calendar links the failure email quotes (D-14).
+FOMO_BASE_URL = os.getenv('FOMO_BASE_URL', 'http://localhost:8000')
+# FOMO_HEARTBEAT_URL: no default -- an unset variable is None, which selects D-12's "off"
+# branch (the runner logs one INFO line per tick and skips pinging).
+FOMO_HEARTBEAT_URL = os.getenv('FOMO_HEARTBEAT_URL')
+# FOMO_LOCK_DIR: directory for the runner's own per-command fcntl locks (same file the
+# crontab template's `flock -n` guards for the runner as a whole).
+FOMO_LOCK_DIR = os.getenv('FOMO_LOCK_DIR', '/var/lock/fomo')
+# FOMO_STATE_DIR: directory for the D-11 suppression-state file. Defaults to FOMO_LOCK_DIR
+# ("the state file next to the lock file").
+FOMO_STATE_DIR = os.getenv('FOMO_STATE_DIR', FOMO_LOCK_DIR)
+# FOMO_LOG_FILE: only ever quoted as a path -- by the failure email (D-14) and by
+# check_unattended (a later plan) -- the runner itself writes to stdout/stderr and cron does
+# the append-redirect (D-18).
+FOMO_LOG_FILE = os.getenv('FOMO_LOG_FILE', '/var/log/fomo/unattended.log')
+
 try:
     from fomo.local_settings import *  # noqa
-except ImportError:
-    pass
+except ImportError as exc:
+    # Only the absence of local_settings.py itself is expected and safe to swallow -- an
+    # ImportError raised INSIDE that module (a typo'd sibling import, a package missing from
+    # this host's venv) must propagate, or the host silently reverts to every dev default
+    # (committed SECRET_KEY, DEBUG=True, console EMAIL_BACKEND, empty facility api_keys) with
+    # no error at all (WR-32, 36-REVIEW.md iteration 5).
+    if exc.name != 'fomo.local_settings':
+        raise
 
 # `from fomo.local_settings import *` executes that module in its own namespace, so it can only
 # ASSIGN new settings -- it cannot mutate ones already built above (FACILITIES['LCO']['api_key']
 # = ... there raises NameError, which the ImportError guard does not catch). Secrets that belong
 # inside an existing dict therefore arrive as flat names and are folded in here.
 if 'LCO_API_KEY' in globals():
-    FACILITIES['LCO']['api_key'] = LCO_API_KEY  # noqa: F405
+    # The presence guard above covers only the source name -- a local_settings.py that
+    # replaces FACILITIES wholesale (the one thing it is documented to be able to do) can
+    # legally omit 'SOAR', which is a FOMO-local addition, not part of a stock TOM
+    # FACILITIES block. setdefault() makes the destination as tolerant as the source guard,
+    # so a missing 'SOAR' key can no longer crash settings import with an uncaught KeyError
+    # (WR-28, 36-REVIEW.md iteration 5). SOAR authenticates against the same LCO Observation
+    # Portal (see the FACILITIES['SOAR'] entry above) -- if that ever changes, remove the
+    # 'SOAR' entry from this loop (see IN-31, 36-REVIEW.md iteration 5).
+    for _facility in ('LCO', 'SOAR'):
+        FACILITIES.setdefault(_facility, {})['api_key'] = LCO_API_KEY  # noqa: F405
+    # IN-37 (36-REVIEW.md): del the loop variable rather than leaving it bound in the
+    # settings module's namespace after the loop -- harmless today (Django's Settings
+    # only copies isupper() names off this module), but it left the module's final
+    # namespace carrying a stray non-setting.
+    del _facility

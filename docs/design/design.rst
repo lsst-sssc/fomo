@@ -45,4 +45,5 @@ Design Notes
    eso_feasibility_spike
    uncertain_scheduling_spike
    canonical_record_spike
+   run_identity_and_unattended_invocation_spike
    fink_sso_support

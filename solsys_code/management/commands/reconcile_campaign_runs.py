@@ -48,6 +48,13 @@ class Command(BaseCommand):
 
         created = updated = unchanged = blocked = 0
         skipped_count = 0
+        skipped_nights = 0
+        detached = 0
+        detach_declined = 0
+        remint_declined = 0
+        retired = 0
+        rekeyed = 0
+        legacy_deleted = 0
         failed_count = 0
         run_count = 0
 
@@ -70,8 +77,68 @@ class Command(BaseCommand):
             updated += result.updated
             unchanged += result.unchanged
             blocked += result.blocked
+            skipped_nights += result.skipped_nights
+            detached += result.detached
+            detach_declined += result.detach_declined
+            remint_declined += result.remint_declined
+            retired += result.retired
+            rekeyed += result.rekeyed
+            legacy_deleted += result.legacy_deleted
+            if result.retired:
+                # WR-05 (35-REVIEW.md): `result.retired` is incremented from three unrelated
+                # causes inside `project_allocation()` -- the D-05/D-07 observation handoff,
+                # the D-13 sub-night re-mint (where the night is immediately re-created, NOT
+                # covered by an observation), and the D-14 window-shrink convergence -- so
+                # this message must not claim a single cause. WR-04 (35-REVIEW.md): route
+                # the verb through dry_run -- under --dry-run nothing below has been written
+                # yet, and the summary line already says would_retire, not retired.
+                verb = 'would be' if dry_run else 'were'
+                self.stdout.write(
+                    f'Run pk={run.pk}: {result.retired} allocation night(s) {verb} removed '
+                    '(observation handoff, sub-night re-mint or window change)'
+                )
+            if result.rekeyed:
+                verb = 'would be re-keyed' if dry_run else 're-keyed'
+                self.stdout.write(
+                    f'Run pk={run.pk}: {result.rekeyed} legacy RUN:-keyed night(s) {verb} into ALLOC: in place'
+                )
+            if result.legacy_deleted:
+                verb = 'would be deleted' if dry_run else 'deleted'
+                self.stdout.write(
+                    f'Run pk={run.pk}: {result.legacy_deleted} leftover per-night event(s) {verb} -- these were '
+                    'left over from the retired per-night key form, and this run now keeps a single '
+                    'whole-window entry'
+                )
             if result.blocked:
                 self.stderr.write(f'Run pk={run.pk}: {result.blocked} event(s) blocked -- owned by someone else')
+            if result.skipped_nights:
+                # Normal, expected convergence (D-01/ANNOT-01): the night's entry already
+                # comes from another writer attributed to this run -- not a failure.
+                self.stdout.write(f'Run pk={run.pk}: {result.skipped_nights} night(s) skipped -- covered elsewhere')
+            if result.detached:
+                # WR-10: name both causes this counter counts -- a night superseded by
+                # another attributed entry, or events left over from a key family this run
+                # no longer belongs to. After 33-10 Task 1 a released row never carried a
+                # human confirmation, so this no longer claims a stamp was cleared.
+                self.stderr.write(
+                    f'Run pk={run.pk}: {result.detached} event(s) released back into the attribution queue -- '
+                    'superseded by another attributed entry, or left over from a key family this run no longer '
+                    'belongs to'
+                )
+            if result.detach_declined:
+                self.stderr.write(
+                    f'Run pk={run.pk}: {result.detach_declined} superseded entr'
+                    f"{'y' if result.detach_declined == 1 else 'ies'} left attributed -- a person confirmed "
+                    'them, and an automated sweep never clears a human confirmation'
+                )
+            if result.remint_declined:
+                self.stderr.write(
+                    f'Run pk={run.pk}: {result.remint_declined} allocation night'
+                    f"{'' if result.remint_declined == 1 else 's'} kept "
+                    f"{'its' if result.remint_declined == 1 else 'their'} existing boundaries -- a person's "
+                    'confirmation, an observation link, or an unverified companion row outranks this '
+                    "automated correction; see the runbook's remint_declined section for the remedy"
+                )
 
         if dry_run:
             self.stdout.write(
@@ -81,7 +148,14 @@ class Command(BaseCommand):
                 f'would_leave_unchanged: {unchanged}, '
                 f'skipped: {skipped_count}, '
                 f'failed: {failed_count}, '
-                f'blocked: {blocked}'
+                f'blocked: {blocked}, '
+                f'skipped_nights: {skipped_nights}, '
+                f'would_detach: {detached}, '
+                f'detach_declined: {detach_declined}, '
+                f'remint_declined: {remint_declined}, '
+                f'would_retire: {retired}, '
+                f'would_rekey: {rekeyed}, '
+                f'would_delete_legacy: {legacy_deleted}'
             )
         else:
             self.stdout.write(
@@ -91,6 +165,13 @@ class Command(BaseCommand):
                 f'unchanged: {unchanged}, '
                 f'skipped: {skipped_count}, '
                 f'failed: {failed_count}, '
-                f'blocked: {blocked}'
+                f'blocked: {blocked}, '
+                f'skipped_nights: {skipped_nights}, '
+                f'detached: {detached}, '
+                f'detach_declined: {detach_declined}, '
+                f'remint_declined: {remint_declined}, '
+                f'retired: {retired}, '
+                f'rekeyed: {rekeyed}, '
+                f'legacy_deleted: {legacy_deleted}'
             )
         return

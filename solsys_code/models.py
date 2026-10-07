@@ -3,7 +3,7 @@ from django.db import models
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from tom_calendar.models import CalendarEvent
-from tom_observations.models import ObservationRecord
+from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import Target, TargetList
 
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -12,15 +12,64 @@ from solsys_code.solsys_code_observatory.models import Observatory
 class CalendarEventMeta(models.Model):
     """General companion record for a CalendarEvent (Phase 27 CANON-03): carries whether the
     event's telescope label was live-verified against the LCO API or fallback-guessed
-    (TELESCOPE-03/04), plus which CampaignRun, if any, owns this event. One row per
+    (TELESCOPE-03/04), plus which CampaignRun, if any, the event is attributed to. One row per
     CalendarEvent at most; no row at all means "verified" by documented default (e.g.
     classically-scheduled events from load_telescope_runs, which never go through
     telescope-label resolution). 26-DECISION chose this general name over
     `CalendarEventRunLink` precisely so a third field added in a future version needs no
     second rename.
 
-    A row whose ``run`` is unset means "not owned by any CampaignRun" -- never "touch me".
-    This is the ownership rule the Phase 29 reconciler reads.
+    WR-06 (Phase 34 review), corrected by WR-08 (35-REVIEW.md iteration 9, plan 35-24): as
+    of Phase 34, no writer in this codebase SETS ``is_verified=False`` any more -- the
+    v1.3-era LCO/SOAR sync command that could is retired (D-06/D-18); the observation
+    projector (Phase 34) writes ``is_verified=True`` unconditionally, and the campaign
+    reconciler never touches this field at all. But since plan 35-20 the field is READ as a
+    load-bearing veto: ``allocation_projector._remint_decline_reason()`` checks it, and a
+    ``False`` value permanently prevents an automated re-mint of that night's boundaries,
+    reported under ``ReconcileResult.remint_declined``. It does NOT veto the night being
+    retired when a linked observation places a block on it -- plan 35-23's CR-05 decision,
+    which guards a retirement on ``confirmed_by`` alone. So a historical ``False`` row from
+    before Phase 34 -- unreachable by any current writer -- acquires that veto the moment
+    plan 35-20's guard exists, and ``is_verified`` is the one companion-row field neither
+    admin surface (``CalendarEventMetaInline``, the run-scoped inline, and
+    ``CalendarEventMetaAdmin``, the standalone surface) lists in ``readonly_fields``. The
+    two ``calendar.html`` template branches keyed on ``is_verified == False`` are still
+    unreachable from current production WRITES; see the code comment at each branch -- that
+    half of WR-06 is unchanged.
+
+    A row whose ``run`` is unset means "not attributed to any campaign run" -- never "do not
+    touch". Phase 33 (PROJ-04, D-05/D-06/D-07) adds two further links: ``observation_record``
+    and ``observation_group`` carry which ``ObservationRecord`` and ``ObservationGroup`` the
+    event was drawn from. Both are written only by the observation projector (Phase 34), never
+    by a staff form -- the same rule that already governs ``run``.
+
+    CR-01 (35-REVIEW.md iteration 7, closed by plan 35-19) adds ``minted_sub_night_window``.
+    Despite the field's name, it does NOT record the sub-night window pair alone: CR-02
+    (35-REVIEW.md iteration 8, closed by plan 35-21) showed that a night's boundaries are
+    minted from the full set of inputs ``_mint_fields()`` reads -- a format version, the
+    run's site, and the sub-night window pair (``night_start_utc``/``night_end_utc``) -- so
+    the column now records that whole identity, not one component of it. The escalated
+    decision closed by plan 35-24 (35-REVIEW.md iteration 9; 35-VERIFICATION.md "Human
+    Verification Required" #1) widened the site component again: an in-place ``Observatory``
+    correction (``lat``/``lon``/``altitude``/``timezone`` edited, ``run.site`` untouched) used
+    to read as ``unchanged`` forever, because the column recorded only WHICH row supplied the
+    position (``site_id``), never the position itself. The site component is now ``site_id``
+    PLUS a fingerprint of the site's boundary-relevant POSITION -- ``lat``, ``lon``,
+    ``altitude`` and ``timezone``, the four fields ``sun_event()`` reads -- so a current
+    stored value is the version marker ``v3``, ``site_id``, the position fingerprint, and the
+    sub-night window pair, in that order. The column's NAME stays ``minted_sub_night_window``
+    for historical reasons (renaming it is real scope neither round took on); this docstring
+    and ``allocation_projector._sub_night_provenance_token()``'s own docstring are where a
+    reader learns the wider truth. A ``null`` value means NOT RECORDED -- an event minted
+    before this column existed, or one the cutover's re-key branch took over while preserving
+    the legacy event's own boundaries. A token written in a pre-release format (one that could
+    not have carried every current input, e.g. any ``v2|``-prefixed value) ALSO means NOT
+    RECORDED, for the same reason: it cannot be trusted to agree or disagree with the current
+    identity. Neither case means "every input was null", which is recorded as the explicit
+    current-format token whose sub-night sides both read ``'none'`` (see
+    ``allocation_projector._sub_night_provenance_token()``). Only the allocation projector
+    writes it, the same rule that already governs ``run``, ``observation_record`` and
+    ``observation_group``.
     """
 
     event = models.OneToOneField(
@@ -30,8 +79,25 @@ class CalendarEventMeta(models.Model):
         related_name='telescope_label_meta',
         verbose_name='Calendar event',
     )
+    # WR-08 (35-REVIEW.md iteration 9, plan 35-24): the WR-06 comment this replaces left the
+    # verbose_name unchanged because correcting it would need a migration -- that migration
+    # is now being written anyway (the same 0021 migration that widens
+    # minted_sub_night_window below). The verbose_name and help_text now state, on the one
+    # admin surface that renders this field, what the class docstring's WR-06/WR-08 paragraph
+    # above already says: unchecking this is a permanent veto on an automated re-mint, not
+    # (only) a note about how the telescope label was resolved.
     is_verified = models.BooleanField(
-        default=True, verbose_name='Whether the telescope label was live-verified against the LCO API'
+        default=True,
+        verbose_name=(
+            'Whether the telescope label was live-verified against the LCO API '
+            '(unchecking also vetoes an automated re-mint)'
+        ),
+        help_text=(
+            'Setting this False permanently prevents the allocation projector from correcting '
+            'the boundaries of this night: an automated re-mint is declined and reported under '
+            'remint_declined. It does not prevent the night being retired when a linked '
+            'observation places a block on it. See the runbook section on remint_declined.'
+        ),
     )
     run = models.ForeignKey(
         'CampaignRun',
@@ -39,7 +105,30 @@ class CalendarEventMeta(models.Model):
         null=True,
         blank=True,
         related_name='calendar_event_metas',
-        verbose_name='Owning campaign run',
+        verbose_name='Attributed campaign run',
+    )
+    # PROJ-04 (D-05/D-06/D-07, 33-CONTEXT.md): the carrier fields the observation projector
+    # (Phase 34) writes. `observation_record` is one-to-one -- the DB half of the
+    # one-calendar-event-per-observation-record contract -- while `observation_group` is a
+    # plain foreign key because several events in a series share one group. Both are
+    # `SET_NULL`: deleting the record or group clears only the link, so this row's
+    # attribution and audit history (`run`, `is_verified`, `confirmed_by`, `confirmed_at`)
+    # and the CalendarEvent itself all survive.
+    observation_record = models.OneToOneField(
+        ObservationRecord,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='calendar_event_meta',
+        verbose_name='Observation record',
+    )
+    observation_group = models.ForeignKey(
+        ObservationGroup,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='calendar_event_metas',
+        verbose_name='Observation group',
     )
     # D-12 (28-CONTEXT.md): Phase 28 deliberately reopens Phase 27's D-05, which left this FK
     # bare on purpose and accepted the resulting audit asymmetry with the observation link.
@@ -51,15 +140,38 @@ class CalendarEventMeta(models.Model):
     # Consequence readers need: an event link written before Phase 28 (e.g. by the admin FK
     # picker) has both fields NULL, so NULL means "confirmed before audit fields existed", not
     # "unconfirmed" -- the `run` FK being set is still what means "attributed".
+    #
+    # WR-11 (37.1-REVIEW.md): PROTECT, not SET_NULL, for the same reason as
+    # CampaignRunObservation.confirmed_by (WR-03). ``confirmed_by IS NULL`` is what lets the
+    # reconciler release or delete an event (campaign_reconciler's ``_clearable_and_declined``
+    # and the attribution sync's unlink half), so SET_NULL on a departed staff member's account
+    # would silently strip the human guard from every event they confirmed. Staff accounts that
+    # confirmed an event are deactivated, never deleted.
     confirmed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name='confirmed_calendar_event_metas',
         verbose_name='Confirmed by',
     )
     confirmed_at = models.DateTimeField(null=True, blank=True, verbose_name='Confirmed at')
+    # CR-01 (35-REVIEW.md iteration 7, plan 35-19), widened by CR-02 (35-REVIEW.md
+    # iteration 8, plan 35-21) and again by the escalated decision closed by plan 35-24
+    # (35-REVIEW.md iteration 9): the full set of inputs this event's boundaries were minted
+    # from -- a format version, the run's site identity AND its boundary-relevant position
+    # (lat/lon/altitude/timezone, carried as a fingerprint), and the sub-night window pair --
+    # in `_sub_night_provenance_token()`'s canonical text form (e.g.
+    # `'v3|3|a1b2c3d4e5f6a7b8|23:00:00|05:00:00'`, `'v3|3|a1b2c3d4e5f6a7b8|none|05:00:00'`,
+    # `'v3|3|a1b2c3d4e5f6a7b8|none|none'`). Null, the empty string, and a pre-release token
+    # (one that could not have carried every current input, e.g. any `v2|`-prefixed value)
+    # all mean NOT RECORDED -- see the class docstring. Only the allocation projector writes
+    # it. max_length is 128 (widened from 64 by plan 35-24's migration 0021) -- wide enough
+    # for the worst-case token; see `TestProvenanceTokenFormat` in
+    # `test_allocation_projector.py`.
+    minted_sub_night_window = models.CharField(
+        max_length=128, null=True, blank=True, verbose_name='Minted sub-night window'
+    )
 
     def __str__(self):
         """Verified/Fallback prefix + event title + event start (Task 1, 27.1-02).
@@ -73,6 +185,13 @@ class CalendarEventMeta(models.Model):
         prefix = 'Verified' if self.is_verified else 'Fallback'
         start = self.event.start_time.strftime('%Y-%m-%d %H:%M')
         return f'{prefix} label for {self.event.title} ({start})'
+
+
+# Phase 32 (SCHEMA-01, 31-DECISION.md): the display label substituted for a null
+# `CampaignRun.campaign` wherever a reader today unconditionally dereferences
+# `run.campaign.name`. A queue- or classical-file-sourced run may now permanently carry no
+# campaign, so this is a legitimate rendering, not an error placeholder.
+NO_CAMPAIGN_LABEL = '(no campaign)'
 
 
 class CampaignRun(models.Model):
@@ -126,11 +245,19 @@ class CampaignRun(models.Model):
         dedicated slot for it -- mapping those rows onto LCO_QUEUE would have been
         semantically wrong (they are not LCO-network runs), so the user chose to add a real
         value instead of overloading an existing one or leaving the rows under-classified.
+
+        SOAR_QUEUE added in Phase 32 (D-01, 32-CONTEXT.md): ``SOARFacility`` inherits a real
+        portal read-back from ``LCOFacility`` (unlike ``GEMFacility``, which is
+        submission-echo only), so SOAR-sourced records are the facility that actually proves
+        the write-and-reconcile pattern generalises to a second, live-read-back facility --
+        the same reasoning that gave ``ESO_QUEUE`` its own slot rather than folding under
+        ``LCO_QUEUE`` applies here.
         """
 
         WEB = 'web', 'Web submission'
         CLASSICAL_FILE = 'classical_file', 'Classical run file'
         LCO_QUEUE = 'lco_queue', 'LCO queue'
+        SOAR_QUEUE = 'soar_queue', 'SOAR queue'
         GEMINI_QUEUE = 'gemini_queue', 'Gemini queue'
         ESO_QUEUE = 'eso_queue', 'ESO queue'
         CSV_IMPORT = 'csv_import', 'CSV import'
@@ -164,10 +291,17 @@ class CampaignRun(models.Model):
         # counterpart to match the way 2m0/1m0/0m4 do. Do not lowercase this for consistency.
         SPACE = 'SPACE', 'Space observatory with no MPC code'
 
+    # Phase 32 (SCHEMA-01, 31-DECISION.md, one-way checkpoint D-05): null=True/blank=True is
+    # a legitimate, PERMANENT state for a queue- or classical-file-sourced run, not a
+    # placeholder awaiting later assignment -- such a run's identity is anchored by
+    # `source_identifier` below, never by a campaign relationship. Every reader that
+    # dereferences `run.campaign.name` must guard on `campaign_id is None` first
+    # (`NO_CAMPAIGN_LABEL` above is the shared substitution).
     campaign = models.ForeignKey(
         TargetList,
         on_delete=models.PROTECT,
-        null=False,
+        null=True,
+        blank=True,
         related_name='campaign_runs',
         verbose_name='Campaign target list',
     )
@@ -200,6 +334,32 @@ class CampaignRun(models.Model):
     )
     window_start = models.DateField(null=True, blank=True, verbose_name='Observing window start')
     window_end = models.DateField(null=True, blank=True, verbose_name='Observing window end')
+    # D-04 (35-CONTEXT.md): null means "use the computed sun event for this night" -- the
+    # sunset for night_start_utc, the sunrise for night_end_utc. Null is the correct,
+    # permanent value for a web submission, a CSV import and every queue-sourced run; only a
+    # classical schedule line that named a partial night ever sets them.
+    #
+    # Which UTC calendar date a stored time-of-day belongs to depends on where the site's own
+    # observing night sits relative to UTC midnight, not the sign of its UTC offset
+    # (allocation_projector._night_span_utc(), NF-03, 35-REVIEW.md) -- three bands, not two:
+    # entirely inside its own UTC date for an offset above +6 (Siding Spring, Australia);
+    # straddling UTC midnight for an offset above -6 and at or below +6 (La Silla/Cerro
+    # Pachon, Chile; SAAO Sutherland; Hanle), where an evening-side time belongs to the
+    # night's own date and a morning-side time to the following date -- the rule the
+    # classical loader applied verbatim before this field existed, for the two sites it
+    # happened to cover; entirely inside the NEXT UTC date for an offset at or below -6
+    # (Maunakea/FTN). `night_bounds()` and `_night_span_utc()` (the allocation projector) are
+    # the single place this per-site rule is now applied, per night.
+    #
+    # The pair is deliberately NOT covered by a null-together constraint: a line may name a
+    # start time and leave the end at the computed sunrise, or the reverse, and both forms
+    # are legitimate.
+    #
+    # A staff member may edit either field in the admin; the next reconcile re-mints exactly
+    # the nights whose span changed, so the calendar follows the correction without a manual
+    # repair.
+    night_start_utc = models.TimeField(null=True, blank=True, verbose_name='Observing night start (UTC time of day)')
+    night_end_utc = models.TimeField(null=True, blank=True, verbose_name='Observing night end (UTC time of day)')
     original_obs_date_raw = models.CharField(
         max_length=255, blank=True, default='', verbose_name='Original Obs. Date text (TBD rows only)'
     )
@@ -259,6 +419,20 @@ class CampaignRun(models.Model):
         default='',
         verbose_name='Telescope class allocation',
     )
+    # Phase 32 (SCHEMA-02, 31-DECISION.md): PROMOTED to the primary identity anchor for
+    # adapter-written rows -- the campaign-plus-window natural key is demoted to the
+    # campaign-submission and CSV-import variants specifically (RESEARCH.md Open Question 2).
+    # The partial UniqueConstraint below is what makes a get_or_create() keyed on
+    # source_identifier alone race-safe (WR-05); do not re-add a campaign-is-always-present
+    # assumption when reading this field.
+    source_identifier = models.CharField(max_length=500, null=True, blank=True, verbose_name='Write-time identity key')
+    # Phase 37 (D-07/TALLY-01): the structured carrier of the classical run file's bracketed
+    # [proposal] token (telescope_runs.ParsedRun.proposal) -- what the proposal-allocation
+    # fetch (proposal_allocation.py) keys on to find this run's unused-time estimate. Blank
+    # means "no proposal code recorded" -- NEVER "no allocation"; the tally must render a
+    # blank code as not-yet-known, never as zero. Populated only by the classical loader
+    # today; WEB/CSV-import runs stay blank until a follow-up captures one there too.
+    proposal_code = models.CharField(max_length=100, blank=True, default='', verbose_name='Proposal code')
 
     @property
     def is_publicly_visible(self) -> bool:
@@ -314,6 +488,14 @@ class CampaignRun(models.Model):
                 ),
                 name='campaign_run_window_start_end_null_together',
             ),
+            # SCHEMA-02 (31-DECISION.md): additive alongside both existing partial
+            # constraints above, never replacing either. Backs write_and_reconcile_campaign_run()'s
+            # get_or_create() lookup keyed on source_identifier alone (WR-05 race safety).
+            models.UniqueConstraint(
+                fields=('source_identifier',),
+                condition=models.Q(source_identifier__isnull=False),
+                name='unique_campaign_run_source_identifier',
+            ),
         ]
 
     def __str__(self):
@@ -332,6 +514,10 @@ class CampaignRun(models.Model):
         into surfaces broader than the change form (the changelist and the autocomplete
         JSON endpoint), and `admin.py`'s T-jpd-02 PII gate must not be undone by widening
         what `__str__` exposes.
+
+        Phase 32 (SCHEMA-01): a null ``campaign`` is a legitimate, permanent state for a
+        queue- or classical-file-sourced run, so the campaign-name part substitutes
+        ``NO_CAMPAIGN_LABEL`` rather than raising ``AttributeError``.
         """
         if self.window_start is None:
             window_label = 'TBD'
@@ -349,7 +535,8 @@ class CampaignRun(models.Model):
         else:
             site_label = 'no site'
 
-        return f'#{self.pk} {self.campaign.name} | {self.telescope_instrument} | {window_label} | {site_label}'
+        campaign_label = self.campaign.name if self.campaign_id else NO_CAMPAIGN_LABEL
+        return f'#{self.pk} {campaign_label} | {self.telescope_instrument} | {window_label} | {site_label}'
 
 
 @receiver(pre_delete, sender=CampaignRun)
@@ -379,29 +566,49 @@ def _delete_owned_calendar_events_on_campaign_run_delete(sender, instance, **kwa
     A's namespace ARE still deleted, which is what keeps WR-01's "no permanently-orphaned
     events" outcome intact.
 
+    Phase 35: also cascades ``allocation_projector.writable_allocation_events()`` -- the
+    ``ALLOC:`` namespace twin of ``writable_events()``. Without this second call, deleting
+    an allocation run (one with no fixed observing site inference, a resolved ground site
+    and a window) would leave its ``ALLOC:`` nights on the shared calendar forever, with no
+    live ``CampaignRun`` for ``reconcile_run()`` to reach them through -- the exact
+    permanently-orphaned-event outcome this receiver exists to prevent, now for a second
+    namespace. Deleting run A must still never destroy an allocation night whose companion
+    row attributes it to run B.
+
     Imported lazily (function-local, not module-level) to avoid a circular import:
-    ``campaign_reconciler`` imports ``CalendarEventMeta``/``CampaignRun`` from this module.
+    ``campaign_reconciler``/``allocation_projector`` import ``CalendarEventMeta``/
+    ``CampaignRun`` from this module.
     """
+    from solsys_code.allocation_projector import writable_allocation_events
     from solsys_code.campaign_reconciler import writable_events
 
     writable_events(instance).delete()
+    writable_allocation_events(instance).delete()
 
 
 class CampaignRunObservation(models.Model):
     """Links a CampaignRun to an ObservationRecord that realises it (CANON-04).
 
-    D-01: a row exists only once a staff member confirms the attribution. Phase 28 computes
-    attribution candidates on the fly and writes nothing until confirmation -- this keeps
-    ATTRIB-03 ("no association without explicit staff confirmation") structural rather than a
-    rule code must remember, and it is what Phase 28 uses to compute attribution candidates
-    without ever writing one itself.
+    D-01/D-03: a row's existence IS the confirmation, and there is still no boolean
+    confirmation flag -- a flag would be redundant state that could contradict the row.
+    Phase 28 computes attribution candidates on the fly and writes nothing until a link is
+    confirmed, which keeps ATTRIB-03 structural rather than a rule code must remember.
 
-    No boolean confirmation flag (D-03): under D-01 the row's existence already means "a
-    staff member confirmed this", so a flag would be redundant state that could contradict
-    the row. Consequence for Phase 28: it computes candidates on the fly and writes nothing
-    until confirmation, which is what keeps ATTRIB-03 structural rather than a rule code must
-    remember.
+    A row is created by one of two producers. A staff member creates it through the
+    attribution page or the admin, and ``confirmed_by`` then names that person. An ingest
+    management command creates it when a record matches exactly one approved run by proposal,
+    target (or campaign) and window -- a "system link" (Phase 37.1, ALLOC-06, written by
+    ``campaign_utils.create_system_link()``), and ``confirmed_by`` is then None. ``confirmed_by``
+    is the only provenance (37.1 D-05/D-07): it is what
+    ``allocation_projector._sync_observation_attribution()`` already reads, and no field, flag
+    or migration is added for it. The ``confirmed_by`` foreign key is ``PROTECT`` so deleting
+    a staff account can never turn a person's link into a system link (WR-03). Every display of
+    a link's confirmer goes through ``confirmed_by_label()`` so a system link is never shown as
+    a blank or as a person.
     """
+
+    # D-05: the one label every staff surface shows for a link whose confirmed_by is None.
+    SYSTEM_LINK_LABEL = 'System (exact match)'
 
     run = models.ForeignKey(
         CampaignRun,
@@ -419,10 +626,13 @@ class CampaignRunObservation(models.Model):
         related_name='campaign_run_links',
         verbose_name='Observation record',
     )
-    # D-03.
+    # D-03. WR-03 (37.1-REVIEW.md): PROTECT, not SET_NULL. ``confirmed_by IS NULL`` is the
+    # system-link provenance (37.1 D-05), so SET_NULL on a departed staff member's account
+    # would silently rewrite every link they confirmed into a "System (exact match)" link.
+    # Staff accounts that confirmed links are deactivated, never deleted.
     confirmed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name='confirmed_campaign_run_observations',
@@ -449,6 +659,17 @@ class CampaignRunObservation(models.Model):
 
     def __str__(self):
         return f'{self.run}: {self.observation_record}'
+
+    def confirmed_by_label(self) -> str:
+        """Who confirmed this link, as staff should read it (37.1 D-05).
+
+        Returns:
+            ``SYSTEM_LINK_LABEL`` for a system link (``confirmed_by`` None), else the staff
+            user's string form.
+        """
+        if self.confirmed_by_id is None:
+            return self.SYSTEM_LINK_LABEL
+        return str(self.confirmed_by)
 
 
 class CalendarEventDismissal(models.Model):
@@ -550,3 +771,106 @@ class ObservationRecordDismissal(models.Model):
     # means nothing.
     def __str__(self):
         return f'dismissed {self.observation_record} for {self.run}'
+
+
+class WatchedProposal(models.Model):
+    """Admin-editable replacement for ``backfill_lco_observations``'s per-invocation
+    ``--proposal`` argument (36-CONTEXT.md D-06).
+
+    Unattended discovery of robotically scheduled LCO/SOAR observations (DISCOVER-01)
+    sweeps every active row here instead of needing an operator to type a proposal code
+    each time a run is invoked -- adding or deactivating a row from the admin is the whole
+    of what widening or narrowing discovery requires, with no redeploy. ``proposal_code`` is
+    placed here rather than beside ``CampaignRun`` because this is a configuration list, not
+    part of the campaign/calendar object graph.
+
+    ``last_run_at``/``last_run_summary`` are bookkeeping the sweep writes after every tick
+    (D-09) -- never hand-typed by an operator, which is why the admin registration makes
+    them ``readonly_fields``. There is deliberately no ``created_after`` bound (discovery
+    always considers the whole proposal, as the runbook documents today) and no
+    ``facility`` field (LCO and SOAR share one portal and one proposal namespace).
+    """
+
+    proposal_code = models.CharField(max_length=100, unique=True, verbose_name='Proposal code')
+    is_active = models.BooleanField(default=True, verbose_name='Active')
+    target_list_name = models.CharField(max_length=200, blank=True, default='', verbose_name='TargetList name override')
+    attributed_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='watched_proposals',
+        verbose_name='Attribute records to',
+    )
+    last_run_at = models.DateTimeField(null=True, blank=True, verbose_name='Last swept at')
+    last_run_summary = models.TextField(blank=True, default='', verbose_name='Last sweep summary')
+
+    class Meta:  # noqa: D106
+        ordering = ['proposal_code']
+
+    def save(self, *args, **kwargs):
+        """Strip `proposal_code` before every save.
+
+        A pasted code with a trailing space would otherwise create a second row that looks
+        identical to an existing one in the admin changelist but queries the portal as a
+        different string -- this keeps `unique=True` an effective guarantee, not just a
+        cosmetic one.
+        """
+        self.proposal_code = (self.proposal_code or '').strip()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.proposal_code} ({"active" if self.is_active else "inactive"})'
+
+
+class ProposalTimeAllocation(models.Model):
+    """One row per (proposal code, semester, instrument type, allocation type) time
+    allocation fetched from the LCO Observation Portal (Phase 37 D-07).
+
+    Written only by the unattended runner's proposal-allocation step
+    (``proposal_allocation.refresh_all()`` / ``step_proposal_allocation()``) -- read-only
+    everywhere else, including the admin (every field is ``readonly_fields`` there). A
+    second call for the same key updates the matching row in place rather than creating a
+    duplicate, via ``objects.update_or_create()`` keyed on the four fields the unique
+    constraint below names.
+
+    ``WatchedProposal`` is deliberately NOT overloaded to carry these figures -- it stays a
+    watch list (D-07); this is a separate, purpose-built model.
+
+    ``allocated_hours``/``used_hours`` are the portal's own numbers, stored exactly as
+    reported. The "unused nights" figure derived from them elsewhere
+    (``proposal_allocation.estimated_unused_nights()``) is a deliberate *estimate* (D-06's
+    fixed 10-hours-per-night rule of thumb), never a measurement -- callers must never
+    present it as one.
+    """
+
+    proposal_code = models.CharField(max_length=100, verbose_name='Proposal code')
+    semester = models.CharField(max_length=32, blank=True, default='', verbose_name='Semester')
+    instrument_type = models.CharField(max_length=100, blank=True, default='', verbose_name='Instrument type')
+    # The portal's own time-type name -- 'std', 'rr' or 'tc' -- not a human-facing label.
+    allocation_type = models.CharField(max_length=16, verbose_name='Allocation type')
+    allocated_hours = models.FloatField(default=0.0, verbose_name='Allocated hours')
+    used_hours = models.FloatField(default=0.0, verbose_name='Used hours')
+    fetched_at = models.DateTimeField(verbose_name='Fetched at')
+
+    class Meta:  # noqa: D106
+        ordering = ['proposal_code', 'semester']
+        constraints = [
+            models.UniqueConstraint(
+                fields=('proposal_code', 'semester', 'instrument_type', 'allocation_type'),
+                name='unique_proposal_time_allocation_key',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        """Strip `proposal_code` before every save (mirrors WatchedProposal.save()).
+
+        A pasted code with trailing whitespace would otherwise create a second row that
+        looks identical to an existing one in the admin changelist but fails to match the
+        unique constraint against the un-stripped stored value.
+        """
+        self.proposal_code = (self.proposal_code or '').strip()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.proposal_code} {self.semester} {self.allocation_type} ({self.allocated_hours}h)'

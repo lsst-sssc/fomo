@@ -15,6 +15,7 @@ from django import template
 from tom_calendar.models import CalendarEvent
 
 from solsys_code import campaign_attribution
+from solsys_code.models import CalendarEventMeta
 
 register = template.Library()
 
@@ -28,12 +29,20 @@ def high_band_attribution_candidates(event: CalendarEvent) -> list[campaign_attr
     since that is the confidence tier this hint is meant to surface. Never raises: delegates
     entirely to ``candidates_for_event()``, which itself never raises.
 
+    WR-06 (37.1-REVIEW.md): an event drawn from an observation record is never offered
+    (37.1 D-09) -- it is attributed only through its record, and the attribution queue no longer
+    lists it, so a hint here would link to a page where neither the event nor (necessarily) its
+    record appears. Returns ``[]`` for such an event.
+
     Args:
         event: the CalendarEvent to find candidates for (typically one with no
             CalendarEventMeta.run set yet).
 
     Returns:
         list[AttributionCandidate]: the event's candidates whose band is
-        ``campaign_attribution.BAND_HIGH``, possibly empty. Never raises.
+        ``campaign_attribution.BAND_HIGH``, possibly empty -- always empty for a record's own
+        event. Never raises.
     """
+    if CalendarEventMeta.objects.filter(event=event, observation_record__isnull=False).exists():
+        return []
     return [c for c in campaign_attribution.candidates_for_event(event) if c.band == campaign_attribution.BAND_HIGH]

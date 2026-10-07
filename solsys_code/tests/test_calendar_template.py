@@ -10,21 +10,34 @@ fix, status box-shadow rings, composition with Phase 8 dashed border, and the fo
 legend with click-to-filter infrastructure.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from pathlib import Path
 
 from django.contrib.auth.models import User
 from django.db import connection
+from django.db.models.signals import m2m_changed, post_save
 from django.test import Client, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.formats import date_format
+from django.utils.html import escape
 from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.models import CalendarEventMeta, CampaignRun
-from solsys_code.templatetags.calendar_display_extras import proposal_color, telescope_color, telescope_stripe_color
+from solsys_code.allocation_projector import ALLOC_URL_NAMESPACE
+from solsys_code.campaign_reconciler import RUN_URL_NAMESPACE
+from solsys_code.models import NO_CAMPAIGN_LABEL, CalendarEventMeta, CampaignRun
+from solsys_code.observation_projector import receiver_on_group_membership_changed, receiver_on_record_save
+from solsys_code.templatetags.calendar_display_extras import (
+    observation_status_legend,
+    proposal_color,
+    telescope_color,
+    telescope_stripe_color,
+)
 
 DASHED_BORDER_MARKER = '2px dashed rgba(0, 0, 0, 0.65)'
 TOOLTIP_SUBSTRING = 'estimate'
@@ -98,7 +111,10 @@ class CalendarTemplateTest(TestCase):
         )
 
         self.terminal_event = CalendarEvent.objects.create(
-            title='[FAILED] LTP2025B run',
+            # Phase 37 STATUS-01: [F] is the final short-letter marker; the legacy
+            # bracket-word [FAILED] form was retired in plan 37-07 once a re-title sweep
+            # proved the developer database held none of it.
+            title='[F] LTP2025B run',
             proposal='LTP2025B-012',
             start_time=datetime(2026, 6, 22, 22, 0, tzinfo=dt_timezone.utc),
             end_time=datetime(2026, 6, 23, 6, 0, tzinfo=dt_timezone.utc),
@@ -251,12 +267,14 @@ class CalendarTemplateTest(TestCase):
         content = response.content.decode()
         self.assertIn('cal-legend-swatch', content)
 
-    def test_display07_classical_schedule_label_present_when_empty_proposal_events_visible(self):
-        """DISPLAY-07 D-06: the neutral-slot legend entry 'Classical schedule' appears
-        because no_proposal_event (proposal='') is visible this month."""
+    def test_display07_no_proposal_label_present_when_empty_proposal_events_visible(self):
+        """DISPLAY-07 (relabelled by F12, quick task 261006-lsf): the neutral-slot legend entry
+        'No proposal recorded' appears because no_proposal_event (proposal='') is visible this
+        month, and the v1.4 'Classical schedule' wording no longer does."""
         response = self._get_calendar()
         content = response.content.decode()
-        self.assertIn('Classical schedule', content)
+        self.assertIn('No proposal recorded', content)
+        self.assertNotIn('Classical schedule', content)
 
     # --- Phase 12 tests: DISPLAY-08/09 ---
 
@@ -471,6 +489,23 @@ class EventModalCampaignRunLinkTest(TestCase):
         )
         CalendarEventMeta.objects.create(event=cls.event_with_tbd_run, run=cls.tbd_run)
 
+        # Phase 33 (ANNOT-02, D-11): an approved run whose campaign is None must still
+        # render its decoration -- table_url is None (no href), campaign_name is
+        # NO_CAMPAIGN_LABEL.
+        cls.no_campaign_run = CampaignRun.objects.create(
+            campaign=None,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 7, 10),
+            window_end=date(2026, 7, 10),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.event_with_no_campaign_run = CalendarEvent.objects.create(
+            title='Event with no-campaign run',
+            start_time=datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_no_campaign_run, run=cls.no_campaign_run)
+
     def _modal_url(self, event):
         return reverse('calendar:update-event', args=[event.id])
 
@@ -483,6 +518,27 @@ class EventModalCampaignRunLinkTest(TestCase):
         content = response.content.decode()
         self.assertIn('FTN/MuSCAT3', content)
         self.assertIn(self._campaign_table_href(), content)
+
+    def test_approved_run_shows_attributed_label_and_anchored_campaign_link(self):
+        """D-13/D-17: the block's label reads 'Attributed campaign run' (never 'owned'),
+        and the campaign-table link is anchored to this run's row."""
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Attributed campaign run', content)
+        self.assertIn(f'{self._campaign_table_href()}#run-{self.approved_run.pk}', content)
+
+    def test_no_campaign_run_renders_200_with_telescope_instrument_and_no_campaign_link(self):
+        """D-11/T-33-01: a run with no campaign still decorates (telescope/instrument,
+        run status), but table_url is None so no campaign-table link is emitted -- the
+        modal must never raise NoReverseMatch on a null campaign pk."""
+        response = self.client.get(self._modal_url(self.event_with_no_campaign_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('NTT/EFOSC2', content)
+        self.assertIn('Attributed campaign run', content)
+        self.assertNotIn('View campaign', content)
+        self.assertNotIn(self._campaign_table_href(), content)
 
     def test_pending_run_shows_no_run_block_to_anonymous_visitor(self):
         response = self.client.get(self._modal_url(self.event_with_pending_run))
@@ -498,6 +554,9 @@ class EventModalCampaignRunLinkTest(TestCase):
         content = response.content.decode()
         self.assertNotIn('Should Stay Hidden Scope', content)
         self.assertNotIn(self._campaign_table_href(), content)
+        # ANNOT-02: a pending-review run's event renders no decoration for any visitor,
+        # staff included.
+        self.assertNotIn('Attributed campaign run', content)
 
     def test_null_run_companion_row_renders_200_with_no_run_block(self):
         response = self.client.get(self._modal_url(self.event_with_null_run))
@@ -564,6 +623,159 @@ class EventModalCampaignRunLinkTest(TestCase):
         self.assertIn(f'({expected}&ndash;{expected})', content)
 
 
+class EventModalRunTallyTest(TestCase):
+    """Phase 37 Plan 06 (D-09, TALLY-01): the event_form.html override renders the run's
+    live tally inside the same attributed-run block the campaign_decoration() gate already
+    applies -- an anonymous visitor sees it for an approved run's event, and sees no
+    attributed-run block at all for a pending-review run's event.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Run Tally Modal Campaign')
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 7, 4),
+            window_end=date(2026, 7, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Should Stay Hidden Scope',
+            window_start=date(2026, 7, 5),
+            window_end=date(2026, 7, 5),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        cls.event_with_approved_run = CalendarEvent.objects.create(
+            title='Event with approved run tally',
+            start_time=datetime(2026, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_approved_run, run=cls.approved_run)
+
+        cls.event_with_pending_run = CalendarEvent.objects.create(
+            title='Event with pending run tally',
+            start_time=datetime(2026, 7, 5, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 6, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.event_with_pending_run, run=cls.pending_run)
+
+    def _modal_url(self, event):
+        return reverse('calendar:update-event', args=[event.id])
+
+    def test_approved_run_shows_tally_to_anonymous_visitor(self):
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('0 groups', content)
+        self.assertIn('0 records', content)
+        self.assertIn('[O]', content)
+        self.assertIn('[S]', content)
+        self.assertIn('[X/F]', content)
+        self.assertIn('[U]', content)
+
+    def test_pending_review_run_shows_no_attributed_run_block_at_all(self):
+        """T-37-21: the whole {% if deco %} block -- including the tally sub-line -- must
+        not render at all for a pending-review run, for an anonymous visitor."""
+        response = self.client.get(self._modal_url(self.event_with_pending_run))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Attributed campaign run', content)
+        self.assertNotIn('groups', content)
+
+    def test_not_yet_known_unused_figure_renders_a_word_not_a_zero(self):
+        """The approved run has no allocation events and no proposal code -- the unused
+        segment must render as not-yet-known text, never a bare zero."""
+        response = self.client.get(self._modal_url(self.event_with_approved_run))
+        content = response.content.decode()
+        self.assertIn('not yet known', content)
+
+
+class MonthCellUnusedNightRenderTest(TestCase):
+    """Phase 37 Plan 06 (UNUSED-01, D-12/D-13/D-14): both of calendar.html's event loops
+    call unused_night_decoration() and render its two channels -- the cal-event-unused
+    style class plus the [U] text token -- for an elapsed, still-standing allocation night,
+    and neither channel for a future one. The token is added at render time only; the
+    stored CalendarEvent.title never changes.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Unused Night Month View')
+        cls.active_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        # All-day branch: an overnight span, safely elapsed relative to the real clock
+        # (system date is far past August 2026 by the time this test runs). Blank
+        # proposal -> neutral-slot color -> the cal-event-classical branch, so the
+        # class-list assertions below can pin the exact combined class string.
+        cls.elapsed_all_day_event = CalendarEvent.objects.create(
+            title='NTT/EFOSC2',
+            start_time=datetime(2026, 8, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 2, 6, 0, tzinfo=dt_timezone.utc),
+            url=f'ALLOC:{cls.active_run.pk}:2026-08-01',
+        )
+        CalendarEventMeta.objects.create(event=cls.elapsed_all_day_event, run=cls.active_run)
+
+        # Timed branch: a same-day span, also elapsed.
+        cls.elapsed_timed_event = CalendarEvent.objects.create(
+            title='NTT/EFOSC2',
+            start_time=datetime(2026, 8, 3, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 3, 21, 0, tzinfo=dt_timezone.utc),
+            url=f'ALLOC:{cls.active_run.pk}:2026-08-03',
+        )
+        CalendarEventMeta.objects.create(event=cls.elapsed_timed_event, run=cls.active_run)
+
+        # Timed branch, computed relative to the real clock so this never goes stale.
+        future_start = timezone.now() + timedelta(days=400)
+        cls.future_year = future_start.year
+        cls.future_month = future_start.month
+        cls.future_event = CalendarEvent.objects.create(
+            title='NTT/EFOSC2',
+            start_time=future_start,
+            end_time=future_start + timedelta(hours=1),
+            url=f'ALLOC:{cls.active_run.pk}:{future_start.date().isoformat()}',
+        )
+        CalendarEventMeta.objects.create(event=cls.future_event, run=cls.active_run)
+
+    def _get_calendar(self, year, month):
+        return self.client.get(reverse('calendar:calendar'), {'year': year, 'month': month})
+
+    def test_elapsed_allocation_nights_render_unused_class_attribute_and_token(self):
+        response = self._get_calendar(2026, 8)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('cal-event-classical cal-event-unused', content)
+        self.assertIn('cal-event-timed cal-event-unused', content)
+        self.assertIn('data-unused="1"', content)
+        self.assertIn('[U] NTT/EFOSC2', content)
+
+    def test_future_allocation_night_renders_none_of_the_three_channels(self):
+        response = self._get_calendar(self.future_year, self.future_month)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('cal-event-classical cal-event-unused', content)
+        self.assertNotIn('cal-event-timed cal-event-unused', content)
+        self.assertNotIn('data-unused="1"', content)
+        self.assertNotIn('[U] NTT/EFOSC2', content)
+
+    def test_rendering_the_month_view_leaves_stored_titles_byte_identical(self):
+        before_all_day_title = self.elapsed_all_day_event.title
+        before_timed_title = self.elapsed_timed_event.title
+        self._get_calendar(2026, 8)
+        self.elapsed_all_day_event.refresh_from_db()
+        self.elapsed_timed_event.refresh_from_db()
+        self.assertEqual(self.elapsed_all_day_event.title, before_all_day_title)
+        self.assertEqual(self.elapsed_timed_event.title, before_timed_title)
+
+
 class EventModalAttributionHintTest(TestCase):
     """27-07 gap closure (27-UAT.md Test 9, .planning/debug/calendar-event-run-link-inconsistent.md):
     the event_form.html modal for an unlinked event with a HIGH-band attribution-queue
@@ -624,6 +836,28 @@ class EventModalAttributionHintTest(TestCase):
         content = response.content.decode()
         self.assertIn('Possible campaign run match', content)
         self.assertIn(f'{reverse("campaigns:attribution")}?band=high', content)
+
+    def test_record_backed_event_shows_no_hint(self):
+        """37.1 WR-06 (D-09): a record's own event is attributed only through its record and is
+        never on the event worklist, so the pop-up must not point at a queue that omits it."""
+        record = ObservationRecord.objects.create(
+            target=NonSiderealTargetFactory.create(),
+            user=User.objects.create(username='hint-record-owner'),
+            facility='LCO',
+            observation_id='HINT-1',
+            status='PENDING',
+            parameters={},
+        )
+        # The observation projector may already have given the record its own event; hand the
+        # record to the candidate-bearing event instead, so only the record link differs.
+        CalendarEventMeta.objects.filter(observation_record=record).update(observation_record=None)
+        CalendarEventMeta.objects.filter(event=self.unlinked_event_with_candidate).update(observation_record=record)
+        self.client.force_login(self.staff_user)
+
+        response = self.client.get(self._modal_url(self.unlinked_event_with_candidate))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('Possible campaign run match', response.content.decode())
 
     def test_anonymous_does_not_see_hint(self):
         response = self.client.get(self._modal_url(self.unlinked_event_with_candidate))
@@ -704,3 +938,706 @@ class TemplateCommentSyntaxSweepTest(SimpleTestCase):
                 search_from = end + 2
 
         self.assertEqual(failures, [], 'Multi-line Django comment blocks found:\n' + '\n'.join(failures))
+
+
+class MonthCellCampaignMarkerTest(TestCase):
+    """Phase 33 Plan 02 Task 1 (ANNOT-02, D-10/D-11): the month grid's two event loops
+    (day.all_day_events and day.events) each render a compact campaign marker for an
+    event attributed to an approved, publicly-visible run with a campaign -- sourced
+    from campaign_decoration(), never from CalendarEvent.title, and carrying the
+    campaign name only in the marker's title= tooltip.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Month Marker Campaign')
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 8, 4),
+            window_end=date(2026, 8, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+        # All-day branch: start/end dates differ. Title is exactly 18 characters -- the
+        # all-day loop's truncatechars:18 budget -- so WR-05.2 can prove the chip is a
+        # sibling of the filtered title, never folded inside the filter expression.
+        cls.all_day_event = CalendarEvent.objects.create(
+            title='AllDayAttrEighteen',
+            start_time=datetime(2026, 8, 3, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 4, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.all_day_event, run=cls.approved_run)
+
+        # Timed branch: start/end dates are the same day. Title is exactly 16
+        # characters -- the timed loop's truncatechars:16 budget.
+        cls.timed_event = CalendarEvent.objects.create(
+            title='TimedAttrSixteen',
+            start_time=datetime(2026, 8, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 4, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.timed_event, run=cls.approved_run)
+
+    def _get_calendar(self):
+        return self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 8})
+
+    def test_month_view_shows_campaign_chip_and_name_tooltip(self):
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('cal-campaign-chip', content)
+        self.assertIn(f'title="{self.campaign.name}"', content)
+
+    def test_chip_does_not_consume_title_truncation_budget(self):
+        """WR-05.2: each fixture title sits exactly at its own filter's budget (18 for
+        all-day, 16 for timed), so any character the chip contributed inside the
+        truncatechars filter expression would visibly shorten it. Asserting the chip's
+        own attribute string is also present proves the chip is a sibling of the
+        filtered title, not part of it."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn(self.all_day_event.title, content)
+        self.assertIn(self.timed_event.title, content)
+        self.assertIn(f'title="{self.campaign.name}"', content)
+
+
+class CalendarModalOpenerRenderTest(TestCase):
+    """Phase 33 Plan 11 (UAT G-33-2): the served month partial must open `#cal-modal`
+    through the Bootstrap 5 API and must never contain a jQuery-style selector call.
+
+    The tomtoolkit 3.x base page (`tom_common/base.html`) loads the Bootstrap 5.3.3
+    bundle, htmx and Alpine and no jQuery, so a jQuery call in this partial is dead code
+    that throws a `ReferenceError` at click time instead of opening the calendar pop-up
+    -- the exact defect this plan's Task 1 fixed. This class pins the served-output form
+    of that fix so a regression is caught even if no browser test happens to click the
+    element that regressed.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Modal Opener Guard Campaign')
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 9, 4),
+            window_end=date(2026, 9, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.timed_event = CalendarEvent.objects.create(
+            title='ModalGuardEvent',
+            start_time=datetime(2026, 9, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 4, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.timed_event, run=cls.approved_run)
+
+    def _get_calendar(self):
+        return self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 9})
+
+    def test_calendar_partial_contains_no_jquery_selector_call(self):
+        """Before the fix, this exact two-character sequence ('$(') appeared 71 times in
+        the rendered page -- one per day-cell click target plus the '+ New Event' button
+        and the inner event-container div -- so this assertion is sensitive rather than
+        vacuous."""
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn(
+            '$(',
+            content,
+            'UAT G-33-2: the served month partial must never call a jQuery-style '
+            "selector ('$(') -- the tomtoolkit 3.x base page loads Bootstrap 5, htmx "
+            'and Alpine and no jQuery, so a jQuery call here is dead code that throws '
+            'at runtime instead of opening the calendar pop-up.',
+        )
+
+    def test_calendar_partial_opens_modal_via_bootstrap5_api(self):
+        """Positive counterpart to the guard above -- asserted explicitly so deleting the
+        handlers altogether (rather than fixing them) cannot satisfy the no-jQuery test."""
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('bootstrap.Modal.getOrCreateInstance', content)
+
+
+class DecorationSurvivalAndGuardsTest(TestCase):
+    """Phase 33 Plan 02 Task 3: proves the month-cell + modal decoration is display-time
+    only (survives a from-scratch rewrite of the event's own fields), and exercises the
+    campaign-less, non-public, PII, and N+1 boundaries the decoration must respect.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='Survival Guard Campaign')
+        cls.staff_user = User.objects.create_user(username='survivalstaff', password='pw', is_staff=True)
+
+        cls.approved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 9, 4),
+            window_end=date(2026, 9, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.linked_event = CalendarEvent.objects.create(
+            title='Original',
+            description='Original description',
+            start_time=datetime(2026, 9, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 4, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.linked_event, run=cls.approved_run)
+
+        cls.no_campaign_run = CampaignRun.objects.create(
+            campaign=None,
+            telescope_instrument='NTT/EFOSC2',
+            window_start=date(2026, 9, 5),
+            window_end=date(2026, 9, 5),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.no_campaign_event = CalendarEvent.objects.create(
+            title='No-campaign attributed event',
+            start_time=datetime(2026, 9, 5, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 5, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.no_campaign_event, run=cls.no_campaign_run)
+
+        # WR-05.1: pending_run gets its own campaign, distinct from Survival Guard
+        # Campaign, so test_pending_review_run_shows_no_marker_for_staff_and_anonymous
+        # can discriminate on this campaign's own name -- if pending_run shared
+        # cls.campaign, the campaign-name discriminator would also match linked_event's
+        # and pii_event's chips, contributing nothing to the outcome.
+        cls.pending_campaign = TargetList.objects.create(name='Pending Review Campaign')
+        cls.pending_run = CampaignRun.objects.create(
+            campaign=cls.pending_campaign,
+            telescope_instrument='Should Stay Hidden Scope',
+            window_start=date(2026, 9, 6),
+            window_end=date(2026, 9, 6),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+        cls.pending_event = CalendarEvent.objects.create(
+            title='Pending attributed event',
+            start_time=datetime(2026, 9, 6, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 6, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.pending_event, run=cls.pending_run)
+
+        cls.pii_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='PII Guard Scope',
+            window_start=date(2026, 9, 7),
+            window_end=date(2026, 9, 7),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            contact_person='Do Not Leak Person',
+            contact_email='donotleak@example.org',
+            source=CampaignRun.Source.CSV_IMPORT,
+        )
+        cls.pii_event = CalendarEvent.objects.create(
+            title='PII guard event',
+            start_time=datetime(2026, 9, 7, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 7, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=cls.pii_event, run=cls.pii_run)
+
+    def _get_calendar(self, year=2026, month=9):
+        return self.client.get(reverse('calendar:calendar'), {'year': year, 'month': month})
+
+    def _modal_url(self, event):
+        return reverse('calendar:update-event', args=[event.id])
+
+    def _campaign_table_href(self, campaign=None):
+        return reverse('campaigns:table', args=[(campaign or self.campaign).pk])
+
+    def test_decoration_survives_from_scratch_rewrite_of_title_and_description(self):
+        """ROADMAP criterion 3: the decoration lives on the link (CalendarEventMeta.run),
+        never on the event's own fields, so rewriting title/description from scratch
+        cannot erase it."""
+        response = self._get_calendar()
+        content = response.content.decode()
+        self.assertIn('cal-campaign-chip', content)
+        modal_response = self.client.get(self._modal_url(self.linked_event))
+        self.assertIn('Attributed campaign run', modal_response.content.decode())
+
+        self.linked_event.title = 'Rewritten'
+        self.linked_event.description = 'Brand-new description after re-projection'
+        self.linked_event.save()
+
+        fresh_response = self._get_calendar()
+        fresh_content = fresh_response.content.decode()
+        self.assertIn('cal-campaign-chip', fresh_content)
+        self.assertIn('Rewritten', fresh_content)
+
+        fresh_modal_response = self.client.get(self._modal_url(self.linked_event))
+        self.assertIn('Attributed campaign run', fresh_modal_response.content.decode())
+
+    def test_no_campaign_run_renders_marker_and_no_table_href(self):
+        """WR-05.3: asserts on the no-campaign chip's own tooltip string -- linked_event
+        and pii_event in the same September grid already carry the shared
+        cal-campaign-chip class, so that class alone proves nothing about
+        no_campaign_run specifically. campaign_decoration()'s table_url is never
+        rendered into the month-cell chip (only the modal's <a href> uses it), so
+        _campaign_table_href() retargeted at no_campaign_run.campaign (None, which the
+        helper falls back to self.campaign for) is a namespace guard on the whole page
+        rather than a per-event assertion."""
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(f'Attributed run #{self.no_campaign_run.pk} {NO_CAMPAIGN_LABEL}', content)
+        self.assertNotIn(self._campaign_table_href(self.no_campaign_run.campaign), content)
+
+    def test_pending_review_run_shows_no_marker_for_staff_and_anonymous(self):
+        """WR-05.1: discriminates on pending_campaign's own name -- a value only the
+        pending fixture can produce -- so this test fails if the is_publicly_visible
+        gate in campaign_decoration() is deleted. telescope_instrument is never
+        rendered by the month cell, so asserting on it (as this test previously did)
+        cannot detect a regression of the visibility gate."""
+        anon_response = self._get_calendar()
+        self.assertEqual(anon_response.status_code, 200)
+        anon_content = anon_response.content.decode()
+        self.assertNotIn(f'title="{self.pending_campaign.name}"', anon_content)
+        self.assertNotIn(f'aria-label="Campaign: {self.pending_campaign.name}"', anon_content)
+
+        self.client.force_login(self.staff_user)
+        staff_response = self._get_calendar()
+        self.assertEqual(staff_response.status_code, 200)
+        staff_content = staff_response.content.decode()
+        self.assertNotIn(f'title="{self.pending_campaign.name}"', staff_content)
+        self.assertNotIn(f'aria-label="Campaign: {self.pending_campaign.name}"', staff_content)
+
+    def test_pii_fields_never_render_on_month_view(self):
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Do Not Leak Person', content)
+        self.assertNotIn('donotleak@example.org', content)
+        self.assertNotIn(CampaignRun.Source.CSV_IMPORT.value, content)
+
+    def test_query_count_does_not_grow_with_number_of_attributed_events(self):
+        """Count-comparison form (1 attributed event vs. N), never a hard-coded number,
+        so an unrelated future query addition to the month view does not make this test
+        brittle -- the assertion that matters is that the count does not grow with N."""
+        single_campaign = TargetList.objects.create(name='Single Query Campaign')
+        single_run = CampaignRun.objects.create(
+            campaign=single_campaign,
+            telescope_instrument='Single Query Scope',
+            window_start=date(2026, 10, 1),
+            window_end=date(2026, 10, 1),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        single_event = CalendarEvent.objects.create(
+            title='Single query event',
+            start_time=datetime(2026, 10, 1, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 10, 1, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=single_event, run=single_run)
+
+        with CaptureQueriesContext(connection) as single_ctx:
+            self._get_calendar(year=2026, month=10)
+        single_count = len(single_ctx)
+
+        for i in range(4):
+            campaign_n = TargetList.objects.create(name=f'N+1 Guard Campaign {i}')
+            run_n = CampaignRun.objects.create(
+                campaign=campaign_n,
+                telescope_instrument=f'N+1 Guard Scope {i}',
+                window_start=date(2026, 10, 2 + i),
+                window_end=date(2026, 10, 2 + i),
+                approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            )
+            event_n = CalendarEvent.objects.create(
+                title=f'N+1 guard event {i}',
+                start_time=datetime(2026, 10, 2 + i, 20, 0, tzinfo=dt_timezone.utc),
+                end_time=datetime(2026, 10, 2 + i, 21, 0, tzinfo=dt_timezone.utc),
+            )
+            CalendarEventMeta.objects.create(event=event_n, run=run_n)
+
+        with CaptureQueriesContext(connection) as multi_ctx:
+            self._get_calendar(year=2026, month=10)
+        multi_count = len(multi_ctx)
+
+        self.assertEqual(multi_count, single_count)
+
+    def test_campaign_name_encoding_edge_escapes_consistently_in_title_and_aria_label(self):
+        """ANNOT-02 encoding edge: a campaign name containing &, < and " must be
+        HTML-escaped identically in the chip's title= and aria-label= attributes by
+        Django's autoescape -- the raw characters never reach the rendered attribute
+        values, and the two attributes agree on what the escaped campaign name is."""
+        raw_name = 'A & B < C "D"'
+        escaped_name = escape(raw_name)
+        encoding_campaign = TargetList.objects.create(name=raw_name)
+        encoding_run = CampaignRun.objects.create(
+            campaign=encoding_campaign,
+            telescope_instrument='Encoding Guard Scope',
+            window_start=date(2026, 9, 8),
+            window_end=date(2026, 9, 8),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        encoding_event = CalendarEvent.objects.create(
+            title='Encoding guard event',
+            start_time=datetime(2026, 9, 8, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 8, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=encoding_event, run=encoding_run)
+
+        response = self._get_calendar()
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn(raw_name, content)
+        self.assertIn(f'title="{escaped_name}"', content)
+        self.assertIn(f'aria-label="Campaign: {escaped_name}"', content)
+
+
+class CalendarStatusLegendRenderTest(TestCase):
+    """PROJ-03/D-02 (Phase 34 Plan 03): the observation-status marker legend renders on
+    the calendar page itself -- reached through the Django test client, never by
+    importing solsys_code.views directly (that module transitively loads SPICE kernels)."""
+
+    def test_calendar_page_renders_every_legend_marker_and_label(self):
+        response = self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 9})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        for entry in observation_status_legend():
+            with self.subTest(marker=entry['marker']):
+                self.assertIn(entry['marker'], content)
+                self.assertIn(entry['label'], content)
+
+
+class EventModalSeriesDecorationTest(TestCase):
+    """PROJ-04/PROJ-05 (Phase 34 Plan 03, D-04): the event modal renders series identity
+    ("night n of N") from CalendarEventMeta.observation_group at request time, alongside
+    any campaign decoration, and the month view's query count does not grow with the
+    number of grouped observation events (PROJ-05 performance edge). The observation
+    projector's post_save/m2m_changed receivers are globally wired (34-01), so they are
+    disconnected around fixture-creation calls here -- this class tests rendering, not
+    the projector (34-01 precedent)."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.target = NonSiderealTargetFactory.create()
+        cls.campaign = TargetList.objects.create(name='Series Modal Campaign')
+        # Not named `cls.run` -- unittest.TestCase.run() is the test-execution entry
+        # point, and shadowing it with a class attribute breaks the test runner.
+        cls.campaign_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 3),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        # An authenticated (not necessarily staff) viewer -- observation_series_decoration()'s
+        # anonymous-viewer gate for an un-attributed (run=None) event only checks
+        # is_authenticated, not is_staff, so a plain user is the right fixture here.
+        cls.authenticated_user = User.objects.create_user(username='seriesmodalviewer', password='pw')
+
+    def _make_record(self, observation_id: str, start: datetime, end: datetime) -> ObservationRecord:
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            return ObservationRecord.objects.create(
+                target=self.target,
+                facility='LCO',
+                observation_id=observation_id,
+                status='COMPLETED',
+                parameters={
+                    'proposal': 'TESTPROP',
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                    'start': start.isoformat(),
+                    'end': end.isoformat(),
+                },
+            )
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
+
+    def _add_to_group(self, group: ObservationGroup, *records: ObservationRecord) -> None:
+        m2m_changed.disconnect(
+            receiver_on_group_membership_changed,
+            sender=ObservationGroup.observation_records.through,
+            dispatch_uid='solsys_code.observation_projector.m2m_changed',
+        )
+        try:
+            group.observation_records.add(*records)
+        finally:
+            m2m_changed.connect(
+                receiver_on_group_membership_changed,
+                sender=ObservationGroup.observation_records.through,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.m2m_changed',
+            )
+
+    def _modal_url(self, event: CalendarEvent):
+        return reverse('calendar:update-event', args=[event.id])
+
+    def test_grouped_event_modal_hides_group_name_from_anonymous_viewer(self):
+        """An un-attributed (run=None) grouped event -- the common case, since most
+        projector-owned events never go through campaign attribution -- must not publish
+        the observation-group's own name (an internal portal RequestGroup identifier) to
+        an anonymous visitor of the unauthenticated event-update view."""
+        r1 = self._make_record(
+            'modal-series-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'modal-series-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Series Modal Group')
+        self._add_to_group(group, r1, r2)
+
+        event = CalendarEvent.objects.create(
+            title='Series modal event',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=group)
+
+        response = self.client.get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Series Modal Group', content)
+        self.assertNotIn('Night 1 of 2', content)
+
+    def test_grouped_event_modal_shows_group_name_and_night_n_of_n_to_authenticated_viewer(self):
+        r1 = self._make_record(
+            'modal-series-auth-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'modal-series-auth-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Series Modal Group (authenticated)')
+        self._add_to_group(group, r1, r2)
+
+        event = CalendarEvent.objects.create(
+            title='Series modal event',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=group)
+
+        self.client.force_login(self.authenticated_user)
+        response = self.client.get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Series Modal Group (authenticated)', content)
+        self.assertIn('Night 1 of 2', content)
+
+    def test_grouped_and_attributed_event_shows_both_decorations(self):
+        """The series block is gated on the viewer being authenticated, full stop --
+        including for an attributed, approved run. Only the campaign block is visible to
+        an anonymous viewer (its own gate is CampaignRun.is_publicly_visible, unrelated to
+        the series block's viewer check). See
+        test_grouped_and_attributed_event_hides_group_name_from_anonymous_viewer for the
+        anonymous-viewer counterpart this same fixture must satisfy."""
+        r1 = self._make_record(
+            'modal-both-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'modal-both-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Both Decorations Group')
+        self._add_to_group(group, r1, r2)
+
+        event = CalendarEvent.objects.create(
+            title='Series and campaign event',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(
+            event=event, observation_record=r1, observation_group=group, run=self.campaign_run
+        )
+
+        self.client.force_login(self.authenticated_user)
+        response = self.client.get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Both Decorations Group', content)
+        self.assertIn('Night 1 of 2', content)
+        self.assertIn('Attributed campaign run', content)
+        self.assertIn('FTN/MuSCAT3', content)
+
+    def test_grouped_and_attributed_event_hides_group_name_from_anonymous_viewer(self):
+        """An attributed AND approved run does not bypass the series block's viewer check
+        -- the group name is an internal portal RequestGroup identifier regardless of
+        campaign attribution, so an anonymous visitor must not see it even though the
+        campaign block itself (a different value, gated by a different rule) is public for
+        an approved run."""
+        r1 = self._make_record(
+            'modal-both-anon-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'modal-both-anon-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Both Decorations Group Anon')
+        self._add_to_group(group, r1, r2)
+
+        event = CalendarEvent.objects.create(
+            title='Series and campaign event (anonymous)',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(
+            event=event, observation_record=r1, observation_group=group, run=self.campaign_run
+        )
+
+        response = self.client.get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Both Decorations Group Anon', content)
+        self.assertNotIn('Night 1 of 2', content)
+        # The campaign block's own visibility rule is unrelated and unaffected: an
+        # approved run's campaign attribution is still public to an anonymous viewer.
+        self.assertIn('Attributed campaign run', content)
+        self.assertIn('FTN/MuSCAT3', content)
+
+    def test_grouped_event_hides_group_name_when_attributed_run_is_pending_review(self):
+        """WR-03: observation_series_decoration() must apply the same is_publicly_visible
+        gate campaign_decoration() already applies -- a pending-review run's attribution
+        must not leak the observation-group's own name (an internal portal RequestGroup
+        id) to an anonymous visitor of the unauthenticated event-update view."""
+        r1 = self._make_record(
+            'modal-pending-review-1',
+            datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        r2 = self._make_record(
+            'modal-pending-review-2',
+            datetime(2026, 9, 2, 22, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 3, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        group = ObservationGroup.objects.create(name='Pending Review Group Name')
+        self._add_to_group(group, r1, r2)
+        pending_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTS/MuSCAT3',
+            window_start=date(2026, 9, 1),
+            window_end=date(2026, 9, 3),
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+        event = CalendarEvent.objects.create(
+            title='Pending review series event',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, observation_record=r1, observation_group=group, run=pending_run)
+
+        response = self.client.get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('Pending Review Group Name', content)
+        self.assertNotIn('Night 1 of 2', content)
+
+    def _make_modal_group_event(self, group_name: str, month: int, size: int) -> CalendarEvent:
+        """Build a `size`-member ObservationGroup and a CalendarEvent linked to its first
+        member, all in `month` (2026) so distinct calls never collide on window times."""
+        records = [
+            self._make_record(
+                f'{group_name}-{i}',
+                datetime(2026, month, 1 + i, 20, 0, tzinfo=dt_timezone.utc),
+                datetime(2026, month, 1 + i, 21, 0, tzinfo=dt_timezone.utc),
+            )
+            for i in range(size)
+        ]
+        group = ObservationGroup.objects.create(name=group_name)
+        self._add_to_group(group, *records)
+        event = CalendarEvent.objects.create(
+            title=f'{group_name} event',
+            start_time=datetime(2026, month, 1, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, month, 1, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, observation_record=records[0], observation_group=group)
+        return event
+
+    def test_modal_query_count_does_not_grow_with_group_size(self):
+        """WR-05: observation_series_decoration() is reachable only from the event-update
+        modal (tom_calendar.views.update_event fetches its one CalendarEvent by pk with no
+        select_related of its own) -- calendar:calendar never renders it, so the previous
+        version of this test measured the month view and passed unconditionally regardless
+        of the tag's real per-modal fan-out. Compares a 2-member group against a 10-member
+        group, count-comparison form (never a hard-coded number), per the sibling
+        campaign-attribution query-count test's own convention. Logs in first: these fixture
+        events carry no `run` (see _make_modal_group_event), and an anonymous viewer would
+        now be gated out before the per-member query fan-out this test exists to measure
+        ever runs -- which would make the comparison trivially equal for the wrong reason."""
+        self.client.force_login(self.authenticated_user)
+        small_event = self._make_modal_group_event('Query Guard Small Group', month=10, size=2)
+
+        with CaptureQueriesContext(connection) as small_ctx:
+            self.client.get(self._modal_url(small_event))
+        small_count = len(small_ctx)
+
+        large_event = self._make_modal_group_event('Query Guard Large Group', month=11, size=10)
+
+        with CaptureQueriesContext(connection) as large_ctx:
+            self.client.get(self._modal_url(large_event))
+        large_count = len(large_ctx)
+
+        self.assertEqual(large_count, small_count)
+
+
+class EventFormUrlLinkTest(TestCase):
+    """UAT G-37.1-1-allocurl: the event pop-up's URL label links only http(s) addresses.
+
+    The allocation layer (``ALLOC:{run.pk}:{night}``) and the campaign reconciler (``RUN:{pk}``)
+    keep namespace keys in ``CalendarEvent.url``; those must show as plain values, never as a
+    dead link, and a stored ``javascript:`` url must never land in an href.
+    """
+
+    PORTAL_URL = 'https://observe.lco.global/requests/4229878'
+
+    def _form_html(self, url: str) -> str:
+        event = CalendarEvent.objects.create(
+            title='URL case',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+            url=url,
+        )
+        response = self.client.get(reverse('calendar:update-event', args=[event.id]))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_allocation_key_is_not_a_link(self):
+        key = f'{ALLOC_URL_NAMESPACE}1:2026-07-07'
+        content = self._form_html(key)
+        self.assertNotIn(f'href="{ALLOC_URL_NAMESPACE}', content)
+        self.assertIn('not a web link', content)
+        self.assertIn(f'value="{key}"', content)
+
+    def test_campaign_run_key_is_not_a_link(self):
+        content = self._form_html(f'{RUN_URL_NAMESPACE}5')
+        self.assertNotIn(f'href="{RUN_URL_NAMESPACE}', content)
+        self.assertIn('not a web link', content)
+
+    def test_portal_url_still_links_with_noopener(self):
+        content = self._form_html(self.PORTAL_URL)
+        self.assertIn(f'href="{self.PORTAL_URL}"', content)
+        self.assertIn('rel="noopener noreferrer"', content)
+        self.assertIn('View', content)
+        self.assertNotIn('not a web link', content)
+
+    def test_javascript_url_is_never_a_link(self):
+        content = self._form_html('javascript:alert(1)')
+        self.assertNotIn('href="javascript:', content)
+
+    def test_empty_url_shows_neither_link_nor_note(self):
+        content = self._form_html('')
+        self.assertNotIn('not a web link', content)
+        self.assertNotIn(self.PORTAL_URL, content)

@@ -124,12 +124,33 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   `docs/index.rst:24`). Notebook pairing reference (kept for lookup, not as the rule's scope):
   `solsys_code/telescope_runs.py` -> `telescope_runs_demo.ipynb`;
   `solsys_code/management/commands/load_telescope_runs.py` -> `load_telescope_runs_demo.ipynb`;
-  `solsys_code/management/commands/sync_lco_observation_calendar.py` ->
-  `sync_lco_observation_calendar_demo.ipynb`;
+  `solsys_code/observation_projector.py` and
+  `solsys_code/management/commands/project_observation_calendar.py` ->
+  `project_observation_calendar_demo.ipynb`;
   `solsys_code/management/commands/sync_gemini_observation_calendar.py` ->
   `sync_gemini_observation_calendar_demo.ipynb`;
-  `solsys_code/campaign_reconciler.py` and
-  `solsys_code/management/commands/reconcile_campaign_runs.py` ->
+  `solsys_code/management/commands/backfill_lco_observations.py -> backfill_lco_observations_demo.ipynb`
+  (the admin-editable watched-proposal contract — bare invocation, `last_run_at`/
+  `last_run_summary`, per-proposal failure isolation — is covered by that same notebook,
+  not a second one);
+  `solsys_code/unattended.py`, `solsys_code/notifications.py`,
+  `solsys_code/management/commands/run_unattended.py` and
+  `solsys_code/management/commands/check_unattended.py` -> the runbook's
+  `How do I run everything unattended?` section
+  (`docs/runbooks/telescope_runs_calendar.rst`), **not** a notebook — a runner demo could
+  only execute with the portal, the mail backend and the heartbeat all mocked at once, which
+  would demonstrate the mocking rather than the runner, and 36-CONTEXT.md's discretion note
+  sanctions the runbook section as the paired doc in exactly that case;
+  `solsys_code/proposal_allocation.py` -> the runbook's `How do I run everything unattended?`
+  section (its **proposal_allocation** step, and which proposal codes it fetches) and that
+  runbook's `The unused figure says it is not yet known` troubleshooting entry
+  (`docs/runbooks/telescope_runs_calendar.rst`), **not** a notebook — no demo notebook
+  exercises the credentialed portal fetch;
+  `solsys_code/campaign_reconciler.py`,
+  `solsys_code/management/commands/reconcile_campaign_runs.py` and
+  `solsys_code/allocation_projector.py` ->
+  `reconcile_campaign_runs_demo.ipynb`;
+  `solsys_code/management/commands/cutover_classical_allocations.py` ->
   `reconcile_campaign_runs_demo.ipynb`; the v2.2 campaign submission/approval/
   site-resolution/attribution surfaces (`solsys_code/campaign_views.py`,
   `campaign_forms.py`, `campaign_attribution.py`, `campaign_reconciler.py`) collectively
@@ -151,7 +172,11 @@ Django app tests, and that suite will likely be removed — do not add tests to 
   must-have gap, not a nice-to-have). Breach history: Phase 5 (`260619-f7u`) and Phase 6
   (`260620-v9x`) — both notebook-scope misses — and quick task `260726-kdp`, where the operator
   runbook went stale because `docs/runbooks/` wasn't covered by the rule at all, since it didn't
-  exist when the rule was originally written.
+  exist when the rule was originally written; and Phase 35 (NF-24, 35-REVIEW.md), where fixes to
+  `load_telescope_runs.py` and `observation_projector.py` landed with no update to their paired
+  `load_telescope_runs_demo.ipynb` and `project_observation_calendar_demo.ipynb` notebooks, and
+  `allocation_projector.py` — the phase's central new module — had no mapped notebook at all
+  to miss, the enforcement hole this entry now closes.
 
 <!-- GSD:project-start source:PROJECT.md -->
 
@@ -565,3 +590,7 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+## Spike findings
+
+- **Spike findings for fomo_devel** (implementation patterns, constraints, gotchas for the observation-first calendar layer) → `Skill("spike-findings-fomo_devel")`

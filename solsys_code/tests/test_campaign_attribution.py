@@ -10,6 +10,7 @@ from datetime import date, datetime
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth.models import User
+from django.db.models.signals import post_save
 from django.test import TestCase
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
@@ -38,6 +39,7 @@ from solsys_code.campaign_attribution import (
     is_offered_candidate,
     orphan_calendar_events,
     orphan_observation_records,
+    orphans_needing_attribution_count,
     record_attribution_backlog,
     telescope_match_score,
     unattributable_orphan_count,
@@ -49,6 +51,7 @@ from solsys_code.models import (
     CampaignRunObservation,
     ObservationRecordDismissal,
 )
+from solsys_code.observation_projector import receiver_on_record_save
 from solsys_code.solsys_code_observatory.models import Observatory
 
 
@@ -127,6 +130,54 @@ class TestScoringAndBanding(TestCase):
         self.assertEqual(score, TELESCOPE_MATCH_NONE)
         self.assertIn('E10', evidence)
 
+    def test_telescope_match_d07_renamed_observed_labels_still_resolve_site_level(self):
+        """D-07 (34-02 Task 3): an orphan event whose telescope is 'FTN', 'FTS' or 'SOAR' --
+        the renamed observed-telescope labels, which no longer carry a 3-letter site-code
+        prefix -- still scores a site-level match against a run at the matching obscode,
+        rather than silently degrading to aperture-only. 'FTS' already worked through the
+        classical-site-alias branch (telescope_runs.SITES); 'FTN' and 'SOAR' did not, which
+        is exactly the asymmetric regression the fix closes. The mechanism under test is
+        telescope_match_score()'s own LABEL-keyed OBSERVED_TELESCOPE_OBSCODES lookup (its
+        resolution-order step 1, checked before _extract_lco_site_code() is ever called for
+        these three labels) -- not _extract_lco_site_code() itself, which returns None for
+        all three and plays no part in this outcome."""
+        ogg_site = Observatory.objects.create(obscode='F65', name='Haleakala', short_name='FTN')
+        sor_site = Observatory.objects.create(obscode='I33', name='SOAR Cerro Pachon', short_name='SOAR')
+
+        ftn_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='D-07 FTN run',
+            window_start=None,
+            window_end=None,
+            site=ogg_site,
+        )
+        fts_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='D-07 FTS run',
+            window_start=None,
+            window_end=None,
+            site=self.observatory,
+        )
+        soar_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='D-07 SOAR run',
+            window_start=None,
+            window_end=None,
+            site=sor_site,
+        )
+
+        ftn_score, ftn_evidence = telescope_match_score(ftn_run, 'FTN', '2M0-SCICAM-MUSCAT')
+        self.assertEqual(ftn_score, TELESCOPE_MATCH_SITE)
+        self.assertIn('F65', ftn_evidence)
+
+        fts_score, fts_evidence = telescope_match_score(fts_run, 'FTS', '2M0-SCICAM-MUSCAT')
+        self.assertEqual(fts_score, TELESCOPE_MATCH_SITE)
+        self.assertIn('E10', fts_evidence)
+
+        soar_score, soar_evidence = telescope_match_score(soar_run, 'SOAR', 'SOAR_GHTS_REDCAM')
+        self.assertEqual(soar_score, TELESCOPE_MATCH_SITE)
+        self.assertIn('I33', soar_evidence)
+
     def test_telescope_match_aperture_only_tier_match(self):
         run = CampaignRun.objects.create(
             campaign=self.campaign,
@@ -146,6 +197,28 @@ class TestScoringAndBanding(TestCase):
         )
         score, _evidence = telescope_match_score(run, '2m0', '2M0-SCICAM-MUSCAT')
         self.assertEqual(score, TELESCOPE_MATCH_NONE)
+
+    def test_telescope_match_ogg_0m4_orphan_degrades_to_aperture_only_not_none(self):
+        """'ogg' hosts two telescopes (FTN 2m0 and the OGG-0m4), so it cannot be a key in
+        the site-keyed LCO_SITE_CODE_TO_OBSCODE table -- only the label-keyed
+        OBSERVED_TELESCOPE_OBSCODES table may bridge one of its telescopes to an obscode,
+        and only for FTN, the one label that names a single telescope. An 'OGG-0m4' orphan
+        (a different telescope, no obscode of its own resolvable in this table) must fall
+        through to the aperture-only signal against a run whose site is Haleakala but whose
+        obscode differs from FTN's -- never score TELESCOPE_MATCH_NONE, which would read as
+        a positive disconfirmation the evidence does not support."""
+        ogg_0m4_site = Observatory.objects.create(obscode='XX1', name='Haleakala 0.4m', short_name='OGG-0m4')
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='OGG 0.4m network',
+            window_start=None,
+            window_end=None,
+            site=ogg_0m4_site,
+        )
+        score, evidence = telescope_match_score(run, 'OGG-0m4', '0M4-SCICAM-SBIG')
+        self.assertEqual(score, TELESCOPE_MATCH_APERTURE_ONLY)
+        self.assertNotEqual(score, TELESCOPE_MATCH_NONE)
+        self.assertNotIn('F65', evidence)  # never claims a resolved obscode for this label
 
     def test_telescope_match_indeterminate_tier(self):
         """The real CampaignRun pk=1 shape: a site-resolved run (blank telescope_class per
@@ -665,6 +738,88 @@ class TestOrphanQuerysets(TestCase):
 
         self.assertNotIn(record.pk, {r.pk for r in orphan_observation_records()})
 
+    def test_event_with_observation_record_but_no_run_is_excluded(self):
+        """37.1 D-09 supersedes 33-CONTEXT D-15 for the event worklist: an event whose
+        companion row has `observation_record` set (and `run` unset) is that record's own
+        projected event, so it is never an event-side orphan -- it is attributed only through
+        its record, which 35 D-08's `_sync_observation_attribution()` then carries to the
+        event. Counting it here as well made the banner count each record+event pair twice."""
+        target = NonSiderealTargetFactory.create()
+        user = User.objects.create(username='orphan-queryset-observation-owner')
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=user,
+            facility='LCO',
+            observation_id='ORPHANQ-D15',
+            status='PENDING',
+            parameters={'proposal': 'TEST'},
+        )
+        event = CalendarEvent.objects.create(
+            title='Observation-backed, unattributed event',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=None, observation_record=record)
+
+        self.assertNotIn(event.pk, {e.pk for e in orphan_calendar_events()})
+
+    def test_event_row_with_neither_run_nor_observation_record_is_still_included(self):
+        event = CalendarEvent.objects.create(
+            title='Hand-entered event with an empty companion row',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=None, observation_record=None)
+
+        self.assertIn(event.pk, {e.pk for e in orphan_calendar_events()})
+
+
+class TestRecordAndItsEventCountOnce(TestCase):
+    """37.1 D-09/D-10: a record and the event the observation projector drew from it are ONE
+    orphan in both shared counts, never two."""
+
+    def _record_with_own_event(self, campaign=None):
+        target = NonSiderealTargetFactory.create()
+        if campaign is not None:
+            campaign.targets.add(target)
+        user = User.objects.create(username=f'count-once-owner-{target.pk}')
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=user,
+            facility='LCO',
+            observation_id=f'COUNTONCE-{target.pk}',
+            status='PENDING',
+            parameters={
+                'proposal': 'TEST',
+                'instrument_type': '2M0-SCICAM-MUSCAT',
+                'start': datetime(2026, 7, 7, 22, 0).isoformat(),
+                'end': datetime(2026, 7, 8, 6, 0).isoformat(),
+            },
+        )
+        # The pair: the projector's post_save receiver drew exactly one event for this record.
+        self.assertEqual(CalendarEventMeta.objects.filter(observation_record=record).count(), 1)
+        return record
+
+    def test_pair_with_a_candidate_run_counts_once(self):
+        campaign = TargetList.objects.create(name='Count Once Campaign')
+        CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 21),
+        )
+        record = self._record_with_own_event(campaign)
+
+        self.assertEqual(orphans_needing_attribution_count(), 1)
+        self.assertIn(record.pk, {g.orphan.pk for g in record_attribution_backlog()})
+        own_event_pk = CalendarEventMeta.objects.get(observation_record=record).event_id
+        self.assertNotIn(own_event_pk, {g.orphan.pk for g in event_attribution_backlog()})
+
+    def test_pair_with_no_candidate_run_counts_once(self):
+        self._record_with_own_event()
+
+        self.assertEqual(unattributable_orphan_count(), 1)
+
 
 class TestSoleHighCandidateUnderBandFilter(TestCase):
     """28-REVIEW.md WR-02 regression: pins ``_sole_high_candidate_pk()``'s documented
@@ -716,18 +871,37 @@ class TestSoleHighCandidateUnderBandFilter(TestCase):
         )
         CalendarEventMeta.objects.create(event=cls.event, is_verified=False, run=None)
 
-        cls.record = ObservationRecord.objects.create(
-            target=cls.target,
-            user=cls.record_owner,
-            facility='LCO',
-            observation_id='WR02-1',
-            status='PENDING',
-            parameters={
-                'instrument_type': '2M0-SCICAM-MUSCAT',
-                'start': datetime(2026, 7, 7, 22, 0).isoformat(),
-                'end': datetime(2026, 7, 8, 6, 0).isoformat(),
-            },
+        # 34-01: the observation projector's post_save receiver now fires for every
+        # ObservationRecord save, and would auto-create a second orphan CalendarEvent for
+        # this fixture record (same window/instrument as cls.event above), silently doubling
+        # event_attribution_backlog()'s group count for tests that never asked for a second
+        # event. Disconnect it around this one fixture-creation call -- this class predates
+        # the projector and tests attribution scoring in isolation, not the projector itself.
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
         )
+        try:
+            cls.record = ObservationRecord.objects.create(
+                target=cls.target,
+                user=cls.record_owner,
+                facility='LCO',
+                observation_id='WR02-1',
+                status='PENDING',
+                parameters={
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                    'start': datetime(2026, 7, 7, 22, 0).isoformat(),
+                    'end': datetime(2026, 7, 8, 6, 0).isoformat(),
+                },
+            )
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
 
     def test_precondition_the_fixture_really_produces_one_high_and_one_medium_candidate(self):
         candidates = candidates_for_event(self.event)

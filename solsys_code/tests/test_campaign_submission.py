@@ -7,10 +7,11 @@ CLAUDE.md; no sidereal-target factory is used anywhere in this module) and plain
 """
 
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core import mail
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from tom_targets.models import TargetList
 
@@ -248,6 +249,48 @@ class TestStaffNotification(CampaignSubmissionTestBase):
         self.staff_with_email.save()
         self.client.post(self.submit_url(), data=self.minimal_valid_data())
         self.assertEqual(len(mail.outbox), 0)
+
+    def test_approval_queue_link_uses_the_configured_host(self):
+        # WR-07 (36-REVIEW.md): the rewire to notifications.absolute_url() must still
+        # carry the real deployment host, not silently degrade to the localhost dev
+        # default when FOMO_BASE_URL is actually configured.
+        with override_settings(FOMO_BASE_URL='https://fomo.example.org'):
+            self.client.post(self.submit_url(), data=self.minimal_valid_data())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('https://fomo.example.org/', mail.outbox[0].body)
+
+    def test_unset_base_url_does_not_crash_the_submission(self):
+        # WR-07 (36-REVIEW.md): a local_settings.py deriving FOMO_BASE_URL from an
+        # unset environment variable makes it None -- notifications.absolute_url()
+        # must fall back to the documented default rather than raising AttributeError
+        # from None.rstrip(), which would otherwise escape _notify_staff() and break
+        # the submission itself.
+        with override_settings(FOMO_BASE_URL=None):
+            response = self.client.post(self.submit_url(), data=self.minimal_valid_data(obs_date=OBS_DATE.isoformat()))
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        self.assertRedirects(response, self.thanks_url())
+        self.assertEqual(len(mail.outbox), 1)
+
+
+class TestSubmissionMailOutageResilience(CampaignSubmissionTestBase):
+    """36-01-PLAN.md Task 3: the shared ``notifications.notify_staff()`` helper this view
+    now delegates to must keep the pre-rewire outage-tolerant semantics -- a mail failure
+    or an empty recipient list must never break the submission itself.
+    """
+
+    def test_mail_failure_never_breaks_the_submission(self):
+        with patch('solsys_code.notifications.send_mail', side_effect=Exception('smtp outage')):
+            response = self.client.post(self.submit_url(), data=self.minimal_valid_data(obs_date=OBS_DATE.isoformat()))
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        self.assertRedirects(response, self.thanks_url())
+
+    def test_no_staff_with_email_still_succeeds(self):
+        self.staff_with_email.email = ''
+        self.staff_with_email.save()
+        response = self.client.post(self.submit_url(), data=self.minimal_valid_data(obs_date=OBS_DATE.isoformat()))
+        self.assertEqual(CampaignRun.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertRedirects(response, self.thanks_url())
 
 
 class TestSubmissionFormSiteSearchWidget(CampaignSubmissionTestBase):

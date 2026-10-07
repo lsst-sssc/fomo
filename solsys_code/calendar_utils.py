@@ -1,25 +1,29 @@
 """Shared LCO/SOAR telescope-mapping helpers and CalendarEvent create-or-update helper.
 
-Provides the instrument-extraction chain and telescope-mapping constants extracted from
-sync_lco_observation_calendar so all three management commands (sync_lco,
-sync_gemini, load_telescope_runs) can share a single implementation, plus the
-no-churn CalendarEvent create-or-update function used by all three consumers.
+Provides the instrument-extraction chain and telescope-mapping constants originally
+extracted from the retired v1.3-era LCO/SOAR sync command (superseded by the observation
+projector and its sweep, D-18) so the remaining calendar-writing consumers -- the observation
+projector, its sweep command, sync_gemini_observation_calendar, and load_telescope_runs --
+can share a single implementation, plus the no-churn CalendarEvent create-or-update function
+used by all of them.
 """
 
 import re
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urljoin
 
 import requests
 from django import forms
+from django.utils.dateparse import parse_datetime
 from tom_calendar.models import CalendarEvent
 from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.facilities.lco import LCOFacility
 from tom_observations.facilities.ocs import make_request
 from tom_observations.models import ObservationRecord
 
+from solsys_code.observation_blocks import select_schedule_block
 from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
 
 # (site, aperture_class) -> 'SITECODE-CLASS' telescope label (TELESCOPE-01/D-03/D-04).
@@ -39,13 +43,23 @@ from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
 # entries above. Closes the SITE_TELESCOPE_MAP completeness gap found in Phase 7 UAT
 # Test 1 (07-UAT.md Gaps section), where a real placed record (observation_id=4213127)
 # resolved to ('coj', '1m0') but fell back to [UNVERIFIED] for lack of this entry.
+#
+# D-07 (34-02 Task 3): the three 2m0/4m0 entries below carry the telescope's own operating
+# name ('FTN'/'FTS'/'SOAR') rather than the SITECODE-CLASS form, because that is what an
+# observer actually calls it -- each of these three sites hosts exactly one 2m0/4m0
+# telescope, so there is no ambiguity to resolve with a coordinate. The rest of the network
+# hosts two apertures per site (1m0 and 0m4), so the SITE-aperture form stays for those --
+# without it, e.g. 'lsc' 1m0 and 0m4 would collide on one label. This is the observation
+# projector's one-time observed-telescope token (plan 34-02 Task 3), read back from
+# ObservationRecord.parameters once a record reaches a successful terminal state --
+# see OBSERVED_TELESCOPE_SITE_CODES below for the inverse (label -> site code) bridge.
 SITE_TELESCOPE_MAP = {
-    ('coj', '2m0'): 'COJ-2m0',
+    ('coj', '2m0'): 'FTS',
     ('coj', '1m0'): 'COJ-1m0',
     ('coj', '0m4'): 'COJ-0m4',
-    ('ogg', '2m0'): 'OGG-2m0',
+    ('ogg', '2m0'): 'FTN',
     ('ogg', '0m4'): 'OGG-0m4',
-    ('sor', '4m0'): 'SOR-4m0',
+    ('sor', '4m0'): 'SOAR',
     ('elp', '1m0'): 'ELP-1m0',
     ('elp', '0m4'): 'ELP-0m4',
     ('lsc', '1m0'): 'LSC-1m0',
@@ -55,6 +69,30 @@ SITE_TELESCOPE_MAP = {
     ('tfn', '1m0'): 'TFN-1m0',
     ('tfn', '0m4'): 'TFN-0m4',
 }
+
+# D-07/D-09 (34-02 Task 3): the inverse of the three SITE_TELESCOPE_MAP entries above that no
+# longer take the SITECODE-CLASS form -- 'FTN'/'FTS'/'SOAR' carry no 3-letter site-code
+# prefix a plain string-split can recover, so a reader needing to bridge back from one of
+# these three labels to its LCO 3-letter site code needs this table instead. Single source
+# of truth for that bridge. campaign_attribution.py's own telescope-match signal resolves
+# these three labels straight to an obscode via its LABEL-keyed OBSERVED_TELESCOPE_OBSCODES
+# table instead, so it no longer consults this one -- this table's remaining consumers are
+# its own tests below and any caller that genuinely needs the classical site code, not an
+# obscode.
+OBSERVED_TELESCOPE_SITE_CODES: dict[str, str] = {
+    'FTN': 'ogg',
+    'FTS': 'coj',
+    'SOAR': 'sor',
+}
+
+# D-09: the ObservationRecord.parameters keys the observation projector's one-time
+# observed-site lookup (plan 34-02 Task 3) writes once a record reaches a successful
+# terminal state. Generic and un-prefixed, mirroring the portal block's own field names
+# ('site'/'telescope'/'enclosure') so the data is useful to a non-FOMO TOM reading this
+# record's parameters -- and deliberately distinct from the LCO submission form's own
+# 'site' constraint field, which already lives in this same parameters dict under a
+# different meaning (34-RESEARCH.md Pitfall 4/Assumption A3).
+OBSERVED_SITE_PARAMETER_KEYS = ('observed_site', 'observed_telescope', 'observed_enclosure')
 
 # SYNC-08/D-10: explicit timeout, single attempt, no retry/backoff loop. This is the
 # first explicit HTTP timeout introduced anywhere in solsys_code/ -- there is no
@@ -252,23 +290,52 @@ def derive_telescope(site: str | None, telescope_code: str | None) -> str | None
     return SITE_TELESCOPE_MAP.get((site, aperture_class))
 
 
-def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[str, Any] | None:
+def resolve_placement_block(
+    observation_id: str,
+    facility: LCOFacility,
+    *,
+    request_finished: bool = False,
+    stored_start: datetime | str | None = None,
+) -> dict[str, Any] | None:
     """Call the LCO Observation Portal API once to resolve a placed record's block.
 
     Issues a single, timeout-bounded GET to /api/requests/{observation_id}/observations/
-    and selects the same COMPLETED-first-else-PENDING block that
-    OCSFacility.get_observation_status() selects for scheduled_start/scheduled_end, so
-    telescope resolution and timing always come from the same block (Pitfall 3).
+    and returns the block whose start is the same instant as ``stored_start``, the record's stored
+    scheduled start, whichever rule stored them -- FOMO's rule (``observation_blocks.select_schedule_block``),
+    TOM Toolkit's rule through one of its own routes, or an earlier FOMO rule -- and whatever state that block
+    is in now. So whenever a listed block starts at the stored start, the telescope it names and the times the record
+    draws come from that same block (Pitfall 3; developer decision 2026-10-05, review WR-21). Both sides are read with
+    ``coerce_schedule_datetime()`` (a naive value is UTC) and compared as exact instants, microseconds included. If
+    several blocks start at
+    that instant, it returns FOMO's rule's pick from those blocks alone (told the same ``request_finished``),
+    else the last of them. A block start or a stored start that cannot be read, or that overflows when
+    converted to UTC, a block entry that is not a dict, a block without a start and a ``stored_start`` of
+    None never matches and never raises.
+
+    Only when no block matches, or ``stored_start`` is None, does FOMO's rule decide, over the whole list --
+    the same rule that now sets scheduled_start/scheduled_end. ``request_finished`` is passed straight to the
+    rule (review WR-20): its only caller, ``resolve_observed_site()``, looks up completed records only and
+    passes ``is_request_finished(record.status, facility)``, so a completed request whose times match no listed
+    block names the telescope of the block that took data rather than a leftover pending block.
 
     Args:
         observation_id: the record's LCO observation_id.
         facility: a shared LCOFacility/SOARFacility instance (for portal_url/api_key
             settings and auth header construction).
+        request_finished: keyword-only; True when the request is finished, so a block that took data
+            outranks a leftover pending block (see ``observation_blocks.select_schedule_block``). Defaults to
+            False, the order for a request that can still run. It decides only when no block starts at
+            ``stored_start`` and, among blocks that do, only to break a tie.
+        stored_start: keyword-only; the record's stored ``scheduled_start`` (an aware or naive ``datetime``,
+            or a portal ISO-8601 string). The block starting at that instant is the block the record's times
+            came from. Defaults to None, which skips the match.
 
     Returns:
         dict[str, Any] | None: the matched block dict (with 'site'/'enclosure'/
-            'telescope'/'state' keys) on success, or None if the API call failed,
-            timed out, or returned no usable COMPLETED/PENDING block. Never raises --
+            'telescope'/'state' keys) on success; a block matched by its start is
+            returned whatever its state, even one select_schedule_block() would not
+            count; or None if the API call failed,
+            timed out, or returned no usable block (see select_schedule_block). Never raises --
             every failure mode (network error, library auth/validation exception,
             malformed/non-JSON body, missing 'state' key) is caught and converted to
             None so the caller always falls through to the coarse fallback (SYNC-07:
@@ -294,14 +361,33 @@ def resolve_placement_block(observation_id: str, facility: LCOFacility) -> dict[
     if not isinstance(blocks, list):
         return None
 
-    current_block = None
-    for block in blocks:
-        if block.get('state') == 'COMPLETED':
-            current_block = block
-            break
-        elif block.get('state') == 'PENDING':
-            current_block = block
-    return current_block
+    try:
+        stored = coerce_schedule_datetime(stored_start)
+    except (ValueError, OverflowError):
+        stored = None
+    candidates = blocks
+    tied = False
+    if stored is not None:
+        matching = []
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            try:
+                started = coerce_schedule_datetime(block.get('start'))
+            except (ValueError, OverflowError):
+                continue
+            if started == stored:
+                matching.append(block)
+        if len(matching) == 1:
+            return matching[0]
+        if matching:
+            # A-43: several blocks start at the stored instant, so the rule chooses among them alone.
+            candidates, tied = matching, True
+
+    chosen = select_schedule_block(candidates, request_finished=request_finished)
+    if chosen is None and tied:
+        return candidates[-1]  # none of the tied blocks counts: the last, as the portal lists them in creation order
+    return chosen
 
 
 def _has_muscat_exposure_signal(parameters: dict[str, Any], n: int) -> bool:
@@ -420,15 +506,73 @@ def coarse_telescope_label(instrument_type: str, facility_name: str) -> str:
     return instrument_type
 
 
+def coerce_schedule_datetime(value: datetime | str | None) -> datetime | None:
+    """Coerce a schedule field value to an aware UTC datetime, whatever shape it arrives in.
+
+    G-34-2: ``BaseObservationFacility.update_observation_status()`` (tom_observations
+    ``facility.py:563``) assigns ``OCSFacility.get_observation_status()``'s raw portal
+    strings straight onto ``record.scheduled_start``/``scheduled_end`` and calls ``save()``.
+    Django persists the string fine, but the ``post_save`` receiver fires on that same
+    in-memory instance, so ``record_time_window()`` used to hand a ``str`` back and
+    ``event_fields_for()`` crashed calling ``.strftime()`` on it. The sweep, by contrast,
+    re-fetches the record from the database and sees a real ``datetime`` -- both paths
+    must produce the same window, or the receiver and the sweep would write different
+    spans to the same event forever. ``settings.TIME_ZONE`` is ``'UTC'`` with
+    ``USE_TZ=True``, so this coercion and Django's own persistence of the same string agree
+    on the instant, which is what stops that divergence.
+
+    Args:
+        value: a schedule field's raw value -- a ``datetime`` (DB-fetched row), a portal
+            ISO-8601 ``str`` (in-memory instance after ``update_observation_status()``),
+            or ``None``.
+
+    Returns:
+        datetime | None: ``None`` if `value` is ``None``; otherwise a timezone-aware UTC
+            datetime. A naive value (whether passed in directly or produced by parsing a
+            naive string) gets UTC attached; an already-aware, non-UTC-offset datetime is
+            converted to the equivalent UTC instant.
+
+    Raises:
+        ValueError: if `value` is a ``str`` that ``django.utils.dateparse.parse_datetime``
+            cannot parse, if `value` is a bare ISO date string with no time component
+            (WR-03 -- a schedule field is a block boundary, not a day, and
+            ``parse_datetime()`` would otherwise silently accept one as midnight), or if
+            `value` is neither ``str``, ``datetime`` nor ``None``. This function never
+            returns ``None`` for an unusable value: ``stage_for()`` has already classified
+            a non-``None`` schedule field as a placed block (D-10), so silently degrading
+            it to ``None`` here would draw a queued-looking event over the wrong window.
+            Raising instead keeps the record a D-13 ``unprojectable`` one -- visible in the
+            log and the sweep counters, with the record's own save never aborted and its
+            existing event left untouched.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        parsed = parse_datetime(value)
+        if parsed is None:
+            raise ValueError(f'Unparseable schedule datetime string: {value!r}')
+        if len(value) <= 10:  # WR-03: bare ISO date ('YYYY-MM-DD') -- not a block boundary
+            raise ValueError(f'Schedule value is a date, not a datetime: {value!r}')
+        value = parsed
+    elif not isinstance(value, datetime):
+        raise ValueError(f'Unusable schedule datetime value: {value!r}')
+    if value.tzinfo is None:
+        return value.replace(tzinfo=dt_timezone.utc)
+    return value.astimezone(dt_timezone.utc)
+
+
 def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
     """Derive the active start/end time window for an ObservationRecord (SYNC-02/SYNC-03).
 
-    Promoted from ``sync_lco_observation_calendar._time_window()`` (Plan 28-02 Task 2) so the
-    attribution matcher (``campaign_attribution.py``) and the LCO/SOAR sync command share one
-    definition of "this record's active window" instead of two independently-maintained
-    copies. Body and raising contract are byte-identical to the original -- a pure move, no
-    behaviour change (CLAUDE.md's paired-notebook trigger is deliberately NOT fired for this
-    reason; see 28-02-SUMMARY.md).
+    Promoted verbatim from the retired v1.3-era LCO/SOAR sync command's own
+    ``_time_window()`` (Plan 28-02 Task 2) so the attribution matcher
+    (``campaign_attribution.py``) and every calendar-writing consumer share one definition
+    of "this record's active window" instead of independently-maintained copies. G-34-2 has
+    since added the schedule-value coercion below: the promotion itself was a pure move with
+    no behaviour change, but the both-populated branch now routes through
+    ``coerce_schedule_datetime()`` so a post-save instance holding portal ISO strings
+    (``update_observation_status()``'s in-memory path) projects identically to a
+    DB-fetched record holding real datetimes (see 28-02-SUMMARY.md for the original move).
 
     Args:
         record: the ObservationRecord being synced or matched.
@@ -439,17 +583,25 @@ def record_time_window(record: ObservationRecord) -> tuple[datetime, datetime]:
     Raises:
         KeyError: if scheduled_start is None and parameters lacks 'start'/'end'.
         ValueError: if parameters['start']/['end'] are not valid ISO datetime strings,
-            or if scheduled_start/scheduled_end are inconsistently populated (one set,
-            the other None) -- a state CalendarEvent's non-nullable times cannot accept.
+            if scheduled_start/scheduled_end are inconsistently populated (one set, the
+            other None) -- a state CalendarEvent's non-nullable times cannot accept -- or
+            if a populated schedule_start/scheduled_end value cannot be coerced to a
+            datetime by ``coerce_schedule_datetime()`` (G-34-2).
     """
     if record.scheduled_start is None and record.scheduled_end is None:
-        # parameters['start']/['end'] are naive ISO strings (Pitfall 3) -- attach UTC
-        # explicitly since LCO request-submission times are conventionally UTC.
-        start_time = datetime.fromisoformat(record.parameters['start']).replace(tzinfo=dt_timezone.utc)
-        end_time = datetime.fromisoformat(record.parameters['end']).replace(tzinfo=dt_timezone.utc)
+        # CR-02: parameters['start']/['end'] are usually naive ISO strings, but the
+        # portal-sourced ingest path (backfill_lco_observations) stores 'Z'-suffixed ones,
+        # which datetime.fromisoformat() rejects before Python 3.11 -- route through the
+        # same coercion the scheduled_start/scheduled_end branch below uses: a naive value
+        # is read as UTC, an offset-bearing one is converted rather than overwritten.
+        start_time = coerce_schedule_datetime(record.parameters['start'])
+        end_time = coerce_schedule_datetime(record.parameters['end'])
     elif record.scheduled_start is not None and record.scheduled_end is not None:
-        start_time = record.scheduled_start
-        end_time = record.scheduled_end
+        # WR-05: both fields are non-None here, so the coercion cannot return None --
+        # narrow the type so this function's own tuple[datetime, datetime] annotation
+        # stays honest about None never being reachable.
+        start_time = cast(datetime, coerce_schedule_datetime(record.scheduled_start))
+        end_time = cast(datetime, coerce_schedule_datetime(record.scheduled_end))
     else:
         raise ValueError(
             f'Inconsistent schedule state: scheduled_start={record.scheduled_start!r}, '
@@ -487,8 +639,8 @@ def insert_or_create_calendar_event(
 ) -> tuple[CalendarEvent, str]:
     """Create or update a CalendarEvent, or leave it unchanged if no fields differ.
 
-    Implements the no-churn create-or-update contract shared by all three management
-    commands (sync_lco_observation_calendar, sync_gemini_observation_calendar,
+    Implements the no-churn create-or-update contract shared by every calendar-writing
+    consumer (the observation projector and its sweep, sync_gemini_observation_calendar,
     load_telescope_runs): create a new CalendarEvent if none exists for the given
     lookup key, update it in place if any fields changed, or leave it untouched if
     nothing changed (SYNC-04 idempotency).

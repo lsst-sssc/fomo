@@ -29,7 +29,6 @@ from solsys_code.calendar_utils import (
 )
 from solsys_code.models import (
     CalendarEventDismissal,
-    CalendarEventMeta,
     CampaignRun,
     CampaignRunObservation,
     ObservationRecordDismissal,
@@ -52,19 +51,45 @@ from solsys_code.telescope_runs import SITES as CLASSICAL_TELESCOPE_SITES
 # site): Observatory(obscode='E10', short_name='Siding Spring-Faulkes Telescope South') is
 # the real, already-resolved site for the 'coj' (Siding Spring) LCO site code.
 #
-# The other six LCO/SOAR site codes ('ogg', 'sor', 'elp', 'lsc', 'cpt', 'tfn') were
-# deliberately NOT added at this task: this worktree's local dev database is empty (a fresh
-# checkout -- no Observatory rows exist to verify against), and the public MPC bulk
-# Obscodes API returns MULTIPLE obscodes per LCO site (e.g. Cerro Tololo/'lsc' alone has
-# W85/W86/W87/W89/I02/807 -- one per physical dome/instrument, not one per site), so there is
-# no way to pick "the" canonical obscode for a whole LCO site from that bulk list alone --
-# it must be read off whichever specific Observatory row this codebase's CampaignRun.site
-# actually resolves to for that site, which requires the live application database. Leaving
-# these six unseeded is this table's own extension rule working as designed, not an
-# oversight -- see 28-02-SUMMARY.md for the verification record.
+# This table is keyed on a SITE code, which only gives a correct answer for a site that
+# hosts exactly one telescope. 'coj' is kept here on that basis, matching the RESEARCH.md
+# verification above. It must never be extended to a site that hosts more than one aperture
+# (SITE_TELESCOPE_MAP records that directly -- a site with more than one entry there is
+# multi-telescope) -- 'ogg' (FTN 2m0 + OGG-0m4) and the four still-unseeded codes below are
+# exactly that case, which is why they are not here.
+#
+# The other five LCO/SOAR site codes ('ogg', 'elp', 'lsc', 'cpt', 'tfn') stay deliberately
+# NOT added here: this worktree's local dev database is empty (a fresh checkout -- no
+# Observatory rows exist to verify against), and the public MPC bulk Obscodes API returns
+# MULTIPLE obscodes per LCO site (e.g. Cerro Tololo/'lsc' alone has W85/W86/W87/W89/I02/807
+# -- one per physical dome/instrument, not one per site), so there is no way to pick "the"
+# canonical obscode for a whole LCO site from that bulk list alone -- it must be read off
+# whichever specific Observatory row this codebase's CampaignRun.site actually resolves to
+# for that site, which requires the live application database. Leaving these five unseeded
+# is this table's own extension rule working as designed, not an oversight -- see
+# 28-02-SUMMARY.md for the original verification record on the first four; 'ogg' joined this
+# list rather than being seeded here specifically because a site-keyed entry cannot
+# distinguish its two telescopes (see OBSERVED_TELESCOPE_OBSCODES below for how 'ogg's one
+# unambiguous telescope, FTN, is still scored).
 LCO_SITE_CODE_TO_OBSCODE: dict[str, str] = {
     'coj': 'E10',
 }
+
+# 34-02 Task 3's D-07 telescope-label rename retired the SITECODE-CLASS form for the three
+# telescopes each the sole 2m0/4m0 aperture at its site (SITE_TELESCOPE_MAP's ('ogg','2m0'),
+# ('sor','4m0') and the equivalent 'coj' 2m0 entry are now 'FTN'/'SOAR'/'FTS'), so those
+# labels carry no 3-letter site-code prefix a plain string-split can recover. This table
+# bridges them straight to an obscode -- LABEL-keyed, not site-keyed, which is what makes it
+# safe for 'ogg' and 'sor' even though LCO_SITE_CODE_TO_OBSCODE above cannot host 'ogg': a
+# label like 'FTN' names exactly one physical telescope, so it can never be confused with
+# 'OGG-0m4', the site's other aperture, the way a bare site code 'ogg' would be. Verified
+# against this codebase's own already-committed, independently-sourced Observatory fixtures:
+# 'F65' for FTN (Faulkes Telescope North, Haleakala) appears across
+# test_import_campaign_csv.py/test_canonical_record_migration.py/test_campaign_approval.py/
+# test_reconcile_campaign_runs.py; 'I33' for SOAR (Cerro Pachon) appears in
+# test_campaign_gap.py; 'E10' for FTS matches the 'coj' entry above (RESEARCH.md) -- none
+# inferred from the telescope name alone.
+OBSERVED_TELESCOPE_OBSCODES: dict[str, str] = {'FTN': 'F65', 'FTS': 'E10', 'SOAR': 'I33'}
 
 # --- Weights, band cut-points, evidence-tier constants (Claude's Discretion, 28-CONTEXT.md) -
 
@@ -229,16 +254,27 @@ def date_overlap_score(
 def _extract_lco_site_code(telescope_code: str | None) -> str | None:
     """Leading 3-letter LCO site-code token from a resolved telescope label (e.g. 'COJ-2m0').
 
+    Only recognises the SITECODE-CLASS form (a 3-letter site code, '-', then an aperture
+    class, e.g. 'COJ-1m0'). The three renamed observed-telescope labels ('FTN'/'FTS'/'SOAR')
+    carry no such prefix, so this function returns None for them -- ``telescope_match_score()``
+    resolves those three labels itself, directly and before this function is ever called for
+    them, via the LABEL-keyed ``OBSERVED_TELESCOPE_OBSCODES`` table (a site-keyed lookup
+    through this function would be wrong for a multi-telescope site like 'ogg'; see that
+    table's own comment). A caller genuinely needing one of those three labels' classical
+    3-letter site code should read it directly off
+    ``calendar_utils.OBSERVED_TELESCOPE_SITE_CODES`` instead of calling this function.
+
     Args:
         telescope_code: the orphan's telescope string (e.g. ``CalendarEvent.telescope``).
 
     Returns:
-        str | None: the lowercased site code if it's a recognised LCO site (a key of
-            ``SITE_TELESCOPE_MAP``), else None. Never raises.
+        str | None: the lowercased leading site-code token if it's a recognised LCO site (a
+            key of ``SITE_TELESCOPE_MAP``), else None. Never raises.
     """
     if not telescope_code:
         return None
-    candidate = telescope_code.split('-', 1)[0].strip().lower()
+    stripped = telescope_code.strip()
+    candidate = stripped.split('-', 1)[0].lower()
     return candidate if candidate in _LCO_SITE_CODES else None
 
 
@@ -269,22 +305,34 @@ def telescope_match_score(
 
     Resolution order:
 
-    1. The orphan's telescope string carries a recognised LCO site code (e.g. ``'COJ-2m0'``)
-       and that code has a verified entry in ``LCO_SITE_CODE_TO_OBSCODE`` and ``run.site`` is
-       set: ``TELESCOPE_MATCH_SITE`` on an obscode match, ``TELESCOPE_MATCH_NONE`` on a
-       mismatch.
-    2. Otherwise, the orphan's telescope string is itself a classical-run-file nickname (a key
-       of ``telescope_runs.SITES``, e.g. ``'FTS'`` -- what a classically-scheduled
+    1. The orphan's telescope string is one of the three D-07 (34-02 Task 3) observed-telescope
+       labels (``'FTN'``, ``'FTS'``, ``'SOAR'``) and has a verified entry in
+       ``OBSERVED_TELESCOPE_OBSCODES``, and ``run.site`` is set: ``TELESCOPE_MATCH_SITE`` on an
+       obscode match, ``TELESCOPE_MATCH_NONE`` on a mismatch. This lookup is deliberately
+       LABEL-keyed rather than site-keyed: each of these three labels names exactly one
+       physical telescope, whereas the site it lives at (e.g. Haleakala, 'ogg') can host more
+       than one -- see the table's own comment for why a site-keyed lookup cannot be used here.
+    2. Otherwise, the orphan's telescope string carries a recognised LCO site code (e.g.
+       ``'COJ-1m0'``) that has a verified entry in ``LCO_SITE_CODE_TO_OBSCODE`` (a site-keyed
+       table, correct only for a site with exactly one telescope) and ``run.site`` is set: same
+       two outcomes. A label already resolved at step 1 never reaches this step.
+    3. Otherwise, the orphan's telescope string is itself a classical-run-file nickname (a key
+       of ``telescope_runs.SITES``, e.g. ``'NTT'`` -- what a classically-scheduled
        ``CalendarEvent``'s ``telescope`` field literally carries, per
        ``load_telescope_runs.py``) and ``run.site`` is set: same two outcomes, comparing the
-       classical-vocabulary-derived obscode against ``run.site.obscode``.
-    3. Otherwise compare aperture classes: the orphan's telescope code (falling back to its
+       classical-vocabulary-derived obscode against ``run.site.obscode``. Only telescope tokens
+       with no observed-site entry (``'Magellan-Clay'``, ``'Magellan-Baade'``, ``'NTT'``) can
+       still reach this step; the evidence string a classical-alias match produces also reads
+       "orphan telescope '...' is a classical site alias for ..." rather than the step-1
+       wording ("orphan LCO site code '...' resolves to obscode ...") -- same score, different
+       operator-facing text.
+    4. Otherwise compare aperture classes: the orphan's telescope code (falling back to its
        instrument code, which carries a leading aperture token in the real LCO data --
        ``'2M0-SCICAM-MUSCAT'``) against ``run.telescope_class`` or
        ``calendar_utils.derive_telescope_class(run.site_raw, run.telescope_instrument)``. Both
        derivable and equal gives ``TELESCOPE_MATCH_APERTURE_ONLY``; both derivable and
        different gives ``TELESCOPE_MATCH_NONE``.
-    4. If an aperture class can't be resolved on both sides, ``TELESCOPE_MATCH_INDETERMINATE``
+    5. If an aperture class can't be resolved on both sides, ``TELESCOPE_MATCH_INDETERMINATE``
        -- explicitly NOT zero. A run whose site resolved (so ``telescope_class`` is blank by
        the D-06 rule in ``models.py``) and whose ``telescope_instrument`` carries no aperture
        token is exactly the real ``CampaignRun`` pk=1 case -- scoring "we cannot tell" the
@@ -300,6 +348,20 @@ def telescope_match_score(
         tuple[float, str]: (score, human-readable evidence string naming the actual
             comparison made). Never raises.
     """
+    telescope_label = (telescope_code or '').strip().upper()
+    observed_obscode = OBSERVED_TELESCOPE_OBSCODES.get(telescope_label)
+    if observed_obscode is not None and run.site_id is not None:
+        run_obscode = run.site.obscode
+        if observed_obscode == run_obscode:
+            return TELESCOPE_MATCH_SITE, (
+                f"orphan observed telescope '{telescope_label}' resolves to obscode {observed_obscode}, "
+                f"matching the run's site obscode {run_obscode}"
+            )
+        return TELESCOPE_MATCH_NONE, (
+            f"orphan observed telescope '{telescope_label}' resolves to obscode {observed_obscode}, "
+            f"which differs from the run's site obscode {run_obscode}"
+        )
+
     lco_site_code = _extract_lco_site_code(telescope_code)
     if lco_site_code and lco_site_code in LCO_SITE_CODE_TO_OBSCODE and run.site_id is not None:
         orphan_obscode = LCO_SITE_CODE_TO_OBSCODE[lco_site_code]
@@ -393,7 +455,16 @@ class AttributionOrphanGroup:
 
 
 def _campaign_evidence(run: CampaignRun) -> str:
-    """Evidence string naming which campaign the pair's boundary-gate match is on."""
+    """Evidence string naming which campaign the pair's boundary-gate match is on.
+
+    Phase 32: a null-campaign run reaches this function only through the
+    ``ObservationRecord`` orphan path (``_eligible_runs_for_record``), since
+    ``_eligible_runs_for_candidate`` already returns ``CampaignRun.objects.none()`` for an
+    event with no ``target_list`` -- this guard is defence in depth, not a new scored-
+    attribution behaviour.
+    """
+    if run.campaign_id is None:
+        return f'run belongs to no campaign (run pk={run.pk}); no campaign gate applied'
     return f"run belongs to campaign '{run.campaign.name}' (pk={run.campaign_id}), matching the orphan's campaign"
 
 
@@ -457,15 +528,22 @@ def orphan_calendar_events():
     (e.g. a conference/proposal-deadline event with no ``target_list``) out of the queue --
     NOT this queryset, which is deliberately permissive.
 
+    Per 37.1 D-09 an event drawn from an observation record (its ``CalendarEventMeta`` carries
+    ``observation_record``) is never an event-side orphan: it is attributed only through its
+    record, so this worklist lists hand-entered, legacy and reconciler events only, and the two
+    counts built on this queryset count a record and its own event once. An event with no
+    companion row, or a row carrying neither ``run`` nor ``observation_record``, is still an
+    orphan.
+
     Filter-only: no ``select_related``, no ``order_by``, no slice, so each caller adds what it
     needs.
 
     Returns:
-        QuerySet[CalendarEvent]: every un-attributed CalendarEvent.
+        QuerySet[CalendarEvent]: every un-attributed CalendarEvent that is not a record's own event.
     """
     return CalendarEvent.objects.filter(
         Q(telescope_label_meta__isnull=True) | Q(telescope_label_meta__run__isnull=True)
-    )
+    ).exclude(telescope_label_meta__observation_record__isnull=False)
 
 
 def orphan_observation_records():
@@ -816,11 +894,11 @@ def is_offered_candidate(kind: str, orphan_pk: int, run_pk: int) -> AttributionC
             event = CalendarEvent.objects.get(pk=orphan_pk)
         except CalendarEvent.DoesNotExist:
             return None
-        try:
-            if event.telescope_label_meta.run_id is not None:
-                return None
-        except CalendarEventMeta.DoesNotExist:
-            pass
+        # WR-05 (37.1-REVIEW.md): the same rules the queue lists by. An attributed event, and
+        # (37.1 D-09) a record's own event -- attributed only through its record -- is not offered,
+        # so a stale page or a hand-crafted POST cannot confirm one onto a run directly.
+        if not orphan_calendar_events().filter(pk=orphan_pk).exists():
+            return None
         candidates = candidates_for_event(event)
     elif kind == 'record':
         try:

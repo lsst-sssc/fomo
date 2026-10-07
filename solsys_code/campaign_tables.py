@@ -14,30 +14,34 @@ from django.utils.html import format_html
 from django.utils.http import urlencode
 from django_tables2.utils import Accessor
 
+from . import campaign_tally
 from .campaign_utils import is_placeholder_observatory
 from .models import CampaignRun, CampaignRunObservation, ObservationRecordDismissal
 
 # D-08 / UI-SPEC Approval-Status Badge Contract: fixed 3-entry dict, badge class never derived
 # from the raw DB string (mirrors calendar_display_extras.py's constant-lookup pattern shape).
+# The values are Bootstrap 5 ``text-bg-*`` classes: the Bootstrap 4 ``badge-*`` colour names
+# render white-on-white under the Bootstrap 5.3 this site loads (F14, quick task 261006-nga).
 APPROVAL_BADGE_CLASSES = {
-    CampaignRun.ApprovalStatus.PENDING_REVIEW: 'badge-warning',
-    CampaignRun.ApprovalStatus.APPROVED: 'badge-success',
-    CampaignRun.ApprovalStatus.REJECTED: 'badge-danger',
+    CampaignRun.ApprovalStatus.PENDING_REVIEW: 'text-bg-warning',
+    CampaignRun.ApprovalStatus.APPROVED: 'text-bg-success',
+    CampaignRun.ApprovalStatus.REJECTED: 'text-bg-danger',
 }
 
 # UI-SPEC Run-Status Badge Contract: deliberately muted so it never competes with the
-# mandatory approval_status badge. Dead-end outcomes use badge-light (+ grey border added in
-# render_run_status), NOT badge-danger -- danger-red is reserved exclusively for
-# approval_status=rejected (see UI-SPEC rationale).
+# mandatory approval_status badge. Dead-end outcomes use text-bg-light (+ grey border added in
+# render_run_status), NOT text-bg-danger -- danger-red is reserved exclusively for
+# approval_status=rejected (see UI-SPEC rationale). Bootstrap 5 ``text-bg-*`` classes, for the
+# same reason as APPROVAL_BADGE_CLASSES above (F14, quick task 261006-nga).
 RUN_STATUS_BADGE_CLASSES = {
-    CampaignRun.RunStatus.REQUESTED: 'badge-secondary',
-    CampaignRun.RunStatus.PLANNED: 'badge-secondary',
-    CampaignRun.RunStatus.OBSERVED: 'badge-info',
-    CampaignRun.RunStatus.REDUCED: 'badge-info',
-    CampaignRun.RunStatus.PUBLISHED: 'badge-primary',
-    CampaignRun.RunStatus.CANCELLED: 'badge-light',
-    CampaignRun.RunStatus.NOT_AWARDED: 'badge-light',
-    CampaignRun.RunStatus.WEATHER_TECH_FAILURE: 'badge-light',
+    CampaignRun.RunStatus.REQUESTED: 'text-bg-secondary',
+    CampaignRun.RunStatus.PLANNED: 'text-bg-secondary',
+    CampaignRun.RunStatus.OBSERVED: 'text-bg-info',
+    CampaignRun.RunStatus.REDUCED: 'text-bg-info',
+    CampaignRun.RunStatus.PUBLISHED: 'text-bg-primary',
+    CampaignRun.RunStatus.CANCELLED: 'text-bg-light',
+    CampaignRun.RunStatus.NOT_AWARDED: 'text-bg-light',
+    CampaignRun.RunStatus.WEATHER_TECH_FAILURE: 'text-bg-light',
 }
 
 # WR-02/CANON-02/D-18: stored code -> human label for the telescope-class column. Derived
@@ -53,6 +57,33 @@ TELESCOPE_CLASS_LABELS = {choice.value: choice.label for choice in CampaignRun.T
 _FREE_TEXT_ATTRS = {'td': {'class': 'text-truncate', 'style': 'max-width: 200px;'}}
 
 
+def _campaign_run_row_id(record):
+    """Anchor id for a CampaignRunTable row: ``run-{pk}`` (D-13, Phase 33 Plan 02).
+
+    Consumed by the calendar decoration's campaign-table link
+    (``calendar_display_extras.campaign_decoration()``'s ``table_url``, built as
+    ``.../campaigns/<pk>/#run-{run.pk}``) -- do not delete this even though nothing in
+    this module reads it back; the far end of the link is a row id in rendered HTML,
+    not a Python reference.
+
+    Resolved via ``Accessor('pk').resolve(record, quiet=True)`` rather than
+    ``record.pk``: staff rows are ``CampaignRun`` model instances but non-staff rows are
+    dicts from ``CampaignRunTableView.get_queryset()``'s ``.values()`` projection, and
+    only the Accessor form works for both -- the same reason ``render_run_status``/
+    ``render_approval_status``/``render_telescope_class`` below use it.
+
+    Returns ``None`` (never the string ``'run-None'``) when the pk cannot be resolved.
+    django-tables2's ``AttributeDict._iteritems()`` drops any key whose value is
+    ``None``, so this deliberately omits the ``id`` attribute entirely rather than
+    emitting a literal ``id="run-None"`` that could collide with a genuine anchor target
+    (33-REVIEWS.md Agreed Concern 6).
+    """
+    pk = Accessor('pk').resolve(record, quiet=True)
+    if pk is None:
+        return None
+    return f'run-{pk}'
+
+
 class CampaignRunTable(tables.Table):
     """Spreadsheet-parity CampaignRun table (D-09), PII-gated via the view's ``exclude=`` kwarg."""
 
@@ -63,6 +94,11 @@ class CampaignRunTable(tables.Table):
     # discarded for staff and non-staff alike -- D-18's stated outcome was not delivered.
     # Sits immediately after `site` because that is the distinction it exists to draw.
     telescope_class = tables.Column(verbose_name='Telescope class')
+    # TALLY-01/D-08: computed value, not a selected model field -- orderable=False because
+    # there is nothing for django-tables2 to sort against in SQL, and empty_values=() so a
+    # run whose counts are all zero still renders (django-tables2's default empty_values
+    # would otherwise short-circuit a falsy value to the table's empty placeholder).
+    progress = tables.Column(verbose_name='Progress', orderable=False, empty_values=())
 
     class Meta:  # noqa: D106
         model = CampaignRun
@@ -83,15 +119,110 @@ class CampaignRunTable(tables.Table):
             'contact_person',
             'contact_email',
         )
+        # TALLY-01/D-08: 'progress' isn't a model field (it can't be in `fields` above), so
+        # its position is pinned here explicitly -- immediately after run_status, matching
+        # the plan's placement -- rather than left to declaration order.
+        sequence = (
+            'telescope_instrument',
+            'site',
+            'telescope_class',
+            'window_start',
+            'filters_bandpass',
+            'run_status',
+            'progress',
+            'approval_status',
+            'open_to_collaboration',
+            'observation_details',
+            'weather',
+            'observation_outcome',
+            'publication_plans',
+            'comments',
+            'contact_person',
+            'contact_email',
+        )
         template_name = 'django_tables2/bootstrap4-responsive.html'
         attrs = {'class': 'table table-bordered table-sm'}
         empty_text = 'No runs match these filters. Clear filters to see all runs for this campaign.'
+        # D-13: gives the calendar decoration's campaign-table link a real landing spot --
+        # see _campaign_run_row_id's docstring for why this must never be deleted as
+        # "unused". ApprovalQueueTable (a subclass below) inherits this unchanged.
+        row_attrs = {'id': _campaign_run_row_id}
+        # _campaign_run_row_id returns None (never the literal 'run-None') when the pk
+        # cannot be resolved, so django-tables2's AttributeDict drops the id attribute.
 
     observation_details = tables.Column(attrs=_FREE_TEXT_ATTRS)
     weather = tables.Column(attrs=_FREE_TEXT_ATTRS)
     observation_outcome = tables.Column(attrs=_FREE_TEXT_ATTRS)
     publication_plans = tables.Column(attrs=_FREE_TEXT_ATTRS)
     comments = tables.Column(attrs=_FREE_TEXT_ATTRS)
+
+    def __init__(self, *args, **kwargs):
+        """``self.tallies`` (TALLY-01/D-08) starts as an empty ``{run_pk: tally_dict}``
+        mapping and is consumed only by ``render_progress()``'s dict lookup -- never
+        recomputed per row (D-08).
+
+        WR-05 (37-REVIEW.md): this used to be populated via a ``tallies=`` constructor
+        kwarg, pre-computed for the WHOLE table in one pass by the view before
+        ``__init__()`` ran. ``CampaignRunTableView.get_table()`` (G-37-5/CR-01) replaced
+        that with post-construction attribute assignment
+        (``table.tallies = campaign_tally.tallies_for_runs(runs)``, set only AFTER
+        ``RequestConfig.configure()`` has resolved which rows will actually render) --
+        a ``tallies=`` kwarg is no longer read by any caller in this codebase. Keeping
+        both mechanisms would let a future ``tallies=`` caller be silently overwritten by
+        ``get_table()`` two lines later, so the kwarg is dropped outright rather than kept
+        as a second, non-functional way to set the same attribute.
+        """
+        self.tallies = {}
+        super().__init__(*args, **kwargs)
+
+    def render_progress(self, record):
+        """Render the TALLY-01/D-08 public Progress cell: group/record counts plus the four
+        ordered tally segments (observed, scheduled, expired-or-failed, unused), reusing the
+        shared marker vocabulary so this cell and the calendar speak the same language.
+
+        Resolves the row's pk via Accessor (works for both dict and model-instance rows,
+        see ``render_run_status``'s docstring for why) and looks the tally up in
+        ``self.tallies`` -- it must NEVER issue a query (D-08 forbids a per-row loop): the
+        counts arrive pre-computed from the view's one-pass ``tallies_for_runs()`` call. A
+        pk that cannot be resolved, or one with no entry in ``self.tallies`` (e.g. no view
+        ever attached one after construction, WR-05), renders a muted not-available
+        token instead of raising or falling back to a live query.
+
+        The group/record counts and the four segments sit on two lines that never wrap
+        internally, so the column is never narrower than its longer line and the cell is
+        always exactly two lines (F14, quick task 261006-nga).
+        """
+        pk = Accessor('pk').resolve(record, quiet=True)
+        tally = self.tallies.get(pk) if pk is not None else None
+        if tally is None:
+            return format_html(
+                '<span class="text-muted font-italic" title="Progress not available">Progress not available</span>'
+            )
+        segments = campaign_tally.tally_segments(tally)
+        segment_bits = []
+        words = []
+        for segment in segments:
+            words.append(segment['label'])
+            if not segment['known']:
+                segment_bits.append(f"{segment['marker']} not yet known")
+            elif segment['is_estimate']:
+                segment_bits.append(f"{segment['marker']} ≈{segment['count']}")
+            else:
+                segment_bits.append(f"{segment['marker']} {segment['count']}")
+        segments_text = ' '.join(segment_bits)
+        title = ', '.join(words)
+        groups = tally['groups']
+        records = tally['records']
+        return format_html(
+            '<span title="{}"><span class="d-block text-nowrap">{} group{} · {} record{}</span>'
+            '<span class="d-block text-nowrap">{}</span></span>',
+            title,
+            groups,
+            '' if groups == 1 else 's',
+            records,
+            '' if records == 1 else 's',
+            segments_text,
+        )
 
     def render_run_status(self, record):
         """Render run_status as a muted Bootstrap badge (UI-SPEC Run-Status Badge Contract).
@@ -105,9 +236,9 @@ class CampaignRunTable(tables.Table):
         sidesteps that pre-processing and gives the raw code for both dict and model rows.
         """
         value = Accessor('run_status').resolve(record, quiet=True)
-        css = RUN_STATUS_BADGE_CLASSES.get(value, 'badge-secondary')
+        css = RUN_STATUS_BADGE_CLASSES.get(value, 'text-bg-secondary')
         label = CampaignRun.RunStatus(value).label
-        style = 'border: 1px solid #6c757d;' if css == 'badge-light' else ''
+        style = 'border: 1px solid #6c757d;' if css == 'text-bg-light' else ''
         return format_html('<span class="badge {}" style="{}">{}</span>', css, style, label)
 
     def render_approval_status(self, record):
@@ -116,7 +247,7 @@ class CampaignRunTable(tables.Table):
         See render_run_status docstring -- same raw-value-via-Accessor rationale applies.
         """
         value = Accessor('approval_status').resolve(record, quiet=True)
-        css = APPROVAL_BADGE_CLASSES.get(value, 'badge-secondary')
+        css = APPROVAL_BADGE_CLASSES.get(value, 'text-bg-secondary')
         label = CampaignRun.ApprovalStatus(value).label
         return format_html('<span class="badge {}">{}</span>', css, label)
 
@@ -135,12 +266,15 @@ class CampaignRunTable(tables.Table):
         short-circuits to the table's placeholder), which is the intended appearance: blank
         means "not a class-wide allocation", while an unresolved site is carried by the site
         column's own warning styling, not by this one (D-13).
+
+        The badge is dark text on a light background with a grey border (the muted
+        CANON-02/D-18 token), so it is readable without hovering (F14, quick task 261006-nga).
         """
         value = Accessor('telescope_class').resolve(record, quiet=True)
         if not value:
             return ''
         return format_html(
-            '<span class="badge badge-light" style="border: 1px solid #6c757d;" title="{}">{}</span>',
+            '<span class="badge text-bg-light" style="border: 1px solid #6c757d;" title="{}">{}</span>',
             TELESCOPE_CLASS_LABELS.get(value, value),
             value,
         )
@@ -192,8 +326,8 @@ class CampaignRunTable(tables.Table):
         if start is None:  # both null by the model's own invariant
             original_obs_date_raw = Accessor('original_obs_date_raw').resolve(record, quiet=True) or ''
             if original_obs_date_raw:
-                return format_html('<span class="badge badge-secondary" title="{}">TBD</span>', original_obs_date_raw)
-            return format_html('<span class="badge badge-secondary">TBD</span>')
+                return format_html('<span class="badge text-bg-secondary" title="{}">TBD</span>', original_obs_date_raw)
+            return format_html('<span class="badge text-bg-secondary">TBD</span>')
         if start == end:
             return start  # single-night row (D-05)
         return format_html('{} -&gt; {}', start, end)  # D-05: literal "->", not an en-dash
@@ -227,7 +361,14 @@ class ApprovalQueueTable(CampaignRunTable):
     # horizontal scrolling. CampaignRunTable itself is untouched -- it stays spreadsheet-parity
     # for Phase 15's D-09 read path.
     class Meta(CampaignRunTable.Meta):  # noqa: D106
-        exclude = ('weather', 'observation_outcome', 'publication_plans')
+        # 'progress' is excluded too (WR-01, 37-REVIEW.md): the three approval-queue
+        # construction sites in ApprovalQueueView never attach a `tallies` dict to the table
+        # they build (WR-05, 37-REVIEW.md: no view attaches tallies to an ApprovalQueueTable
+        # at all -- only CampaignRunTableView.get_table() does, for the plain
+        # CampaignRunTable it renders), so render_progress() would fall into its "not
+        # available" branch for every row, adding a permanently-dead wide column to three
+        # staff pages.
+        exclude = ('weather', 'observation_outcome', 'publication_plans', 'progress')
         sequence = (
             'actions',
             'approval_status',
@@ -415,6 +556,16 @@ class ApprovalQueueTable(CampaignRunTable):
         )
 
 
+# 37.1 D-06 addendum: the Undo-dismissal confirm() text. Both constants sit inside a
+# single-quoted JavaScript string in an onclick attribute, so they must never contain an
+# apostrophe or a double quote.
+_UNDO_DISMISSAL_PROMPT_EVENT = 'Undo this dismissal? It will return to the worklist above.'
+_UNDO_DISMISSAL_PROMPT_RECORD = (
+    'Undo this dismissal? It will return to the worklist above, or, if it exactly matches one approved run, '
+    'the next discovery sweep or backfill run will link it to that run automatically.'
+)
+
+
 class AttributionDismissedTable(tables.Table):
     """D-07/D-14 Dismissed section: rows are a plain Python list mixing
     ``CalendarEventDismissal``/``ObservationRecordDismissal`` instances (see
@@ -442,6 +593,9 @@ class AttributionDismissedTable(tables.Table):
         sequence = ('orphan', 'run', 'dismissed_by', 'dismissed_at', 'reason', 'actions')
         attrs = {'class': 'table table-sm'}
         empty_text = 'No dismissals recorded yet.'
+        # The base page is Bootstrap 5 (TOM Toolkit 3.0.1); with no template django-tables2 falls back to
+        # its unstyled default pager (UAT G-37.1-1-pager).
+        template_name = 'django_tables2/bootstrap5-responsive.html'
 
     def __init__(self, *args, request=None, **kwargs):
         self.request = request
@@ -463,7 +617,13 @@ class AttributionDismissedTable(tables.Table):
         return f'{orphan.facility} observation {orphan.observation_id}'
 
     def render_run(self, record):
-        """The dismissed pair's candidate run, identified by telescope/instrument + campaign."""
+        """The dismissed pair's candidate run, identified by telescope/instrument + campaign.
+
+        Phase 32: the campaign parenthetical is omitted (no placeholder) for a run with no
+        campaign -- an empty parenthetical would be visual noise in a table cell.
+        """
+        if record.run.campaign_id is None:
+            return record.run.telescope_instrument
         return f'{record.run.telescope_instrument} ({record.run.campaign.name})'
 
     def render_actions(self, record):
@@ -472,8 +632,13 @@ class AttributionDismissedTable(tables.Table):
         "Mark Cancelled"/"Mark Weathered" precedent above -- UI-SPEC reserves ``.btn-primary``/
         ``.btn-success`` for confirm and ``.btn-danger`` for dismiss, neither of which applies to
         a state-reversal action that writes a row rather than destroying data.
+
+        The confirm() prompt is kind-aware (37.1 D-06 addendum): an observation-record
+        dismissal warns that an exactly matching record is linked automatically by the next
+        discovery sweep or backfill run; an event dismissal's prompt is unchanged.
         """
         kind, orphan = self._kind_and_orphan(record)
+        prompt = _UNDO_DISMISSAL_PROMPT_RECORD if kind == 'record' else _UNDO_DISMISSAL_PROMPT_EVENT
         decide_url = reverse('campaigns:attribution_decide')
         csrf_token = get_token(self.request) if self.request is not None else ''
         return format_html(
@@ -484,14 +649,14 @@ class AttributionDismissedTable(tables.Table):
             '<input type="hidden" name="orphan_pk" value="{3}">'
             '<input type="hidden" name="run_pk" value="{4}">'
             '<button type="submit" class="btn btn-sm btn-outline-secondary" '
-            'onclick="return confirm(\'Undo this dismissal? '
-            'It will return to the worklist above.\')">Undo</button>'
+            'onclick="return confirm(\'{5}\')">Undo</button>'
             '</form>',
             decide_url,
             csrf_token,
             kind,
             orphan.pk,
             record.run.pk,
+            prompt,
         )
 
 
@@ -501,11 +666,17 @@ class AttributionConfirmedTable(tables.Table):
     ``campaign_views._confirmed_attribution_rows()``). Same shape as
     ``AttributionDismissedTable`` above -- see its docstring for the CSRF-per-row and
     auto-escaping discipline this class follows identically.
+
+    A ``CampaignRunObservation`` written by an ingest command's exact-identity match has
+    ``confirmed_by`` None; its "Confirmed by" cell reads "System (exact match)" (37.1 D-05).
     """
 
     orphan = tables.Column(empty_values=(), orderable=False, verbose_name='Orphan')
     run = tables.Column(empty_values=(), orderable=False, verbose_name='Run')
-    confirmed_by = tables.Column(verbose_name='Confirmed by')
+    # empty_values=() is required: django-tables2 never calls a render_<col> method for a value
+    # in the column's empty_values (None by default), so a system link's confirmed_by=None
+    # would reach the cell as the blank dash and never get its label (37.1 RESEARCH Pitfall 4).
+    confirmed_by = tables.Column(empty_values=(), verbose_name='Confirmed by')
     confirmed_at = tables.Column(verbose_name='Confirmed at')
     actions = tables.Column(empty_values=(), orderable=False, verbose_name='Actions')
 
@@ -513,6 +684,9 @@ class AttributionConfirmedTable(tables.Table):
         sequence = ('orphan', 'run', 'confirmed_by', 'confirmed_at', 'actions')
         attrs = {'class': 'table table-sm'}
         empty_text = 'No confirmed attributions yet.'
+        # The base page is Bootstrap 5 (TOM Toolkit 3.0.1); with no template django-tables2 falls back to
+        # its unstyled default pager (UAT G-37.1-1-pager).
+        template_name = 'django_tables2/bootstrap5-responsive.html'
 
     def __init__(self, *args, request=None, **kwargs):
         self.request = request
@@ -533,8 +707,25 @@ class AttributionConfirmedTable(tables.Table):
             return f'{orphan.title} ({orphan.start_time:%Y-%m-%d}..{orphan.end_time:%Y-%m-%d})'
         return f'{orphan.facility} observation {orphan.observation_id}'
 
+    def render_confirmed_by(self, record, value):
+        """The confirmer: the staff user, "System (exact match)" for a system link (D-05).
+
+        A ``CalendarEventMeta`` row with no ``confirmed_by`` (a self-attributed ``ALLOC:``/
+        ``RUN:`` event or an adopted record event) is not a system link and keeps the table's
+        empty-cell dash.
+        """
+        if isinstance(record, CampaignRunObservation):
+            return record.confirmed_by_label()
+        return value if value is not None else self.default
+
     def render_run(self, record):
-        """The confirmed pair's run, identified by telescope/instrument + campaign."""
+        """The confirmed pair's run, identified by telescope/instrument + campaign.
+
+        Phase 32: the campaign parenthetical is omitted (no placeholder) for a run with no
+        campaign -- an empty parenthetical would be visual noise in a table cell.
+        """
+        if record.run.campaign_id is None:
+            return record.run.telescope_instrument
         return f'{record.run.telescope_instrument} ({record.run.campaign.name})'
 
     def render_actions(self, record):

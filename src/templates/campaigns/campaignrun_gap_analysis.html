@@ -38,8 +38,37 @@
 <div class="mb-4">
   <h5 class="font-weight-bold">No gaps found</h5>
   <p>
-    Every observable night in this window is already claimed by an approved run. Try widening
-    the date range (up to 180 days) or choosing a different site.
+    Every observable night in this window is already claimed by an approved run window or by an
+    observation on the campaign's calendar. Try widening the date range (up to 180 days) or
+    choosing a different site.
+  </p>
+</div>
+{% endif %}
+
+{% if result.claimed_dates %}
+<div class="mb-4">
+  <h5 class="font-weight-bold">Claimed nights</h5>
+  <ul class="list-unstyled mb-0">
+    {% for d in result.claimed_dates %}
+    <li>
+      {{ d }}
+      {% if d in result.observation_claimed_dates %}
+      <span class="badge badge-info">observed / scheduled</span>
+      {% else %}
+      <span class="badge badge-light" style="border: 1px solid #6c757d;">approved run</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if result.claimed_site_unknown_count > 0 %}
+<div class="alert alert-secondary mb-4">
+  <h5 class="font-weight-bold mb-1"><i class="fa fa-question-circle mr-2"></i>Site unknown</h5>
+  <p class="mb-0">
+    {{ result.claimed_site_unknown_count }} observation(s) on this campaign's calendar could not
+    be assigned to a site. They are counted here, not ignored, and close no gap on this page.
   </p>
 </div>
 {% endif %}

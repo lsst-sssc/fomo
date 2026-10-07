@@ -1,22 +1,25 @@
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
 import requests
 from django import forms
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from tom_calendar.models import CalendarEvent
 from tom_common.exceptions import ImproperCredentialsException
 from tom_observations.models import ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code.calendar_utils import (
+    OBSERVED_TELESCOPE_SITE_CODES,
     SITE_TELESCOPE_MAP,
     aperture_class_from_telescope_code,
+    coerce_schedule_datetime,
     derive_telescope,
     derive_telescope_class,
+    extract_instrument,
     insert_or_create_calendar_event,
     preview_calendar_event_action,
     record_time_window,
@@ -25,11 +28,12 @@ from solsys_code.calendar_utils import (
 )
 from solsys_code.models import CampaignRun
 
-# IN-02: imported (not duplicated) from the shared fixture module, not from
-# test_sync_lco_observation_calendar -- importing one test module from another meant any
-# import-time failure over there also failed this module, for a helper unrelated to the
+# IN-02: imported (not duplicated) from the shared fixture module, not from the retired
+# LCO/SOAR sync command's own test module -- importing one test module from another meant
+# any import-time failure over there also failed this module, for a helper unrelated to the
 # sync command.
 from solsys_code.tests.helpers import observations_block_response
+from solsys_code.tests.test_observation_blocks import REAL_FAILED_BLOCKS, failed_block
 
 # A fixed UTC sunset-like start time and a companion end time, used across the
 # drift-tolerance tests below.
@@ -309,22 +313,32 @@ class TestDeriveTelescopeClass(TestCase):
 
 
 class TestTelescopeLabelResolutionHelpers(TestCase):
-    """Relocated from test_sync_lco_observation_calendar.py (todo 2026-07-02, second half):
-    these tests exercise calendar_utils helpers directly via mocks and never invoke the
-    sync_lco_observation_calendar management command, so they belong here."""
+    """Relocated from the retired LCO/SOAR sync command's own test module (todo 2026-07-02,
+    second half): these tests exercise calendar_utils helpers directly via mocks and never
+    invoke a management command, so they belong here."""
 
     def test_telescope_01_verified_dict_covers_all_sites(self):
-        """TELESCOPE-01: verified dict covers all 7 real sites with SITECODE-CLASS labels."""
+        """TELESCOPE-01: verified dict covers all 7 real sites; D-07 (34-02 Task 3) renamed
+        the three 2m0/4m0 entries to the telescope's own operating name instead of the
+        SITECODE-CLASS form."""
         expected_sites = {'ogg', 'elp', 'lsc', 'cpt', 'coj', 'tfn', 'sor'}
         actual_sites = {site for site, _aperture_class in SITE_TELESCOPE_MAP}
         self.assertEqual(actual_sites, expected_sites)
 
+        observed_telescope_labels = frozenset(OBSERVED_TELESCOPE_SITE_CODES)
         label_pattern = re.compile(r'^[A-Z]{3}-(0m4|1m0|2m0|4m0)$')
         for label in SITE_TELESCOPE_MAP.values():
-            self.assertRegex(label, label_pattern)
+            self.assertTrue(
+                label_pattern.match(label) or label in observed_telescope_labels,
+                f'{label!r} matches neither the SITECODE-CLASS pattern nor an observed-telescope label',
+            )
 
-        for migrated_label in ('COJ-2m0', 'OGG-2m0', 'SOR-4m0'):
-            self.assertIn(migrated_label, SITE_TELESCOPE_MAP.values())
+        for renamed_label in ('FTN', 'FTS', 'SOAR'):
+            self.assertIn(renamed_label, SITE_TELESCOPE_MAP.values())
+
+        self.assertEqual(set(OBSERVED_TELESCOPE_SITE_CODES), {'FTN', 'FTS', 'SOAR'})
+        for label, site in OBSERVED_TELESCOPE_SITE_CODES.items():
+            self.assertIn(site, actual_sites, f'{label!r} maps to {site!r}, not a key present in the map')
 
     def test_telescope_01_aperture_class_from_telescope_code(self):
         """TELESCOPE-01: aperture_class_from_telescope_code parses/rejects telescope codes."""
@@ -346,6 +360,14 @@ class TestTelescopeLabelResolutionHelpers(TestCase):
         self.assertEqual(derive_telescope('coj', '0m4a'), 'COJ-0m4')
         self.assertEqual(derive_telescope('ogg', '0m4b'), 'OGG-0m4')
 
+    def test_telescope_01_d07_renamed_observed_telescope_labels(self):
+        """D-07 (34-02 Task 3): the three 2m0/4m0 entries resolve to the telescope's own
+        operating name, not the SITECODE-CLASS form; the rest of the network is unaffected."""
+        self.assertEqual(derive_telescope('ogg', '2m0a'), 'FTN')
+        self.assertEqual(derive_telescope('coj', '2m0a'), 'FTS')
+        self.assertEqual(derive_telescope('sor', '4m0a'), 'SOAR')
+        self.assertEqual(derive_telescope('lsc', '1m0a'), 'LSC-1m0')
+
     def test_telescope_02_placed_record_resolves_via_api(self):
         """TELESCOPE-02: a successful mocked API response resolves to the verified label."""
         mock_facility = MagicMock()
@@ -366,8 +388,9 @@ class TestTelescopeLabelResolutionHelpers(TestCase):
 
 
 class TestResolvePlacementBlockFailureModes(TestCase):
-    """Relocated from test_sync_lco_observation_calendar.py (todo 2026-07-02, second half):
-    resolve_placement_block()'s own failure-mode contract, exercised directly via mocks."""
+    """Relocated from the retired LCO/SOAR sync command's own test module (todo 2026-07-02,
+    second half): resolve_placement_block()'s own failure-mode contract, exercised directly
+    via mocks."""
 
     def test_sync_08_single_attempt_no_retry(self):
         """SYNC-08: a timeout results in exactly one make_request call, no retry loop."""
@@ -408,12 +431,307 @@ class TestResolvePlacementBlockFailureModes(TestCase):
             block = resolve_placement_block('12345', mock_facility)
         self.assertIsNone(block)
 
+    def test_completed_first_else_pending_selection(self):
+        """Phase 37 STATUS-02: the block-selection logic (COMPLETED-first-else-PENDING) is
+        unchanged by routing the state literals through status_vocabulary.OCSState -- a
+        COMPLETED block wins even when it is not first in the list, and a PENDING-only list
+        falls back to its last PENDING entry."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+
+        pending_then_completed = MagicMock()
+        pending_then_completed.json.return_value = [
+            {'site': 'lsc', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'PENDING'},
+            {'site': 'lsc', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'COMPLETED'},
+        ]
+        with patch('solsys_code.calendar_utils.make_request', return_value=pending_then_completed):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertEqual(block['state'], 'COMPLETED')
+
+        pending_only = MagicMock()
+        pending_only.json.return_value = [
+            {'site': 'lsc', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'PENDING'},
+            {'site': 'cpt', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'PENDING'},
+        ]
+        with patch('solsys_code.calendar_utils.make_request', return_value=pending_only):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertEqual(block['state'], 'PENDING')
+        self.assertEqual(block['site'], 'cpt')
+
+    def _facility_and_blocks(self, states):
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+        response = MagicMock()
+        response.json.return_value = [
+            {'site': site, 'enclosure': 'doma', 'telescope': '1m0a', 'state': state} for site, state in states
+        ]
+        return mock_facility, response
+
+    def test_aborted_only_list_returns_the_aborted_block(self):
+        """G-37.1-1-alloc: a block that started and was aborted is the one the schedule comes from, so
+        the observed-telescope lookup reads the same block as scheduled_start/scheduled_end."""
+        mock_facility, response = self._facility_and_blocks([('lsc', 'ABORTED')])
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertEqual(block['state'], 'ABORTED')
+        self.assertEqual(block['site'], 'lsc')
+
+    def test_a_later_pending_block_outranks_an_earlier_aborted_one(self):
+        """WR-19 (developer decision 2026-10-05): the placed block wins, so the observed-telescope lookup reads
+        the block the record's times come from."""
+        mock_facility, response = self._facility_and_blocks([('lsc', 'ABORTED'), ('cpt', 'PENDING')])
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            block = resolve_placement_block('12345', mock_facility)
+        self.assertEqual(block['state'], 'PENDING')
+        self.assertEqual(block['site'], 'cpt')
+
+    def test_a_pending_block_outranks_a_failed_block_that_took_data(self):
+        """The observed-telescope lookup reads the placed block the times come from (37.1 CONTEXT D-12)."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+        response = MagicMock()
+        response.json.return_value = [
+            dict(REAL_FAILED_BLOCKS['4253588']),
+            {'site': 'cpt', 'enclosure': 'doma', 'telescope': '1m0a', 'state': 'PENDING'},
+        ]
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            block = resolve_placement_block('4253588', mock_facility)
+        self.assertEqual(block['state'], 'PENDING')
+        self.assertEqual(block['site'], 'cpt')
+
+    def test_failed_block_that_took_data_is_returned(self):
+        """G-37.1-6: the observed-telescope lookup reads the FAILED block the times come from."""
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+        response = MagicMock()
+        response.json.return_value = [dict(REAL_FAILED_BLOCKS['4253588'])]
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            block = resolve_placement_block('4253588', mock_facility)
+        self.assertEqual(block['state'], 'FAILED')
+        self.assertEqual(block['site'], 'coj')
+
+    def test_failed_block_that_took_no_data_gives_none(self):
+        mock_facility = MagicMock()
+        mock_facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        mock_facility._portal_headers.return_value = {}
+        response = MagicMock()
+        response.json.return_value = [failed_block(0.0)]
+        with patch('solsys_code.calendar_utils.make_request', return_value=response):
+            self.assertIsNone(resolve_placement_block('12345', mock_facility))
+
+
+class TestResolvePlacementBlockStoredStart(SimpleTestCase):
+    """WR-21 (developer decision 2026-10-05): resolve_placement_block() returns the block whose start is the
+    record's stored start, whichever rule stored the times, and falls back to FOMO's rule only when none
+    matches. Every portal call is a patched make_request."""
+
+    PENDING_START = '2026-09-07T10:00:00Z'
+
+    def setUp(self):
+        self.facility = MagicMock()
+        self.facility.facility_settings.get_setting.return_value = 'https://observe.lco.global'
+        self.facility._portal_headers.return_value = {}
+        self.failed = dict(REAL_FAILED_BLOCKS['4253588'])
+        self.pending = {
+            'site': 'ogg',
+            'enclosure': 'clma',
+            'telescope': '2m0a',
+            'state': 'PENDING',
+            'start': self.PENDING_START,
+            'end': '2026-09-07T10:19:00Z',
+        }
+
+    def _resolve(self, blocks, **kwargs):
+        response = MagicMock()
+        response.json.return_value = blocks
+        with patch('solsys_code.calendar_utils.make_request', return_value=response) as mocked:
+            block = resolve_placement_block('12345', self.facility, **kwargs)
+        return block, mocked
+
+    def test_a_stored_start_picks_the_block_it_matches_in_either_mode(self):
+        blocks = [self.failed, self.pending]
+        for request_finished in (True, False):
+            for stored, expected in (('2026-07-12T08:55:50Z', 'coj'), (self.PENDING_START, 'ogg')):
+                with self.subTest(request_finished=request_finished, stored=stored):
+                    block, _ = self._resolve(blocks, request_finished=request_finished, stored_start=stored)
+                    self.assertEqual(block['site'], expected)
+
+    def test_a_stored_start_that_matches_no_block_gives_the_rules_choice(self):
+        blocks = [self.failed, self.pending]
+        for stored in (datetime(2026, 9, 6, 10, 0, tzinfo=dt_timezone.utc), None):
+            with self.subTest(stored=stored):
+                finished, _ = self._resolve(blocks, request_finished=True, stored_start=stored)
+                can_still_run, _ = self._resolve(blocks, request_finished=False, stored_start=stored)
+                self.assertEqual(finished['site'], 'coj')
+                self.assertEqual(can_still_run['site'], 'ogg')
+
+    def test_a_stored_start_matches_as_a_portal_string_or_a_naive_datetime_and_only_at_the_same_instant(self):
+        blocks = [self.failed, self.pending]
+        same_instant = (
+            '2026-09-07T10:00:00Z',
+            '2026-09-07T10:00:00+00:00',
+            '2026-09-07T12:00:00+02:00',
+            datetime(2026, 9, 7, 10, 0, tzinfo=dt_timezone.utc),
+            datetime(2026, 9, 7, 10, 0),
+        )
+        for stored in same_instant:
+            with self.subTest(stored=stored):
+                block, _ = self._resolve(blocks, request_finished=True, stored_start=stored)
+                self.assertEqual(block['site'], 'ogg')
+        # One microsecond later is a different instant: no match, so the rule's choice for a finished request.
+        block, _ = self._resolve(
+            blocks, request_finished=True, stored_start=datetime(2026, 9, 7, 10, 0, 0, 1, tzinfo=dt_timezone.utc)
+        )
+        self.assertEqual(block['site'], 'coj')
+
+    def test_a_matched_block_is_returned_whatever_its_state_now(self):
+        started = '2026-07-24T09:00:00Z'
+        no_data = failed_block(0.0, start=started, end='2026-07-24T14:00:00Z')
+        for state_block in (
+            {'site': 'ogg', 'telescope': '2m0a', 'state': 'CANCELED', 'start': started},
+            {'site': 'ogg', 'telescope': '2m0a', 'state': 'NOT_ATTEMPTED', 'start': started},
+            dict(no_data, site='ogg', telescope='2m0a'),
+        ):
+            with self.subTest(state=state_block['state']):
+                for request_finished in (True, False):
+                    block, _ = self._resolve(
+                        [self.failed, state_block], request_finished=request_finished, stored_start=started
+                    )
+                    self.assertIs(block, state_block)
+
+    def test_several_blocks_at_the_stored_start_go_to_the_rule_then_the_last(self):
+        start = '2026-09-07T10:00:00Z'
+        pending = dict(self.pending, site='ogg')
+        took_data = dict(self.failed, start=start, end='2026-09-07T15:00:00Z')
+        for request_finished, expected in ((True, 'coj'), (False, 'ogg')):
+            with self.subTest(request_finished=request_finished):
+                block, _ = self._resolve([pending, took_data], request_finished=request_finished, stored_start=start)
+                self.assertEqual(block['site'], expected)
+        cancelled = {'site': 'a', 'telescope': '2m0a', 'state': 'CANCELED', 'start': start}
+        not_attempted = {'site': 'b', 'telescope': '2m0a', 'state': 'NOT_ATTEMPTED', 'start': start}
+        block, _ = self._resolve([cancelled, not_attempted], request_finished=True, stored_start=start)
+        self.assertEqual(block['site'], 'b')
+
+    def test_odd_start_values_never_match_and_never_raise(self):
+        odd_block_starts = [
+            None,
+            12345,
+            {'a': 1},
+            ['2026-09-07T10:00:00Z'],
+            'not a date',
+            '2026-07-12',
+            '2026-13-01T00:00:00Z',
+            '0001-01-01T00:00:00+01:00',
+        ]
+        for odd in odd_block_starts:
+            with self.subTest(block_start=odd):
+                odd_block = {'site': 'zzz', 'telescope': '9x9x', 'state': 'PENDING', 'start': odd}
+                block, _ = self._resolve(
+                    [self.failed, odd_block], request_finished=True, stored_start='2026-09-07T10:00:00Z'
+                )
+                self.assertEqual(block['site'], 'coj')
+        missing_start = {'site': 'zzz', 'telescope': '9x9x', 'state': 'PENDING'}
+        block, _ = self._resolve([self.failed, missing_start], request_finished=True, stored_start=self.PENDING_START)
+        self.assertEqual(block['site'], 'coj')
+        for entry in ('text', 7, None):
+            with self.subTest(entry=entry):
+                block, _ = self._resolve(
+                    [entry, self.failed, self.pending], request_finished=True, stored_start=self.PENDING_START
+                )
+                self.assertEqual(block['site'], 'ogg')
+        for stored in ('garbage', '2026-09-07', 12345, datetime(1, 1, 1, tzinfo=dt_timezone(timedelta(hours=1)))):
+            with self.subTest(stored=stored):
+                block, _ = self._resolve([self.failed, self.pending], request_finished=True, stored_start=stored)
+                self.assertEqual(block['site'], 'coj')
+
+    def test_a_stored_start_adds_no_portal_call_and_a_non_list_reply_still_gives_none(self):
+        _, mocked = self._resolve([self.failed, self.pending], stored_start=self.PENDING_START)
+        mocked.assert_called_once()
+        block, mocked = self._resolve({'results': [self.pending]}, stored_start=self.PENDING_START)
+        self.assertIsNone(block)
+        mocked.assert_called_once()
+
+
+class TestCoerceScheduleDatetime(SimpleTestCase):
+    """coerce_schedule_datetime() (G-34-2) -- no database rows needed; every case is a pure
+    function of its input value."""
+
+    def test_trailing_z_form_returns_the_aware_utc_instant(self):
+        """The portal's own form: a trailing 'Z' with no explicit offset."""
+        result = coerce_schedule_datetime('2026-09-18T07:14:00Z')
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+
+    def test_plus_zero_offset_form_returns_the_same_instant(self):
+        """The equivalent '+00:00' offset form parses to the same instant as trailing-Z."""
+        result = coerce_schedule_datetime('2026-09-18T07:14:00+00:00')
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+
+    def test_non_utc_offset_form_equals_the_same_instant(self):
+        """A non-UTC ('-04:00') offset form still resolves to the same absolute instant."""
+        result = coerce_schedule_datetime('2026-09-18T03:14:00-04:00')
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+
+    def test_naive_iso_string_is_read_as_utc(self):
+        """A naive ISO string with no offset is read as UTC -- the convention this module
+        already documents for parameters['start']/['end']."""
+        result = coerce_schedule_datetime('2026-09-18T07:14:00')
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+
+    def test_aware_non_utc_datetime_is_converted_to_utc_with_the_same_instant(self):
+        """CR-01: an already-aware, non-UTC-offset datetime is converted to UTC -- the
+        instant is preserved even though the wall-clock fields and tzinfo change. This used
+        to pass through untouched, which rendered the wrong wall clock under the
+        'Window (UTC):' label downstream (see test_observation_projector.py's regression
+        test for that consumer)."""
+        aware = datetime(2026, 9, 18, 3, 14, 0, tzinfo=dt_timezone(timedelta(hours=-4)))
+        result = coerce_schedule_datetime(aware)
+        self.assertEqual(result, aware)
+        self.assertIs(result.tzinfo, dt_timezone.utc)
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+
+    def test_naive_datetime_gets_utc_attached_with_the_same_wall_clock_fields(self):
+        """A naive datetime comes back with UTC attached and identical wall-clock fields."""
+        naive = datetime(2026, 9, 18, 7, 14, 0)
+        result = coerce_schedule_datetime(naive)
+        self.assertEqual(result, datetime(2026, 9, 18, 7, 14, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(result.tzinfo, dt_timezone.utc)
+
+    def test_none_returns_none(self):
+        """None in, None out."""
+        self.assertIsNone(coerce_schedule_datetime(None))
+
+    def test_unparseable_string_raises_value_error(self):
+        """A string that is not a timestamp at all raises ValueError naming the rejected
+        value, so the message stays diagnostic."""
+        with self.assertRaisesRegex(ValueError, re.escape(repr('not-a-timestamp'))):
+            coerce_schedule_datetime('not-a-timestamp')
+
+    def test_non_string_non_datetime_value_raises_value_error(self):
+        """WR-04: the elif not isinstance(value, datetime) raise branch -- previously
+        uncovered -- for both a bare int (epoch-seconds-shaped) and a `date` (no time
+        component)."""
+        with self.assertRaisesRegex(ValueError, 'Unusable schedule datetime value'):
+            coerce_schedule_datetime(1758000000)
+        with self.assertRaisesRegex(ValueError, 'Unusable schedule datetime value'):
+            coerce_schedule_datetime(date(2026, 9, 18))
+
+    def test_bare_iso_date_string_raises_value_error(self):
+        """WR-03: a bare ISO date string (no time component) is rejected rather than
+        silently accepted as midnight -- a schedule field is a block boundary, not a day."""
+        with self.assertRaisesRegex(ValueError, 'Schedule value is a date, not a datetime'):
+            coerce_schedule_datetime('2026-09-18')
+
 
 class TestRecordTimeWindow(TestCase):
-    """record_time_window() -- promoted from sync_lco_observation_calendar._time_window()
-    (Plan 28-02 Task 2) so the matcher (campaign_attribution.py) and the sync command share
-    one definition. Covers both branches; the parameters-fallback branch is the common case
-    for real LCO orphan records (NULL scheduled_start), not an edge case (RESEARCH.md)."""
+    """record_time_window() -- promoted from the retired LCO/SOAR sync command's own
+    _time_window() (Plan 28-02 Task 2) so the matcher (campaign_attribution.py) and every
+    calendar-writing consumer share one definition. Covers both branches; the
+    parameters-fallback branch is the common case for real LCO orphan records (NULL
+    scheduled_start), not an edge case (RESEARCH.md)."""
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -456,6 +774,57 @@ class TestRecordTimeWindow(TestCase):
 
         self.assertEqual(result_start, datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc))
         self.assertEqual(result_end, datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc))
+
+    def test_both_scheduled_none_falls_back_to_z_suffixed_parameters_start_end(self):
+        """CR-02: real records ingested via backfill_lco_observations store the portal's
+        'Z'-suffixed window string verbatim in parameters['start']/['end'] -- not only the
+        naive '.isoformat()' form the sibling test above covers.
+        `datetime.fromisoformat()` rejects a trailing 'Z' before Python 3.11, so this branch
+        must route through the same `coerce_schedule_datetime()` parser the
+        scheduled_start/scheduled_end branch uses."""
+        record = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            observation_id='444445',
+            status='PENDING',
+            parameters={'start': '2026-07-20T00:00:00Z', 'end': '2026-07-20T23:59:59Z'},
+        )
+
+        result_start, result_end = record_time_window(record)
+
+        self.assertEqual(result_start, datetime(2026, 7, 20, 0, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(result_end, datetime(2026, 7, 20, 23, 59, 59, tzinfo=dt_timezone.utc))
+
+    def test_in_memory_instance_with_portal_iso_strings_returns_aware_utc_pair(self):
+        """G-34-2: the post-save-instance case, not a database row --
+        update_observation_status() assigns the portal's raw ISO strings onto
+        scheduled_start/scheduled_end and calls save(), so record_time_window() must
+        coerce the in-memory string the same way a DB-fetched datetime would.
+
+        WR-10: constructed without ``.objects.create()`` so no INSERT happens and no
+        post_save signal fires -- this test's name and docstring claim "not a database
+        row", and until now it used a real ``.create()`` call that also fired the
+        projector's post_save receiver (silently swallowed since the fixture's parameters
+        carry no instrument signal). Building the instance directly is what actually pins
+        the in-memory contract."""
+        start = datetime(2026, 7, 10, 22, 0, tzinfo=dt_timezone.utc)
+        end = datetime(2026, 7, 11, 6, 0, tzinfo=dt_timezone.utc)
+        record = ObservationRecord(
+            target=self.target,
+            user=self.user,
+            facility='LCO',
+            observation_id='555555',
+            status='COMPLETED',
+            parameters={'proposal': 'TEST'},
+            scheduled_start=start.isoformat().replace('+00:00', 'Z'),
+            scheduled_end=end.isoformat().replace('+00:00', 'Z'),
+        )
+
+        result_start, result_end = record_time_window(record)
+
+        self.assertEqual(result_start, start)
+        self.assertEqual(result_end, end)
 
 
 class TestUpdateCalendarEventKeyAndFields(TestCase):
@@ -528,3 +897,62 @@ class TestPreviewCalendarEventAction(TestCase):
         reloaded = CalendarEvent.objects.get(pk=event.pk)
         self.assertEqual(reloaded.modified, modified_before)
         self.assertEqual(CalendarEvent.objects.count(), count_before)
+
+
+class TestExtractInstrument(TestCase):
+    """Migrated from the retired LCO/SOAR sync command's own test module (34-02 Task 2,
+    EXTRACT-02/D-01..D-06): extract_instrument() is exercised directly against the real
+    c_1..c_5 multi-configuration parameter shape, with no command/facility fixtures needed."""
+
+    def test_soar_multi_config_picks_spectrum_not_calibration(self):
+        """EXTRACT-02: a SOAR SPECTRUM+ARC+LAMP_FLAT record extracts the SPECTRUM config's
+        instrument_type, never the ARC/LAMP_FLAT calibration configs."""
+        parameters = {
+            'instrument_type': 'NOT-THE-SOURCE',
+            'c_1_configuration_type': 'SPECTRUM',
+            'c_1_instrument_type': 'SOAR_GHTS_REDCAM',
+            'c_2_configuration_type': 'ARC',
+            'c_2_instrument_type': 'SOAR_GHTS_REDCAM_ARC',
+            'c_3_configuration_type': 'LAMP_FLAT',
+            'c_3_instrument_type': 'SOAR_GHTS_REDCAM_LAMPFLAT',
+        }
+        result = extract_instrument(parameters)
+        self.assertEqual(result, 'SOAR_GHTS_REDCAM')
+        self.assertNotEqual(result, 'SOAR_GHTS_REDCAM_ARC')
+        self.assertNotEqual(result, 'SOAR_GHTS_REDCAM_LAMPFLAT')
+
+    def test_muscat_per_channel_exposure_extracts_instrument(self):
+        """EXTRACT-02/D-04: an LCO MUSCAT record with only per-channel exposure keys (no flat
+        c_N_exposure_time) extracts its instrument_type without raising/empty; fewer than 4
+        populated channels still extracts correctly (D-04 leniency)."""
+        full_channels = {
+            'instrument_type': 'NOT-THE-SOURCE',
+            'c_1_configuration_type': 'EXPOSE',
+            'c_1_instrument_type': '2M0-SCICAM-MUSCAT',
+            'c_1_ic_1_exposure_time_g': 30.0,
+            'c_1_ic_1_exposure_time_r': 30.0,
+            'c_1_ic_1_exposure_time_i': 30.0,
+            'c_1_ic_1_exposure_time_z': 30.0,
+        }
+        self.assertEqual(extract_instrument(full_channels), '2M0-SCICAM-MUSCAT')
+
+        one_channel = {
+            'instrument_type': 'NOT-THE-SOURCE',
+            'c_1_configuration_type': 'EXPOSE',
+            'c_1_instrument_type': '2M0-SCICAM-MUSCAT',
+            'c_1_ic_1_exposure_time_g': 30.0,
+        }
+        self.assertEqual(extract_instrument(one_channel), '2M0-SCICAM-MUSCAT')
+
+    def test_no_recognized_config_and_no_flat_key_returns_none(self):
+        """D-06: a fully-malformed record (no recognized configuration_type, no exposure
+        signal anywhere, no flat instrument_type) returns None -- the caller
+        (observation_projector.event_fields_for) is what raises InstrumentExtractionError
+        and routes it to the 'unprojectable' bucket, already proven by the sweep's generic
+        failure-isolation tests (test_project_observation_calendar.py)."""
+        parameters = {
+            'c_1_configuration_type': 'ARC',
+            'c_1_instrument_type': 'SOMETHING',
+            'instrument_type': None,
+        }
+        self.assertIsNone(extract_instrument(parameters))

@@ -1,0 +1,3477 @@
+"""Unit tests for allocation_projector.project_allocation() (Phase 35, plan 35-01).
+
+Covers ALLOC-01 (the `ALLOC:` namespace), ALLOC-02 (site-local nights, both hemispheres),
+ALLOC-03 (the observation handoff) and the D-09/D-10 dispatch seam in
+`campaign_reconciler.reconcile_run()`. Fixture style mirrors
+`CampaignReconcilerTestBase` in `test_campaign_reconciler.py`.
+"""
+
+import inspect
+from datetime import date, datetime, time, timedelta
+from datetime import timezone as dt_timezone
+from unittest.mock import patch
+from uuid import uuid4
+from zoneinfo import ZoneInfo
+
+from django.contrib.auth.models import User
+from django.test import TestCase
+from django.utils import timezone
+from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationGroup, ObservationRecord
+from tom_targets.models import TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory
+
+from solsys_code import observation_projector as op
+from solsys_code.allocation_projector import (
+    _DARK_WINDOW_PREFIX,
+    _UNRECORDED_PROVENANCE_TOLERANCE,
+    _sub_night_provenance_token,
+    allocation_events,
+    allocation_night_title,
+    night_bounds,
+)
+from solsys_code.campaign_reconciler import dispatches_per_night, event_description, owned_events, reconcile_run
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
+from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import observing_night, sun_event
+
+
+class AllocationProjectorTestBase(TestCase):
+    """Shared fixture: two resolvable ground Observatory rows, one per hemisphere.
+
+    Both `809` (La Silla / NTT, Chile) and `E10` (Siding Spring / FTS, Australia) are
+    created fresh here rather than assumed present in the developer database -- every
+    existing test class in this codebase follows the same convention, and ALLOC-02's
+    both-hemispheres requirement needs both fixtures to exist for every test module that
+    exercises it (Task 3's `TestAllocationNightBoundary`).
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.chilean_site = Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.australian_site = Observatory.objects.create(
+            obscode='E10',
+            name='Siding Spring Observatory',
+            short_name='FTS',
+            lat=-31.2734,
+            lon=149.0612,
+            altitude=1149,
+            timezone='Australia/Sydney',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.saao_site = Observatory.objects.create(
+            obscode='K92',
+            name='SAAO, Sutherland',
+            short_name='LSC-SAAO',
+            lat=-32.3808,
+            lon=20.8101,
+            altitude=1804,
+            timezone='Africa/Johannesburg',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.hanle_site = Observatory.objects.create(
+            obscode='N50',
+            name='IAO, Hanle',
+            short_name='HANLE',
+            lat=32.7794,
+            lon=78.9642,
+            altitude=4500,
+            timezone='Asia/Kolkata',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.ftn_site = Observatory.objects.create(
+            obscode='F65',
+            name='Haleakala Observatory',
+            short_name='FTN',
+            lat=20.7069,
+            lon=-156.2570,
+            altitude=3055,
+            timezone='Pacific/Honolulu',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+
+    def _make_run(self, **overrides) -> CampaignRun:
+        """Create a CampaignRun; kwargs override the default (campaign-less, approved,
+        CLASSICAL_FILE-sourced, Chilean-sited) field set."""
+        kwargs = {
+            'campaign': None,
+            'source': CampaignRun.Source.CLASSICAL_FILE,
+            'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+            'telescope_instrument': 'NTT/EFOSC2',
+            'site': self.chilean_site,
+            'site_raw': '809',
+            'window_start': date(2026, 7, 9),
+            'window_end': date(2026, 7, 11),
+            'observation_details': 'Photometric monitoring',
+        }
+        kwargs.update(overrides)
+        return CampaignRun.objects.create(**kwargs)
+
+    def _link_record(
+        self,
+        run: CampaignRun,
+        *,
+        scheduled_start: datetime | None = None,
+        scheduled_end: datetime | None = None,
+        facility: str = 'LCO',
+        status: str = 'COMPLETED',
+    ) -> tuple[ObservationRecord, CampaignRunObservation]:
+        """Create an ObservationRecord (NonSiderealTargetFactory target -- CLAUDE.md) and
+        link it to `run` via a CampaignRunObservation. Returns (record, link)."""
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create(username=f'obs-owner-{uuid4().hex[:8]}')
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=owner,
+            facility=facility,
+            observation_id=f'obs-{uuid4().hex[:8]}',
+            status=status,
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_end,
+            parameters={'proposal': 'TEST'},
+        )
+        link = CampaignRunObservation.objects.create(run=run, observation_record=record)
+        return record, link
+
+    def _make_record_event(self, record: ObservationRecord, start: datetime, end: datetime) -> CalendarEvent:
+        """Build the record's own observation-projector-style event, including the
+        `CalendarEventMeta.observation_record` link `write_event_meta()` would set in
+        production -- required for the unlink half's `observation_record__isnull=False`
+        filter to see it."""
+        facility = op.facility_for(record)
+        event = CalendarEvent.objects.create(
+            title='LCO record event',
+            url=op.event_url(record, facility),
+            telescope='FTN',
+            instrument='MuSCAT3',
+            start_time=start,
+            end_time=end,
+        )
+        op.write_event_meta(event, record)
+        return event
+
+
+class TestEndToEndAllocationNight(AllocationProjectorTestBase):
+    """Task 1's tracer slice: one path end to end, from `CampaignRun` through
+    `reconcile_run()` to `ALLOC:` `CalendarEvent` rows."""
+
+    def test_campaign_less_run_projects_one_alloc_event_per_window_night(self):
+        run = self._make_run()
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, 3)
+        expected_urls = {
+            f'ALLOC:{run.pk}:2026-07-09',
+            f'ALLOC:{run.pk}:2026-07-10',
+            f'ALLOC:{run.pk}:2026-07-11',
+        }
+        actual_urls = set(allocation_events(run).values_list('url', flat=True))
+        self.assertEqual(actual_urls, expected_urls)
+        self.assertEqual(CalendarEvent.objects.filter(url__startswith='RUN:').count(), 0)
+
+    def test_each_alloc_event_carries_the_expected_fields(self):
+        run = self._make_run()
+
+        reconcile_run(run)
+
+        for night in (date(2026, 7, 9), date(2026, 7, 10), date(2026, 7, 11)):
+            event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+            self.assertEqual(event.title, 'NTT EFOSC2')
+            self.assertEqual(event.telescope, 'NTT')
+            self.assertEqual(event.instrument, 'EFOSC2')
+            self.assertIsNone(event.target_list)
+            expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+            self.assertEqual(
+                event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+            )
+            self.assertEqual(
+                event.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+            )
+
+    def test_cancelled_run_status_prefixes_title_and_flip_back_refreshes_in_place(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, run_status=CampaignRun.RunStatus.CANCELLED)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event.pk
+        self.assertEqual(event.title, '[C] NTT EFOSC2')
+
+        run.run_status = CampaignRun.RunStatus.PLANNED
+        run.save(update_fields=['run_status'])
+        reconcile_run(run)
+
+        event.refresh_from_db()
+        self.assertEqual(event.pk, pk_before)
+        self.assertEqual(event.title, 'NTT EFOSC2')
+
+    def test_queue_sourced_run_keeps_its_single_container_never_fanned_out(self):
+        run = self._make_run(source=CampaignRun.Source.LCO_QUEUE)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, 1)
+        self.assertEqual(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').count(), 1)
+        self.assertEqual(allocation_events(run).count(), 0)
+
+    def test_single_night_window_projects_exactly_one_night_never_a_bare_alloc_key(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, 1)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+        self.assertEqual(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}').count(), 0)
+
+    def test_second_reconcile_of_unchanged_state_reports_unchanged_and_writes_nothing(self):
+        run = self._make_run()
+        reconcile_run(run)
+        pks_before = set(allocation_events(run).values_list('pk', flat=True))
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.updated, 0)
+        self.assertEqual(result.unchanged, 3)
+        pks_after = set(allocation_events(run).values_list('pk', flat=True))
+        self.assertEqual(pks_before, pks_after)
+
+
+class TestAllocationEventAttribution(AllocationProjectorTestBase):
+    """Every minted allocation night is self-attributed (D-12/`_link_event_to_run`), the
+    same as a `RUN:`-keyed container event."""
+
+    def test_every_minted_event_has_a_calendar_event_meta_row_linked_to_the_run(self):
+        run = self._make_run()
+
+        reconcile_run(run)
+
+        for event in allocation_events(run):
+            meta = CalendarEventMeta.objects.get(event=event)
+            self.assertEqual(meta.run_id, run.pk)
+
+
+class TestAllocationEventDescriptionAndTargetList(AllocationProjectorTestBase):
+    """The shared `event_description()`/`event_title()` writers reach allocation nights the
+    same way they reach container events, so a `mark_cancelled` action is visible there
+    too."""
+
+    def test_description_reuses_shared_event_description_body(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertIn(event_description(run), event.description)
+
+    def test_campaign_target_list_is_written_when_a_campaign_is_present(self):
+        campaign = TargetList.objects.create(name='3I/ATLAS')
+        night = date(2026, 7, 9)
+        run = self._make_run(campaign=campaign, window_start=night, window_end=night)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.target_list_id, campaign.pk)
+
+
+class TestNoOrphanEventsAfterAllocationDispatch(AllocationProjectorTestBase):
+    """A sanity check that owned_events()/RUN: namespace bookkeeping is untouched by the
+    new dispatch branch -- the reconciler's own `RUN:` accounting must stay empty for a
+    run that never touches the container branch."""
+
+    def test_owned_events_stays_empty_for_a_per_night_allocation_run(self):
+        run = self._make_run()
+
+        reconcile_run(run)
+
+        self.assertEqual(owned_events(run).count(), 0)
+        self.assertEqual(allocation_events(run).count(), 3)
+
+
+class TestObservationHandoff(AllocationProjectorTestBase):
+    """Task 2: a linked, placed/observed record retires its night; unlinking restores it
+    (D-05/D-06/D-07)."""
+
+    def test_linked_placed_record_retires_its_night(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        scheduled_start = datetime(2026, 7, 10, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        site_zone = ZoneInfo(self.chilean_site.timezone)
+        retired_night = observing_night(scheduled_start, site_zone)
+        retired_url = f'ALLOC:{run.pk}:{retired_night.isoformat()}'
+
+        result = reconcile_run(run)
+
+        self.assertEqual(allocation_events(run).count(), 2)
+        self.assertEqual(result.retired, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=retired_url).exists())
+        self.assertFalse(CalendarEventMeta.objects.filter(event__url=retired_url).exists())
+
+    def test_unlinking_restores_the_retired_night_with_a_fresh_event(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        scheduled_start = datetime(2026, 7, 10, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        _record, link = self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        reconcile_run(run)
+
+        link.delete()
+        # 35-04 D-11: both the link's own creation (via `_link_record()`, above) and its
+        # deletion now re-project the run immediately, through the new post_save/post_delete
+        # receivers on CampaignRunObservation (wired in SolsysCodeConfig.ready()) -- so this
+        # test's two explicit `reconcile_run()` calls (the one right after `_link_record()`
+        # and this one after `link.delete()`) are both now redundant no-ops that converge on
+        # already-current state. All three nights (07-09/07-10/07-11) already match, so this
+        # call reports `unchanged` for all three, not `created` -- mirrors
+        # TestEndToEndAllocationNight's own established "second reconcile of unchanged
+        # state" contract.
+        result = reconcile_run(run)
+
+        self.assertEqual(result.unchanged, 3)
+        site_zone = ZoneInfo(self.chilean_site.timezone)
+        retired_night = observing_night(scheduled_start, site_zone)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{retired_night.isoformat()}').exists())
+
+    def test_queued_only_record_retires_nothing(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        self._link_record(run, scheduled_start=None, scheduled_end=None, status='PENDING')
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(allocation_events(run).count(), 3)
+
+    def test_terminal_negative_record_keeps_its_night_retired(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        scheduled_start = datetime(2026, 7, 10, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end, status='WINDOW_EXPIRED')
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(allocation_events(run).count(), 2)
+
+    def test_reclassified_window_leaves_no_orphan_for_dropped_night(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        self.assertEqual(allocation_events(run).count(), 3)
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertEqual(allocation_events(run).count(), 2)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:2026-07-11').exists())
+        self.assertEqual(result.retired, 1)
+
+    def test_legacy_run_keyed_night_is_rekeyed_in_place(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_start = datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc)
+        legacy_end = datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc)
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=legacy_start,
+            end_time=legacy_end,
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=run)
+        legacy_pk = legacy_event.pk
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.rekeyed, 1)
+        alloc_url = f'ALLOC:{run.pk}:{night.isoformat()}'
+        event = CalendarEvent.objects.get(url=alloc_url)
+        self.assertEqual(event.pk, legacy_pk)
+        self.assertEqual(event.start_time, legacy_start)
+        self.assertEqual(event.end_time, legacy_end)
+        meta = CalendarEventMeta.objects.get(event=event)
+        self.assertEqual(meta.run_id, run.pk)
+        self.assertFalse(CalendarEvent.objects.filter(url=legacy_url).exists())
+
+
+class TestRetirePathLegacyEventGuard(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-03: the retire path's own legacy `RUN:{pk}:{night}` delete gets the
+    same ownership and human-confirmation guards the takeover branch already applies to the
+    same class of row."""
+
+    def test_retiring_a_night_never_deletes_a_human_confirmed_legacy_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        staff_user = User.objects.create(username='retire-staffer')
+        CalendarEventMeta.objects.create(
+            event=legacy_event, run=run, confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        result = reconcile_run(run)
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        meta = CalendarEventMeta.objects.get(event=legacy_event)
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertEqual(result.retired, 1)
+        # NF-16 (35-REVIEW.md): 'detach_declined', not 'blocked' -- the legacy event is in
+        # THIS run's own RUN: namespace and confirmed_by-stamped to THIS run, so nobody
+        # else owns it; reconcile_campaign_runs' 'blocked' message ("owned by someone
+        # else") was false twice over for this shape, while its 'detach_declined' message
+        # ("a person confirmed them...") is the true one.
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 1)
+        # NF-09 (35-REVIEW.md): one event, one decision -- before that fix this same
+        # human-confirmed legacy event was ALSO counted under detach_declined downstream in
+        # _stale_dated_events(), because the retire branch only claimed the legacy url on
+        # the deletable path, leaving it visible to the date-bearing convergence step too.
+        # Still exactly one decision after NF-16 re-routed which counter it lands under.
+
+    def test_retiring_a_night_never_deletes_a_legacy_event_attributed_to_a_different_run(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=other_run)
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        result = reconcile_run(run)
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        meta = CalendarEventMeta.objects.get(event=legacy_event)
+        self.assertEqual(meta.run_id, other_run.pk)
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 1)
+        self.assertEqual(result.detach_declined, 0)
+
+    def test_retiring_a_night_deletes_an_unattributed_legacy_event_shape_a(self):
+        """35-REVIEW.md NF-01 item 4: the CR-03 retire branch's own legacy `RUN:{pk}:{night}`
+        delete must also cover shape (a) -- no `CalendarEventMeta` companion row at all.
+        Before the fix, `_clearable_and_declined()` alone never saw this row (it starts from
+        a `CalendarEventMeta` queryset), so it was left untouched and uncounted forever."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        self.assertFalse(CalendarEventMeta.objects.filter(event=legacy_event).exists())
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        result = reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.legacy_deleted, 0)
+
+    def test_retiring_a_night_deletes_an_unattributed_legacy_event_shape_b(self):
+        """35-REVIEW.md NF-01 item 4: the shape-(b) twin -- a companion row exists but its
+        `run` is unset."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=None)
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        result = reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.legacy_deleted, 0)
+
+
+class TestRetirePathAllocationEventGuard(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-05 (plan 35-23): the retirement branch's own `existing.delete()` gets
+    the same human-confirmation guard `TestRetirePathLegacyEventGuard` above already proves
+    for the legacy `RUN:{pk}:{night}` row beside it. Before this fix `existing` passed only
+    `_may_write()` -- which admits this run's own night regardless of `confirmed_by` -- so a
+    confirmed allocation night was destroyed silently, taking the companion row's
+    `confirmed_by`/`confirmed_at`/both observation links with it via
+    `CalendarEventMeta.event`'s `OneToOneField(on_delete=CASCADE)`, counted as ordinary
+    `retired` work.
+
+    Only `confirmed_by` declines a retirement -- deliberately narrower than the re-mint
+    branch's `_remint_decline_reason()`, which also vetoes on `is_verified=False` or an
+    observation link. The re-mint branch destroys a row it intends to immediately re-create,
+    so it owes the row's contents a decision; the retirement branch removes a night that is
+    genuinely superseded by the linked observation's own calendar entry, and extending the
+    veto there would leave a permanent duplicate night on the calendar beside the very
+    observation that retired it."""
+
+    def test_retiring_a_night_never_deletes_a_human_confirmed_alloc_event(self):
+        """Creating the `CampaignRunObservation` link ALONE reaches the branch via
+        `receiver_on_run_observation_save()` -- no explicit projector call and no sweep --
+        so the survival assertions run right after `_link_record()`. The subsequent explicit
+        `reconcile_run()` call only reproduces the same already-applied decision so its
+        counters (unavailable from the receiver itself, which returns nothing) can be
+        captured."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event.pk
+        staff_user = User.objects.create(username='cr05-confirmed-staffer')
+        CalendarEventMeta.objects.filter(event=event).update(confirmed_by=staff_user, confirmed_at=timezone.now())
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx:
+            self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=pk_before).exists())
+        meta = CalendarEventMeta.objects.get(event_id=pk_before)
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertIsNotNone(meta.confirmed_at)
+        declined_records = [r for r in log_ctx.records if 'retire declined' in r.getMessage()]
+        self.assertEqual(len(declined_records), 1)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.detach_declined, 1)
+
+    def test_unconfirmed_night_still_retires_normally(self):
+        """The control case the guard must not break."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_pk = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event_pk).exists())
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.detach_declined, 0)
+
+    def test_is_verified_false_with_no_confirmation_still_retires(self):
+        """The pinned divergence from `_remint_decline_reason()`'s rule 2: an
+        `is_verified=False` companion row does NOT decline a retirement -- vetoing here
+        would leave a duplicate night beside the observation's own event permanently."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        CalendarEventMeta.objects.filter(event=event).update(is_verified=False)
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event.pk).exists())
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.detach_declined, 0)
+
+    def test_confirmed_allocation_night_and_deletable_legacy_row_decide_independently(self):
+        """The allocation-night guard and the legacy-row guard are independent: a confirmed
+        allocation night survives while a deletable legacy `RUN:{pk}:{night}` row beside it
+        is still deleted."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr05-independence-staffer')
+        CalendarEventMeta.objects.filter(event=event).update(confirmed_by=staff_user, confirmed_at=timezone.now())
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+        self.assertFalse(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+
+    def test_deletable_allocation_night_and_confirmed_legacy_row_decide_independently(self):
+        """The mirror case: a deletable allocation night is still deleted while a confirmed
+        legacy row beside it survives."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_pk = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=f'RUN:{run.pk}:{night.isoformat()}',
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        staff_user = User.objects.create(username='cr05-mirror-staffer')
+        CalendarEventMeta.objects.create(
+            event=legacy_event, run=run, confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event_pk).exists())
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+
+    def test_dry_run_parity_for_the_confirmed_retirement_decline(self):
+        """A dry-run preview and the real run must agree on the identical retired/
+        detach_declined pair for the confirmed case, and both leave the row in place."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr05-dry-run-staffer')
+        CalendarEventMeta.objects.filter(event=event).update(confirmed_by=staff_user, confirmed_at=timezone.now())
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+
+        dry_result = reconcile_run(run, dry_run=True)
+        real_result = reconcile_run(run)
+
+        self.assertEqual(dry_result.retired, 0)
+        self.assertEqual(dry_result.detach_declined, 1)
+        self.assertEqual(dry_result.retired, real_result.retired)
+        self.assertEqual(dry_result.detach_declined, real_result.detach_declined)
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+
+
+class TestDeclinedRetirementStillUpdatesLabels(AllocationProjectorTestBase):
+    """35-REVIEW.md iteration 10, CR-01: the twin of `TestDeclinedRemintStillUpdatesLabels`
+    for the retirement branch above. `TestRetirePathAllocationEventGuard`'s CR-05 guard keeps
+    a human-confirmed `ALLOC:` night alive when its retirement is declined, but the decline
+    refuses only the DELETE, never the label refresh -- which is how a staff
+    `mark_cancelled`/`mark_weather_failure` action reaches an allocation night at all
+    (`allocation_night_description()`'s own docstring). This path records no provenance and
+    pays no `sun_event()` call, deliberately: it neither mints nor re-mints, so it has proved
+    nothing about the stored boundaries."""
+
+    def test_declined_retirement_still_receives_a_cancelled_title(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        start_before = event_before.start_time
+        end_before = event_before.end_time
+        description_line_before = event_before.description.split('\n', 1)[0]
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        result = reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.title, allocation_night_title(run))
+        self.assertTrue(event_after.title.startswith('[C]'))
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertEqual(event_after.description.split('\n', 1)[0], description_line_before)
+        self.assertEqual(result.detach_declined, 1)
+        self.assertEqual(result.updated, 1)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.remint_declined, 0)
+
+    def test_declined_retirement_refresh_reaches_the_night_through_the_receiver_alone(self):
+        """The review's trace steps 2-3, with NO explicit sweep: `run_status` is set to
+        `CANCELLED` and saved BEFORE the record is linked, so the receiver alone -- fired by
+        creating the `CampaignRunObservation` link -- must decide the retirement AND refresh
+        the labels in the same call."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        start_before = event_before.start_time
+        end_before = event_before.end_time
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx:
+            self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=pk_before).exists())
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertTrue(event_after.title.startswith('[C]'))
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        declined_records = [r for r in log_ctx.records if 'retire declined' in r.getMessage()]
+        self.assertEqual(len(declined_records), 1)
+
+    def test_declined_retirement_confirmation_stamp_survives_the_refresh(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        reconcile_run(run)
+
+        meta_after = CalendarEventMeta.objects.get(event_id=pk_before)
+        self.assertEqual(meta_after.confirmed_by_id, staff_user.pk)
+        self.assertIsNotNone(meta_after.confirmed_at)
+        self.assertEqual(meta_after.run_id, run.pk)
+
+    def test_declined_retirement_reports_detach_declined_alongside_updated_then_unchanged(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        first_result = reconcile_run(run)
+
+        self.assertEqual(first_result.detach_declined, 1)
+        self.assertEqual(first_result.updated, 1)
+        self.assertEqual(first_result.unchanged, 0)
+
+        second_result = reconcile_run(run)
+
+        self.assertEqual(second_result.detach_declined, 1)
+        self.assertEqual(second_result.unchanged, 1)
+        self.assertEqual(second_result.updated, 0)
+        self.assertEqual(second_result.retired, 0)
+
+    def test_declined_retirement_dry_run_parity_for_the_counter_pair(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        start_before = event_before.start_time
+        end_before = event_before.end_time
+        title_before = event_before.title
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        dry_result = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(dry_result.detach_declined, 1)
+        self.assertEqual(dry_result.updated, 1)
+        self.assertEqual(dry_result.retired, 0)
+        self.assertEqual(dry_result.created, 0)
+        event_after_dry = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry.pk, pk_before)
+        self.assertEqual(event_after_dry.start_time, start_before)
+        self.assertEqual(event_after_dry.end_time, end_before)
+        self.assertEqual(event_after_dry.title, title_before)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.detach_declined, dry_result.detach_declined)
+        self.assertEqual(real_result.updated, dry_result.updated)
+
+    def test_declined_retirement_refresh_never_calls_sun_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username=f'cr01-iter10-{uuid4().hex[:8]}')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.updated, 1)
+
+    def test_unconfirmed_retirement_still_deletes_and_counts_retired(self):
+        """The control case: no confirmation stamp, so the fall-through never engages -- the
+        deletable path must still delete the night and count `retired`, pinning that the
+        fall-through did not weaken it."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_pk = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['run_status'])
+
+        scheduled_start = datetime(2026, 7, 9, 23, 30, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=1))
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event_pk).exists())
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.updated, 0)
+
+
+class TestTakeoverBlockedCountedOnce(AllocationProjectorTestBase):
+    """35-REVIEW.md NF-22: a foreign-attributed legacy `RUN:{pk}:{night}` event reached on
+    the TAKEOVER path (no `ALLOC:` event exists for the night yet) must be counted once,
+    not twice. The retired branch already claims `legacy_urls_claimed` the moment it has
+    decided the legacy event's fate at all (NF-09); the takeover branch only claimed it on
+    the re-key path, so a blocked takeover legacy event was left visible to
+    `campaign_reconciler._stale_dated_events()`'s own downstream `foreign` count too --
+    the same single decision reported under `blocked` here AND `foreign`/`blocked` there."""
+
+    def test_foreign_attributed_legacy_event_on_takeover_path_counted_once(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=other_run)
+
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx:
+            result = reconcile_run(run)
+
+        blocked_records = [r for r in log_ctx.records if 'legacy event' in r.getMessage()]
+        self.assertEqual(len(blocked_records), 1)
+        self.assertEqual(result.blocked, 1)
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+        self.assertTrue(CalendarEvent.objects.filter(pk=legacy_event.pk).exists())
+        meta = CalendarEventMeta.objects.get(event=legacy_event)
+        self.assertEqual(meta.run_id, other_run.pk)
+
+
+class TestFinalConvergenceGuard(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-04: the final `stale_qs` convergence step must use
+    `writable_allocation_events()`, not namespace identity alone -- an event attributed to a
+    different run, or human-confirmed to this run, must survive a window shrink."""
+
+    def test_window_shrink_never_deletes_a_night_confirmed_to_a_different_run(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:2026-07-11')
+        staff_user = User.objects.create(username='convergence-staffer')
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.run = other_run
+        meta.confirmed_by = staff_user
+        meta.confirmed_at = timezone.now()
+        meta.save(update_fields=['run', 'confirmed_by', 'confirmed_at'])
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, other_run.pk)
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.blocked, 1)
+
+    def test_window_shrink_never_deletes_a_night_human_confirmed_to_this_run(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:2026-07-11')
+        staff_user = User.objects.create(username='self-confirm-staffer')
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.confirmed_by = staff_user
+        meta.confirmed_at = timezone.now()
+        meta.save(update_fields=['confirmed_by', 'confirmed_at'])
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
+        meta.refresh_from_db()
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.blocked, 1)
+
+    def test_window_shrink_deletes_an_unattributed_night_shape_b(self):
+        """35-REVIEW.md NF-01/PROBE-A2: an `ALLOC:` night whose companion row exists but
+        whose `run` is unset (shape (b) -- attribution present but unset) must be deleted by
+        this convergence step and reported under exactly one counter (`retired`). Before the
+        fix, `_clearable_and_declined()` alone started from
+        `CalendarEventMeta.objects.filter(run_id=run.pk, ...)` and therefore never saw this
+        row at all: it survived forever with every counter at zero (PROBE-A2: "doomed still
+        exists: True", all counters zero) -- D-16's forbidden third outcome."""
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:2026-07-11')
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.run = None
+        meta.save(update_fields=['run'])
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event.pk).exists())
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.legacy_deleted, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertEqual(result.unchanged, 2)
+
+    def test_window_shrink_deletes_an_unattributed_night_shape_a(self):
+        """35-REVIEW.md NF-01/PROBE-A: the shape-(a) twin of the shape-(b) test above -- an
+        `ALLOC:` night with NO `CalendarEventMeta` companion row at all must also be deleted
+        by this convergence step and reported under exactly one counter (`retired`)."""
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:2026-07-11')
+        CalendarEventMeta.objects.filter(event=event).delete()
+
+        run.window_end = date(2026, 7, 10)
+        run.save(update_fields=['window_end'])
+        result = reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(pk=event.pk).exists())
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.blocked, 0)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.legacy_deleted, 0)
+        self.assertEqual(result.detached, 0)
+        self.assertEqual(result.unchanged, 2)
+
+
+class TestAttributionBridge(AllocationProjectorTestBase):
+    """Task 2, D-08: attribution is a link on the record's OWN event, both directions."""
+
+    def test_d08_round_trip_link_and_unlink_attribution(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        scheduled_start = datetime(2026, 7, 9, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        record, link = self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        record_event = self._make_record_event(record, scheduled_start, scheduled_end)
+        title_before, description_before = record_event.title, record_event.description
+        start_before, end_before = record_event.start_time, record_event.end_time
+
+        reconcile_run(run)
+
+        record_event.refresh_from_db()
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        self.assertEqual(meta.run_id, run.pk)
+        self.assertEqual(record_event.title, title_before)
+        self.assertEqual(record_event.description, description_before)
+        self.assertEqual(record_event.start_time, start_before)
+        self.assertEqual(record_event.end_time, end_before)
+
+        link.delete()
+        reconcile_run(run)
+
+        record_event.refresh_from_db()
+        self.assertFalse(CalendarEventMeta.objects.filter(event=record_event, run_id=run.pk).exists())
+        self.assertEqual(record_event.title, title_before)
+        self.assertEqual(record_event.description, description_before)
+        self.assertEqual(record_event.start_time, start_before)
+        self.assertEqual(record_event.end_time, end_before)
+
+    def test_foreign_attribution_is_refused_and_counted(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        scheduled_start = datetime(2026, 7, 9, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        record, _link = self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        record_event = self._make_record_event(record, scheduled_start, scheduled_end)
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        meta.run = other_run
+        meta.save(update_fields=['run'])
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 1)
+        record_event.refresh_from_db()
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        self.assertEqual(meta.run_id, other_run.pk)
+
+    def test_confirmed_attribution_survives_automated_unlink(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        scheduled_start = datetime(2026, 7, 9, 20, 0, tzinfo=dt_timezone.utc)
+        scheduled_end = scheduled_start + timedelta(hours=1)
+        record, link = self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_end)
+        record_event = self._make_record_event(record, scheduled_start, scheduled_end)
+        staff_user = User.objects.create(username='staffer')
+        confirmed_at = timezone.now()
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        meta.run = run
+        meta.confirmed_by = staff_user
+        meta.confirmed_at = confirmed_at
+        meta.save(update_fields=['run', 'confirmed_by', 'confirmed_at'])
+
+        link.delete()
+        reconcile_run(run)
+
+        meta = CalendarEventMeta.objects.get(event=record_event)
+        self.assertEqual(meta.run_id, run.pk)
+        self.assertEqual(meta.confirmed_by_id, staff_user.pk)
+        self.assertEqual(meta.confirmed_at, confirmed_at)
+
+
+class TestContainerAttributionBridge(AllocationProjectorTestBase):
+    """F5 / quick task 261001-smo: container-dispatched runs (class-wide, satellite, queue-sourced)
+    attribute their linked records' own events through the same D-08 bridge a per-night run uses."""
+
+    def _make_container_run(self, **overrides) -> CampaignRun:
+        """An approved, queue-sourced, class-wide run: it dispatches to the `RUN:` container, not nights."""
+        kwargs = {
+            'source': CampaignRun.Source.LCO_QUEUE,
+            'telescope_class': CampaignRun.TelescopeClass.ONE_M0,
+            'site': None,
+            'site_raw': '',
+            'telescope_instrument': 'LCO 1m0 / Sinistro',
+            'window_start': date(2026, 7, 9),
+            'window_end': date(2026, 7, 20),
+        }
+        kwargs.update(overrides)
+        run = self._make_run(**kwargs)
+        self.assertFalse(dispatches_per_night(run))
+        return run
+
+    def _linked_record_event(self, run: CampaignRun) -> tuple[ObservationRecord, CampaignRunObservation, CalendarEvent]:
+        """Link a record to `run`, then give it its own observation event (unattributed)."""
+        start = datetime(2026, 7, 10, 2, 0, tzinfo=dt_timezone.utc)
+        end = start + timedelta(hours=1)
+        record, link = self._link_record(run, scheduled_start=start, scheduled_end=end)
+        event = self._make_record_event(record, start, end)
+        return record, link, event
+
+    def test_reconcile_attributes_the_linked_record_event(self):
+        run = self._make_container_run()
+        _record, _link, event = self._linked_record_event(run)
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+        fields_before = (event.title, event.description, event.start_time, event.end_time, event.modified)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 0)
+        event.refresh_from_db()
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
+        self.assertEqual(
+            (event.title, event.description, event.start_time, event.end_time, event.modified), fields_before
+        )
+        self.assertTrue(CalendarEvent.objects.filter(url=f'RUN:{run.pk}').exists())
+        self.assertEqual(allocation_events(run).count(), 0)
+
+        again = reconcile_run(run)
+
+        self.assertEqual(again.unchanged, 1)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
+
+    def test_dry_run_reconcile_attributes_nothing(self):
+        run = self._make_container_run()
+        _record, _link, event = self._linked_record_event(run)
+
+        reconcile_run(run, dry_run=True)
+
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+
+    def test_event_attributed_to_a_different_run_is_left_alone_and_counted_blocked(self):
+        run = self._make_container_run()
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        _record, _link, event = self._linked_record_event(run)
+        CalendarEventMeta.objects.filter(event=event).update(run=other_run)
+
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as logs:
+            result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 1)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, other_run.pk)
+        self.assertIn('Allocation attribution blocked', '\n'.join(logs.output))
+
+    def test_reconcile_clears_the_attribution_of_a_link_removed_without_signals(self):
+        run = self._make_container_run()
+        _record, link, event = self._linked_record_event(run)
+        reconcile_run(run)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
+        event.refresh_from_db()
+        fields_before = (event.title, event.description, event.start_time, event.end_time)
+
+        with patch('solsys_code.allocation_projector.reproject_allocation_if_dispatched'):
+            link.delete()
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
+
+        reconcile_run(run)
+
+        event.refresh_from_db()
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event).run_id)
+        self.assertEqual((event.title, event.description, event.start_time, event.end_time), fields_before)
+
+    def test_bridge_still_runs_when_the_container_key_itself_is_blocked(self):
+        run = self._make_container_run()
+        other_run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 1))
+        _record, _link, event = self._linked_record_event(run)
+        reconcile_run(run)
+        CalendarEventMeta.objects.filter(event__url=f'RUN:{run.pk}').update(run=other_run)
+        CalendarEventMeta.objects.filter(event=event).update(run=None)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.blocked, 1)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).run_id, run.pk)
+
+
+class TestAllocationDeletionCascade(AllocationProjectorTestBase):
+    """Deleting a CampaignRun takes its own allocation nights with it, and never a night
+    attributed to a different run (mirrors campaign_reconciler's RUN: cascade twin)."""
+
+    def test_deleting_run_removes_its_alloc_nights(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 10))
+        reconcile_run(run)
+        self.assertEqual(allocation_events(run).count(), 2)
+
+        run.delete()
+
+        self.assertEqual(CalendarEvent.objects.filter(url__startswith='ALLOC:').count(), 0)
+
+    def test_deleting_run_a_leaves_run_bs_alloc_night_untouched(self):
+        run_a = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        run_b = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 9))
+        reconcile_run(run_a)
+        reconcile_run(run_b)
+        event_a = CalendarEvent.objects.get(url=f'ALLOC:{run_a.pk}:2026-07-09')
+        meta = CalendarEventMeta.objects.get(event=event_a)
+        meta.run = run_b
+        meta.save(update_fields=['run'])
+
+        run_a.delete()
+
+        self.assertTrue(CalendarEvent.objects.filter(pk=event_a.pk).exists())
+
+
+class TestAllocationNightBoundary(AllocationProjectorTestBase):
+    """ALLOC-02: `retired_nights()`'s local-noon anchor decides which night a linked
+    record's placed block retires -- not a plain site-local `.date()`. Covers a Sydney
+    site (positive UTC offset, +10 in August, no DST) and a Chilean site (negative UTC
+    offset, -4 in August, no DST) side by side, mirroring
+    `test_campaign_reconciler.TestObservingNightBoundary`'s verified UTC arithmetic. Every
+    assertion names the exact surviving/retired `ALLOC:` url, never a count alone."""
+
+    def _assert_retired_and_surviving(self, run: CampaignRun, retired_night: date, surviving_nights: list[date]):
+        retired_url = f'ALLOC:{run.pk}:{retired_night.isoformat()}'
+        self.assertFalse(CalendarEvent.objects.filter(url=retired_url).exists())
+        for night in surviving_nights:
+            self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+    def test_sydney_utc_date_differs_from_the_observing_night_it_retires(self):
+        """2026-08-02T01:00Z + 10h = 2026-08-02 11:00 local -- before local noon, so the
+        2026-08-01 observing night, even though the naive UTC date is 2026-08-02."""
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+        )
+        scheduled_start = datetime(2026, 8, 2, 1, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_sydney_exact_local_noon_belongs_to_the_date_that_just_started(self):
+        """2026-08-02T02:00:00Z + 10h = 2026-08-02 12:00:00 local exactly."""
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+        )
+        scheduled_start = datetime(2026, 8, 2, 2, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 2), [date(2026, 8, 1), date(2026, 8, 3)])
+
+    def test_sydney_one_second_before_local_noon_belongs_to_the_previous_date(self):
+        """2026-08-02T01:59:59Z + 10h = 2026-08-02 11:59:59 local."""
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+        )
+        scheduled_start = datetime(2026, 8, 2, 1, 59, 59, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_sydney_post_local_midnight_start_retires_the_previous_date(self):
+        """2026-08-01T16:00Z + 10h = 2026-08-02 02:00 local -- after local midnight, so
+        belongs to the observing night that started at sunset on Aug 1."""
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=date(2026, 8, 1),
+            window_end=date(2026, 8, 3),
+        )
+        scheduled_start = datetime(2026, 8, 1, 16, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_chile_utc_date_differs_from_the_observing_night_it_retires(self):
+        """2026-08-02T01:00Z - 4h = 2026-08-01 21:00 local -- before local midnight, so
+        the 2026-08-01 observing night, even though the naive UTC date is 2026-08-02."""
+        run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 3))
+        scheduled_start = datetime(2026, 8, 2, 1, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_chile_exact_local_noon_belongs_to_the_date_that_just_started(self):
+        """2026-08-02T16:00:00Z - 4h = 2026-08-02 12:00:00 local exactly."""
+        run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 3))
+        scheduled_start = datetime(2026, 8, 2, 16, 0, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 2), [date(2026, 8, 1), date(2026, 8, 3)])
+
+    def test_chile_one_second_before_local_noon_belongs_to_the_previous_date(self):
+        """2026-08-02T15:59:59Z - 4h = 2026-08-02 11:59:59 local."""
+        run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 3))
+        scheduled_start = datetime(2026, 8, 2, 15, 59, 59, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+    def test_chile_post_local_midnight_start_retires_the_previous_date(self):
+        """2026-08-02T04:30:00Z - 4h = 2026-08-02 00:30 local -- after local midnight, so
+        belongs to the observing night that started at sunset on Aug 1."""
+        run = self._make_run(window_start=date(2026, 8, 1), window_end=date(2026, 8, 3))
+        scheduled_start = datetime(2026, 8, 2, 4, 30, 0, tzinfo=dt_timezone.utc)
+        self._link_record(run, scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(hours=2))
+
+        reconcile_run(run)
+
+        self._assert_retired_and_surviving(run, date(2026, 8, 1), [date(2026, 8, 2), date(2026, 8, 3)])
+
+
+class TestNoSunEventRecompute(AllocationProjectorTestBase):
+    """Closes the folded todo (D-13):
+    `2026-09-01-skip-sun-event-computation-for-already-existing-reconciler-n.md` -- an
+    idempotent re-reconcile of an existing multi-night run must make zero `sun_event()`
+    calls, and a night whose event was deleted out from under the run must call it exactly
+    twice (sun + dark) on the next reconcile, so the "never called" assertion is a real
+    gate rather than vacuous."""
+
+    def test_second_reconcile_of_unchanged_run_never_calls_sun_event(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 13))
+        reconcile_run(run)
+        events_before = {e.pk: (e.start_time, e.end_time) for e in allocation_events(run)}
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.unchanged, 5)
+        events_after = {e.pk: (e.start_time, e.end_time) for e in allocation_events(run)}
+        self.assertEqual(events_before, events_after)
+
+    def test_a_deleted_night_calls_sun_event_exactly_twice_on_next_reconcile(self):
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 13))
+        reconcile_run(run)
+        deleted_night = date(2026, 7, 11)
+        CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{deleted_night.isoformat()}').delete()
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            reconcile_run(run)
+
+        calls_for_deleted_night = [call for call in mock_sun_event.call_args_list if call.args[1] == deleted_night]
+        self.assertEqual(len(calls_for_deleted_night), 2)
+        kinds = sorted(call.kwargs['kind'] for call in calls_for_deleted_night)
+        self.assertEqual(kinds, ['dark', 'sun'])
+
+    def test_dry_run_of_a_brand_new_run_never_calls_sun_event(self):
+        """35-REVIEW.md WR-03: `--dry-run` must not compute (and discard) `_mint_fields()`'s
+        two `sun_event()` calls per brand-new night -- `preview_calendar_event_action(None,
+        fields)` never reads `fields` at all, so the astropy work is pure waste, and can
+        raise `sun_event()`'s own `ValueError` on what is documented as a read-only
+        preview."""
+        run = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 13))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run, dry_run=True)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.created, 5)
+        self.assertEqual(allocation_events(run).count(), 0)
+
+
+class TestEmptyAndDegenerateWindows(AllocationProjectorTestBase):
+    """Degenerate `CampaignRun` states the dispatch's stage-0 guard (`_skip_reason()`)
+    handles before ever reaching `project_allocation()`, plus the no-links edge inside it."""
+
+    def test_null_window_is_skipped_as_tbd(self):
+        run = self._make_run(window_start=None, window_end=None)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_reason, 'TBD window')
+        self.assertEqual(allocation_events(run).count(), 0)
+
+    def test_window_end_before_window_start_is_skipped(self):
+        run = self._make_run(window_start=date(2026, 7, 11), window_end=date(2026, 7, 9))
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.skipped_reason, 'window_end before window_start')
+
+    def test_no_observation_links_retires_nothing(self):
+        run = self._make_run()
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 0)
+
+
+class TestSubNightWindow(AllocationProjectorTestBase):
+    """Plan 35-03 Task 2 (D-04/D-13): the projector honours a run's sub-night window
+    fields, and re-mints (never rewrites in place) a night whose span changed."""
+
+    def test_null_null_run_keeps_the_sunset_to_sunrise_span_byte_identical(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertEqual(event.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+
+    def test_set_end_and_null_start_computes_sunset_start_and_next_morning_end(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, night_end_utc=time(6, 26))
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        expected_sunset, _expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        next_morning = night + timedelta(days=1)
+        self.assertEqual(
+            event.end_time,
+            datetime(next_morning.year, next_morning.month, next_morning.day, 6, 26, 0, tzinfo=dt_timezone.utc),
+        )
+
+    def test_set_start_and_null_end_uses_its_own_evening_date_and_computes_sunrise_end(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, night_start_utc=time(23, 30))
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(
+            event.start_time,
+            datetime(night.year, night.month, night.day, 23, 30, 0, tzinfo=dt_timezone.utc),
+        )
+        _expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(event.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+
+    def test_changing_night_end_utc_remints_only_the_affected_runs_nights(self):
+        run_a = self._make_run(window_start=date(2026, 7, 9), window_end=date(2026, 7, 11))
+        run_b = self._make_run(window_start=date(2026, 7, 20), window_end=date(2026, 7, 20))
+        reconcile_run(run_a)
+        reconcile_run(run_b)
+        pks_a_before = {e.url: e.pk for e in allocation_events(run_a)}
+        pks_b_before = {e.url: e.pk for e in allocation_events(run_b)}
+
+        run_a.night_end_utc = time(6, 26)
+        run_a.save(update_fields=['night_end_utc'])
+        result = reconcile_run(run_a)
+
+        self.assertEqual(result.created, 3)
+        self.assertEqual(result.retired, 3)
+        self.assertEqual(result.updated, 0)
+        pks_a_after = {e.url: e.pk for e in allocation_events(run_a)}
+        self.assertEqual(set(pks_a_after), set(pks_a_before))
+        for url, pk_before in pks_a_before.items():
+            self.assertNotEqual(pks_a_after[url], pk_before)
+
+        pks_b_after = {e.url: e.pk for e in allocation_events(run_b)}
+        self.assertEqual(pks_b_before, pks_b_after)
+
+    def test_reconcile_with_sub_night_fields_set_makes_no_further_sun_event_calls(self):
+        run = self._make_run(
+            window_start=date(2026, 7, 9),
+            window_end=date(2026, 7, 11),
+            night_start_utc=time(23, 30),
+            night_end_utc=time(6, 26),
+        )
+        reconcile_run(run)
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.unchanged, 3)
+
+    def test_second_reconcile_with_matching_sub_night_fields_writes_nothing(self):
+        run = self._make_run(
+            window_start=date(2026, 7, 9),
+            window_end=date(2026, 7, 11),
+            night_start_utc=time(23, 30),
+            night_end_utc=time(6, 26),
+        )
+        reconcile_run(run)
+        pks_before = {e.url: e.pk for e in allocation_events(run)}
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.updated, 0)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.unchanged, 3)
+        pks_after = {e.url: e.pk for e in allocation_events(run)}
+        self.assertEqual(pks_before, pks_after)
+
+
+class TestSubNightWindowSiteDirection(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-06: a stored sub-night time-of-day's UTC calendar date depends on
+    which way the site's local clock runs relative to UTC -- the fixed 12:00 UTC threshold
+    was only ever correct for a site west of Greenwich (Chile). Uses the Sydney (`FTS`,
+    UTC+10/+11) fixture; verified against the projector's own `sun_event()`-computed full
+    night."""
+
+    def test_sydney_early_utc_hour_start_stays_on_its_own_night_not_pushed_a_day_late(self):
+        """Reproduces the exact CR-06 probe: a `night_start_utc` before 12:00 UTC must land
+        on the night's OWN date for a site ahead of UTC, not the following day -- the
+        pre-fix rule inverted this into a span whose start was 14.5 hours after its end."""
+        night = date(2026, 8, 1)
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(9, 30),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.start_time, datetime(2026, 8, 1, 9, 30, 0, tzinfo=dt_timezone.utc))
+        _expected_sunset, expected_sunrise = sun_event(self.australian_site, night, kind='sun')
+        self.assertEqual(event.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertLess(event.start_time, event.end_time)
+
+    def test_sydney_late_utc_hour_end_stays_on_its_own_night_not_pushed_early(self):
+        """The mirror case: an evening-side `night_end_utc` (hour >= 12) already happened to
+        land correctly under the pre-fix rule for a west-of-UTC site's 12:00 threshold, but
+        must ALSO stay on its own night's date for an east-of-UTC site -- proving the fix is
+        the site-direction rule, not merely "never push to the next day"."""
+        night = date(2026, 8, 1)
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=night,
+            window_end=night,
+            night_end_utc=time(19, 0),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.end_time, datetime(2026, 8, 1, 19, 0, 0, tzinfo=dt_timezone.utc))
+        expected_sunset, _expected_sunrise = sun_event(self.australian_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertLess(event.start_time, event.end_time)
+
+    def test_chile_pre_fix_direction_is_unchanged(self):
+        """The west-of-UTC site's own rule (Chile) must be byte-identical to the pre-fix
+        behaviour -- CR-06's fix is additive (site-direction-aware), not a regression for
+        the hemisphere the original rule already handled correctly."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, night_end_utc=time(6, 26))
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        next_morning = night + timedelta(days=1)
+        self.assertEqual(
+            event.end_time,
+            datetime(next_morning.year, next_morning.month, next_morning.day, 6, 26, 0, tzinfo=dt_timezone.utc),
+        )
+
+    def test_saao_morning_side_end_resolves_to_the_following_utc_date(self):
+        """35-REVIEW.md NF-03: `Africa/Johannesburg` (+2) is band 2-east -- an offset above
+        -6 and at or below +6, so its night straddles UTC midnight exactly like Chile's, but
+        the superseded sign-of-offset rule treated every non-negative offset as band 1 and
+        raised `ValueError` on this exact fixture on every reconcile."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.saao_site,
+            site_raw='K92',
+            window_start=night,
+            window_end=night,
+            night_end_utc=time(3, 0),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.end_time, datetime(2026, 7, 10, 3, 0, 0, tzinfo=dt_timezone.utc))
+        expected_sunset, _expected_sunrise = sun_event(self.saao_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertLess(event.start_time, event.end_time)
+
+    def test_sydney_inverted_sub_night_fields_raise_instead_of_writing_an_inverted_event(self):
+        """A guard, not just a corrected rule: an operator input (or a future site whose
+        direction this rule still gets wrong) that would still produce start >= end must
+        never be silently written to the shared calendar."""
+        night = date(2026, 8, 1)
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(19, 0),
+            night_end_utc=time(8, 0),
+        )
+
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
+
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+    def test_dry_run_of_a_brand_new_inverted_window_also_raises(self):
+        """NF-10 (35-REVIEW.md): `_mint_fields()` is the only caller of `night_bounds()`,
+        where the CR-06 inversion guard lives, and the dry-run create path skipped it
+        entirely (WR-03) -- so a dry run used to report `would_create` for a night whose
+        immediately following real run failed with this exact inverted-span `ValueError`.
+        Reproduces the sibling fixture above on a BRAND-NEW night (no existing
+        CalendarEvent), so `existing is None` and the previewed create path is the one
+        under test, and asserts the dry run raises the identical error, over the same
+        night, before either pass has written anything."""
+        night = date(2026, 8, 1)
+        run = self._make_run(
+            site=self.australian_site,
+            site_raw='E10',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(19, 0),
+            night_end_utc=time(8, 0),
+        )
+
+        with self.assertRaises(ValueError) as dry_ctx:
+            reconcile_run(run, dry_run=True)
+        with self.assertRaises(ValueError) as real_ctx:
+            reconcile_run(run)
+
+        self.assertEqual(str(dry_ctx.exception), str(real_ctx.exception))
+        self.assertFalse(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+    def test_dry_run_of_a_remint_inverted_window_also_raises(self):
+        """NF-20 (35-REVIEW.md): the re-mint branch (`_span_needs_remint()`'s own
+        `if dry_run: continue` short-circuit) skipped the inversion guard entirely -- only
+        the create branch was fixed for NF-10. Mints one valid night via a real reconcile,
+        then edits the run's sub-night fields to a pair that both needs re-minting (per
+        `_span_needs_remint()`) AND resolves inverted for this site -- and asserts the dry
+        run raises the SAME `ValueError` the immediately following real run raises."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=time(5, 0),
+        )
+        reconcile_run(run)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+        run.night_start_utc = time(9, 0)
+        run.night_end_utc = time(23, 0)
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        with self.assertRaises(ValueError) as dry_ctx:
+            reconcile_run(run, dry_run=True)
+        with self.assertRaises(ValueError) as real_ctx:
+            reconcile_run(run)
+
+        self.assertEqual(str(dry_ctx.exception), str(real_ctx.exception))
+
+    def test_dry_run_of_a_half_null_remint_after_nulling_a_set_start_agrees_with_the_real_run(self):
+        """PROBE-P1 (35-VERIFICATION.md): a FALSE POSITIVE the second gap-closure round
+        introduced. Before that round the guard returned early for a half-null run, so a
+        preview aborting a night the real run handles cleanly is behaviour the round-2
+        stored-boundary fallback added -- it substituted `existing.start_time` for the
+        nulled `night_start_utc` on the premise that the stored boundary was sun-derived,
+        which is false here: the re-mint branch is entered precisely because the field
+        CHANGED, and the stored `23:00` is the operator's own old value, not a sunset.
+        Downstream harm: `reconcile_campaign_runs --dry-run` reports the run under
+        `failed:`, and `load_telescope_runs --dry-run` folds the line into `skipped`,
+        sending an operator who follows the runbook's always-dry-run-first rule to
+        "correct" data that is already correct."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=None,
+        )
+        reconcile_run(run)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+        run.night_start_utc = None
+        run.night_end_utc = time(22, 30)
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        reconcile_run(run, dry_run=True)
+
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertLess(event.start_time, event.end_time)
+        self.assertEqual(event.end_time, datetime(2026, 7, 9, 22, 30, 0, tzinfo=dt_timezone.utc))
+
+    def test_dry_run_of_a_half_null_remint_inverted_window_stays_silent_while_the_real_run_raises(self):
+        """Rewritten for 35-16 (this plan). The previous name and assertions here (removed)
+        claimed this half-null re-mint's dry run raised the SAME `ValueError` the real run
+        raises. That passed under the defect for exactly one sub-shape: the null field here
+        (`night_end_utc`) was ALSO null at mint time, so the stored `existing.end_time`
+        genuinely WAS the sunrise, and the now-deleted stored-boundary fallback happened to
+        be sound for it. The PROBE-P1 test above is the sub-shape that falsifies the general
+        claim -- there the null field was previously SET, so the stored value is a stale
+        operator value, not a sun event. After the revert the guard cannot see EITHER
+        sub-shape's inversion -- it returns early whenever either resolved boundary is
+        unknown -- so this test now pins the narrowed, true contract: the preview stays
+        silent and the real run still raises."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=None,
+        )
+        reconcile_run(run)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+        run.night_start_utc = time(11, 30)
+        run.save(update_fields=['night_start_utc'])
+
+        reconcile_run(run, dry_run=True)
+
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
+
+    def test_dry_run_cannot_see_a_half_null_remint_inversion_and_the_real_run_still_raises(self):
+        """PROBE-P6 (35-VERIFICATION.md): pins a KNOWN, DELIBERATE limitation, not a passing
+        contract. The preview cannot see this half-null inversion because the missing
+        boundary is a sun event the preview may not compute (D-13), and the stored boundary
+        is not a sound stand-in for it -- it is the operator's own previous value whenever
+        the now-null field was previously set. PROBE-P1 (above) and PROBE-P6 (this test) are
+        the two directions that falsified round 2's substituted-boundary approach: PROBE-P1
+        showed the substitute produces a false positive when the null field's old value sat
+        AFTER the real sunset/sunrise; this test's fixture is the mirror -- the null field's
+        old value sits BEFORE it, so the substitute stayed silent while the real run still
+        raised. A future change that makes this preview raise again must first solve
+        provenance (recording whether a stored boundary really is sun-derived), not
+        re-infer it from a value the run row does not distinguish.
+
+        This is also this test's OWN shape's distinction from the sibling immediately above:
+        that one keeps `night_start_utc` set and nulls `night_end_utc` throughout, then
+        inverts the set field; this one nulls a `night_start_utc` that WAS set at mint time.
+        Two different half-null shapes reaching the same outcome -- preview silent, real run
+        raises -- not the same test written twice."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(21, 0),
+            night_end_utc=None,
+        )
+        reconcile_run(run)
+        self.assertTrue(CalendarEvent.objects.filter(url=f'ALLOC:{run.pk}:{night.isoformat()}').exists())
+
+        run.night_start_utc = None
+        run.night_end_utc = time(21, 30)
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        reconcile_run(run, dry_run=True)
+
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
+
+    def test_hanle_half_hour_offset_window_resolves_to_the_following_utc_date(self):
+        """35-REVIEW.md NF-03: `Asia/Kolkata` (+5:30) is band 2-east -- both ends land
+        outside their naive same-date position. Today both `00:00` and `02:00` land on
+        2026-07-09, a full day early, with no error raised at all -- the silent failure
+        mode this fix closes."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.hanle_site,
+            site_raw='N50',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(0, 0),
+            night_end_utc=time(2, 0),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.start_time, datetime(2026, 7, 10, 0, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(event.end_time, datetime(2026, 7, 10, 2, 0, 0, tzinfo=dt_timezone.utc))
+
+    def test_ftn_both_ends_resolve_to_the_following_utc_date(self):
+        """35-REVIEW.md NF-03: `Pacific/Honolulu` (-10) is band 3 -- the site's whole
+        observing night lies inside the NEXT UTC date, so BOTH ends resolve onto
+        `night + 1`. This is the band the review's own suggested two-way predicate
+        (`_night_crosses_utc_midnight()`) would still get wrong: at this site both ends of
+        the night land on the same UTC date, so that predicate returns False and a loud
+        `ValueError` becomes silent day-early corruption instead."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.ftn_site,
+            site_raw='F65',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(13, 0),
+            night_end_utc=time(15, 0),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.start_time, datetime(2026, 7, 10, 13, 0, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(event.end_time, datetime(2026, 7, 10, 15, 0, 0, tzinfo=dt_timezone.utc))
+
+    def test_ftn_evening_side_end_with_computed_start_resolves_independently(self):
+        """FTN, band 3: proves the two ends are still resolved independently -- the
+        evening-side value that was right by luck under the old rule (an hour < 12 already
+        landed on `night + 1` under the pre-fix west-of-UTC threshold) is still right, and
+        the computed start is untouched by this change.
+
+        Deviation from the plan's literal `time(4, 30)`: FTN's real `sun_event()`-computed
+        sunset for 2026-07-09 is 05:17:27 UTC on 2026-07-10, which is AFTER 04:30 -- the
+        plan's ground-truth table verified only the `zoneinfo` date-resolution arithmetic for
+        that value, not that it falls after the site's true astronomical sunset, so pairing
+        it with a computed (null) start here would produce a genuinely inverted span
+        independent of this fix. `time(6, 30)` keeps every property the plan's value was
+        chosen for (an early UTC hour, resolved onto `night + 1` under both the old and the
+        new rule) while sitting safely after the real sunset."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.ftn_site,
+            site_raw='F65',
+            window_start=night,
+            window_end=night,
+            night_end_utc=time(6, 30),
+        )
+
+        reconcile_run(run)
+
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.end_time, datetime(2026, 7, 10, 6, 30, 0, tzinfo=dt_timezone.utc))
+        expected_sunset, _expected_sunrise = sun_event(self.ftn_site, night, kind='sun')
+        self.assertEqual(event.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0))
+        self.assertLess(event.start_time, event.end_time)
+
+    def test_ftn_re_mint_agreement_makes_no_further_sun_event_calls(self):
+        """FTN, band 3: proves `_span_needs_remint()` resolves the same dates the mint path
+        wrote, so a band-3 night does not re-mint on every sweep."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            site=self.ftn_site,
+            site_raw='F65',
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(13, 0),
+            night_end_utc=time(15, 0),
+        )
+        reconcile_run(run)
+        event_pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.unchanged, 1)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.retired, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, event_pk_before)
+
+
+class TestClearedSubNightFieldRemints(AllocationProjectorTestBase):
+    """CR-01 (35-REVIEW.md iteration 7, 35-VERIFICATION.md fourth pass, plan 35-19): before
+    this fix, `_span_needs_remint()` gated every comparison on `is not None`, so clearing a
+    previously-SET sub-night field to null was read as "nothing to compare" rather than as
+    "the boundary changed" -- the calendar kept the operator's stale old value forever and
+    `reconcile_run()` reported it as `unchanged`, with no exception, no log line and no
+    counter.
+
+    This class pins probe shape C (La Silla, obscode 809, night 2026-07-09) -- the nastiest
+    of the three shapes 35-VERIFICATION.md reproduced, and the one a "check whether BOTH
+    fields are null" fix would still miss: clearing only ONE of two SET fields leaves the
+    OTHER field still set and still matching its stored boundary, so the per-field
+    `is not None` gate can no longer even reach the second comparison -- it evaluates the
+    remaining check False and returns "no re-mint needed" for a night whose declared window
+    genuinely changed. Shapes A (both fields cleared) and B (a half-null window's remaining
+    field cleared) are pinned below (Task 3), plus a dry-run parity test for shape A --
+    each shape reaches the defect through a different branch, so a fix that only handles one
+    shape can pass the other two.
+
+    Fixture provenance only (never asserted against directly -- every assertion below reads
+    the live `sun_event()` result for the test's own site and night): 35-VERIFICATION.md
+    measured the true sunset/sunrise for La Silla, 2026-07-09 as `22:06:35.918` /
+    `11:29:46.816` UTC.
+    """
+
+    def test_clearing_only_one_of_two_set_fields_remints_the_night(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=time(5, 0),
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        still_set_end = event_before.end_time
+        self.assertEqual(still_set_end, datetime(2026, 7, 10, 5, 0, 0, tzinfo=dt_timezone.utc))
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, _expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+        self.assertEqual(event_after.end_time, still_set_end)
+
+    def test_probe_shape_a_both_fields_cleared_remints_to_the_real_sun_event(self):
+        """Probe shape A (35-VERIFICATION.md): a night minted from a set/set window whose
+        BOTH fields are then cleared to null is re-minted -- the stored event's boundaries
+        become the computed sunset/sunrise for that night."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=time(5, 0),
+        )
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+        self.assertEqual(
+            event_after.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+
+    def test_probe_shape_b_half_nulls_remaining_set_field_cleared_remints_to_the_real_sun_event(self):
+        """Probe shape B (35-VERIFICATION.md): a night minted from a half-null window (one
+        field set, one null) whose remaining set field is then cleared is re-minted the same
+        way -- the previously-set boundary becomes the true sun event."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=None,
+        )
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+        self.assertEqual(
+            event_after.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+
+    def test_dry_run_of_probe_shape_a_agrees_with_the_real_run_and_writes_nothing(self):
+        """Dry-run parity (35-19-PLAN.md): for shape A, `reconcile_run(run, dry_run=True)`
+        must report the same retired/created pair the immediately following real run
+        reports, and the preview must leave the event's pk and both boundaries untouched."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night,
+            window_end=night,
+            night_start_utc=time(23, 0),
+            night_end_utc=time(5, 0),
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+        dry_result = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(dry_result.retired, 1)
+        self.assertEqual(dry_result.created, 1)
+        event_after_dry_run = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry_run.pk, pk_before)
+        self.assertEqual(event_after_dry_run.start_time, start_before)
+        self.assertEqual(event_after_dry_run.end_time, end_before)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.retired, dry_result.retired)
+        self.assertEqual(real_result.created, dry_result.created)
+
+
+class TestUnrecordedProvenanceNight(AllocationProjectorTestBase):
+    """CR-01's second branch (35-REVIEW.md iteration 7, plan 35-19 Task 2): a night whose
+    provenance was never recorded -- an event minted before `minted_sub_night_window`
+    existed, or taken over by the legacy re-key path. Simulated here with an explicit
+    queryset `.update()` on the companion row, since that is what such an event actually
+    looks like (35-VERIFICATION.md's `missing` item 2's other route).
+
+    Round 2 SUBSTITUTED a stored boundary for an uncomputed sun event and was reverted for
+    it (35-REVIEW.md CR-01's own warning: "do NOT infer provenance from the stored value
+    again"). This class instead proves the resolution is COMPUTED -- exactly one
+    `sun_event()` call per unrecorded night, its result compared with a tolerance against
+    the stored boundary, and only what that comparison confirms is ever recorded."""
+
+    def _clear_provenance(self, run: CampaignRun, night) -> None:
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=None)
+
+    def test_a_legacy_night_that_is_actually_correct_reports_unchanged_and_records_provenance_once(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        self._clear_provenance(run, night)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        # CR-02 (35-REVIEW.md iteration 8, plan 35-21) Rule 1 deviation: the legacy
+        # resolution branch now records a CURRENT-format token (version + site + sub-night
+        # pair) rather than the pre-CR-02 sub-night-pair-only literal `'none|none'` this
+        # assertion hardcoded. Asserting against the live `_sub_night_provenance_token(run)`
+        # instead of a hardcoded literal is what the codebase already does elsewhere for
+        # exactly this reason (e.g. `night_bounds()` comparisons) -- the two can never drift
+        # apart again, whatever the token format becomes next.
+        self.assertEqual(event_after.telescope_label_meta.minted_sub_night_window, _sub_night_provenance_token(run))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+
+    def test_a_legacy_night_that_is_genuinely_stale_remints_to_the_real_sun_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        self._clear_provenance(run, night)
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+        self.assertEqual(
+            event_after.end_time, expected_sunrise.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+
+    def test_dry_run_of_a_genuinely_stale_legacy_night_agrees_with_the_real_run_and_writes_nothing(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        self._clear_provenance(run, night)
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        dry_result = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(dry_result.retired, 1)
+        self.assertEqual(dry_result.created, 1)
+        event_after_dry_run = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry_run.pk, pk_before)
+        self.assertEqual(event_after_dry_run.start_time, start_before)
+        self.assertEqual(event_after_dry_run.end_time, end_before)
+        self.assertIsNone(event_after_dry_run.telescope_label_meta.minted_sub_night_window)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.retired, dry_result.retired)
+        self.assertEqual(real_result.created, dry_result.created)
+
+
+class TestRemintHumanConfirmationGuard(AllocationProjectorTestBase):
+    """35-REVIEW.md iteration 8, CR-01 (plan 35-20): the re-mint branch was the only delete
+    path in this module with no human-confirmation guard. `_span_needs_remint()` returning
+    True ran straight into `existing.delete()`, and `CalendarEventMeta.event`'s
+    `OneToOneField(primary_key=True, on_delete=CASCADE)` took the companion row with it --
+    `confirmed_by`, `confirmed_at`, `observation_record`, `observation_group` and
+    `is_verified`, all destroyed by an automated sweep with no warning, no counter, and
+    `retired=1/created=1` reported as ordinary work (probes 8 and 9)."""
+
+    def test_confirmed_night_survives_a_would_be_remint(self):
+        """Probe 8 (35-REVIEW.md): a staff-confirmed night whose sub-night window is then
+        edited so its stored boundary no longer matches must survive the WHOLE
+        `reconcile_run()` call -- same pk, same boundaries, same companion row -- reported
+        as `detach_declined`, never `retired`/`created`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='remint-guard-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        with self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx:
+            result = reconcile_run(run)
+
+        # 35-23: this counter genuinely split -- a re-mint decline is remint_declined, not
+        # detach_declined (the two now name different causes; see CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        # The assertion runs on a FRESH query after the whole reconcile_run() call has
+        # returned -- so the D-14 convergence step at the end of project_allocation() has
+        # already had its chance at this night too.
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        meta_after = CalendarEventMeta.objects.get(event=event_after)
+        self.assertEqual(meta_after.confirmed_by_id, staff_user.pk)
+        self.assertIsNotNone(meta_after.confirmed_at)
+        declined_records = [r for r in log_ctx.records if 're-mint declined' in r.getMessage()]
+        self.assertEqual(len(declined_records), 1)
+
+    def test_unconfirmed_night_still_remints_normally(self):
+        """The control case the guard must not break: an otherwise identical unconfirmed
+        night (self-attributed to this run, no staff-set state) still re-mints -- new
+        primary key, boundary equal to the real `sun_event()` sunset."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.detach_declined, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, _expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        self.assertEqual(
+            event_after.start_time, expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        )
+
+    def test_staff_state_is_verified_false_declines_the_remint(self):
+        """Probe 9 (35-REVIEW.md): `PROBE9 new meta observation_record= None is_verified=
+        True` was the destroyed row's replacement, before this fix. `is_verified` is the
+        production-reachable half of this companion-row state -- the one field neither
+        admin surface lists in `readonly_fields`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        CalendarEventMeta.objects.filter(event=event_before).update(is_verified=False)
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertFalse(CalendarEventMeta.objects.get(event=event_after).is_verified)
+
+    def test_staff_state_observation_record_link_declines_the_remint(self):
+        """Probe 9's other sibling: a companion row carrying an `observation_record` link
+        declines the re-mint too."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create(username=f'obs-owner-{uuid4().hex[:8]}')
+        record = ObservationRecord.objects.create(
+            target=target,
+            user=owner,
+            facility='LCO',
+            observation_id=f'obs-{uuid4().hex[:8]}',
+            status='COMPLETED',
+            parameters={'proposal': 'TEST'},
+        )
+        CalendarEventMeta.objects.filter(event=event_before).update(observation_record=record)
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event_after).observation_record_id, record.pk)
+
+    def test_staff_state_observation_group_link_declines_the_remint(self):
+        """Probe 9's third sibling: a companion row carrying an `observation_group` link
+        declines the re-mint too."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        group = ObservationGroup.objects.create(name='remint-guard-group')
+        CalendarEventMeta.objects.filter(event=event_before).update(observation_group=group)
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event_after).observation_group_id, group.pk)
+
+    def test_dry_run_parity_for_a_declined_night(self):
+        """Decision parity between a dry-run preview and the real pass -- the property this
+        phase has broken four times -- must hold for a declined re-mint too: the same
+        counter triple, and a completely untouched event and companion row."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='dry-run-parity-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.save(update_fields=['night_start_utc'])
+        dry_result = reconcile_run(run, dry_run=True)
+
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(dry_result.remint_declined, 1)
+        self.assertEqual(dry_result.detach_declined, 0)
+        self.assertEqual(dry_result.retired, 0)
+        self.assertEqual(dry_result.created, 0)
+        event_after_dry_run = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry_run.pk, pk_before)
+        self.assertEqual(event_after_dry_run.start_time, start_before)
+        self.assertEqual(event_after_dry_run.end_time, end_before)
+        self.assertEqual(CalendarEventMeta.objects.get(event=event_after_dry_run).confirmed_by_id, staff_user.pk)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.remint_declined, dry_result.remint_declined)
+        self.assertEqual(real_result.detach_declined, dry_result.detach_declined)
+        self.assertEqual(real_result.retired, dry_result.retired)
+        self.assertEqual(real_result.created, dry_result.created)
+
+    def test_confirmed_night_with_unrecorded_provenance_and_stale_boundary_is_declined(self):
+        """The 35-19 unrecorded-provenance branch (`_span_needs_remint()`'s legacy path)
+        and this guard interact correctly: a confirmed night whose provenance was never
+        recorded, and whose stored boundary sits far outside the one-minute tolerance,
+        reaches `_span_needs_remint()`'s legacy branch, returns True (genuinely stale) --
+        and is then DECLINED by this guard rather than destroyed."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='unrecorded-provenance-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now(), minted_sub_night_window=None
+        )
+
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+        result = reconcile_run(run)
+
+        # 35-23: split from detach_declined (CR-04/WR-06).
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.detach_declined, 0)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+
+
+class TestDeclinedRemintStillUpdatesLabels(AllocationProjectorTestBase):
+    """35-REVIEW.md CR-04 (plan 35-23): the re-mint decline must refuse only the DESTRUCTIVE
+    half -- the delete/create pair and its boundary rewrite. A declined night must still
+    reach the plain-update path (`title`/`description`/`target_list`), which is how a staff
+    `mark_cancelled`/`mark_weather_failure` action reaches an allocation night at all
+    (`allocation_night_description()`'s own docstring). Before this fix the decline
+    `continue`d out of the per-night loop entirely, freezing a declined night's title
+    forever."""
+
+    def test_declined_night_still_receives_a_cancelled_title(self):
+        """The property CR-04 broke, restored: a cancelled run's declined night must still
+        carry the cancelled marker, while its primary key and both boundaries are byte-
+        identical to before the sweep. The marker text is read from allocation_night_title()
+        rather than hardcoded."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='cr04-cancelled-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertEqual(event_after.title, allocation_night_title(run))
+        self.assertTrue(event_after.title.startswith('[C]'))
+
+    def test_declined_night_confirmation_stamp_survives_the_fall_through(self):
+        """`_link_event_to_run()` writes only `run` -- the fall-through's own update path
+        must never touch `confirmed_by`/`confirmed_at`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr04-stamp-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        reconcile_run(run)
+
+        meta_after = CalendarEventMeta.objects.get(event=event_before)
+        self.assertEqual(meta_after.confirmed_by_id, staff_user.pk)
+        self.assertIsNotNone(meta_after.confirmed_at)
+
+    def test_declined_night_reports_remint_declined_alongside_updated(self):
+        """The counter pair: a declined night that ALSO changed its labelling reports
+        remint_declined together with updated, never retired/created, and detach_declined
+        stays at its own unrelated 0."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr04-counter-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.remint_declined, 1)
+        self.assertEqual(result.updated, 1)
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.detach_declined, 0)
+
+    def test_declined_night_repeats_on_the_next_sweep_and_reports_unchanged(self):
+        """Deliberate (documented, not fixed here): nothing on this path records provenance,
+        so the decline repeats on every subsequent sweep. Once the labelling has already
+        been refreshed once, a further sweep with nothing else changed reports unchanged
+        instead of updated. The astropy cost of this repetition is bounded and pinned by
+        plan 35-24 (WR-07), not by this test."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        staff_user = User.objects.create(username='cr04-repeat-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        first_result = reconcile_run(run)
+        self.assertEqual(first_result.updated, 1)
+
+        second_result = reconcile_run(run)
+
+        self.assertEqual(second_result.remint_declined, 1)
+        self.assertEqual(second_result.unchanged, 1)
+        self.assertEqual(second_result.updated, 0)
+
+    def test_declined_night_dry_run_parity_for_the_counter_pair(self):
+        """A dry-run preview and the real run must agree on the identical remint_declined
+        and updated/unchanged pair, and the preview must write nothing."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        title_before = event_before.title
+        staff_user = User.objects.create(username='cr04-dry-run-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now()
+        )
+
+        run.night_start_utc = None
+        run.run_status = CampaignRun.RunStatus.CANCELLED
+        run.save(update_fields=['night_start_utc', 'run_status'])
+        dry_result = reconcile_run(run, dry_run=True)
+
+        self.assertEqual(dry_result.remint_declined, 1)
+        self.assertEqual(dry_result.updated, 1)
+        self.assertEqual(dry_result.retired, 0)
+        self.assertEqual(dry_result.created, 0)
+        event_after_dry = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after_dry.pk, pk_before)
+        self.assertEqual(event_after_dry.start_time, start_before)
+        self.assertEqual(event_after_dry.end_time, end_before)
+        self.assertEqual(event_after_dry.title, title_before)
+
+        real_result = reconcile_run(run)
+
+        self.assertEqual(real_result.remint_declined, dry_result.remint_declined)
+        self.assertEqual(real_result.updated, dry_result.updated)
+
+
+class TestRemintAtomicity(AllocationProjectorTestBase):
+    """35-REVIEW.md iteration 8, CR-03 (plan 35-20): the re-mint branch deleted before it
+    could fail -- `existing.delete()` ran, and only then `_mint_fields()` ->
+    `night_bounds()` -> `_raise_if_inverted()` raised for an inverted span, leaving the
+    night gone and the caller with an exception instead of the event (probe 6). Two
+    separate mechanisms close it: `_mint_fields()` now runs BEFORE `existing.delete()`
+    (this class's first test), and the delete/create/link/record-provenance group is
+    wrapped in `transaction.atomic()` (this class's second test, for a failure landing
+    strictly between the delete and the create). A single test cannot tell which
+    mechanism saved the night, so each gets its own."""
+
+    def test_compute_before_destroy_leaves_the_event_in_place_on_an_inverted_span(self):
+        """Probe 6 (35-REVIEW.md): `PROBE6 exists after = False` before this fix. Reuses
+        the exact fixture `TestSubNightWindowSiteDirection.
+        test_dry_run_of_a_remint_inverted_window_also_raises` uses to reproduce a
+        re-mint-inverted span for this site: mint a valid night, then edit the run's
+        sub-night pair to one that both needs re-minting and resolves inverted."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+
+        run.night_start_utc = time(9, 0)
+        run.night_end_utc = time(23, 0)
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+
+    def test_a_failure_between_the_delete_and_the_create_rolls_back(self):
+        """A raise landing strictly between `existing.delete()` and the create call must
+        also leave the event in place. Django's `TestCase` already wraps each test in a
+        transaction, so `transaction.atomic()` here is a savepoint and this is a savepoint
+        rollback -- catching the exception with `assertRaises` and then querying is valid
+        and does not raise `TransactionManagementError`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        with patch(
+            'solsys_code.allocation_projector.insert_or_create_calendar_event',
+            side_effect=RuntimeError('boom'),
+        ):
+            with self.assertRaises(RuntimeError):
+                reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+
+
+class TestSiteChangeRemints(AllocationProjectorTestBase):
+    """CR-02 (35-REVIEW.md iteration 8, plan 35-21): the pre-CR-02 token recorded only the
+    sub-night pair, so once provenance was recorded, correcting `run.site` on an
+    already-projected run produced no comparison that could detect it -- the reviewer's
+    probe 1 reproduced a real ~15-hour error reported as `unchanged`, permanently, moving a
+    run from La Silla (`America/Santiago`) to Siding Spring (`Australia/Sydney`) after one
+    reconcile:
+
+    ```
+    PROBE1 sun_event calls after site change = 0
+    PROBE1 same pk? True
+    ```
+
+    This test proves the fix: the widened token records the site, so the identical site
+    change now re-mints -- a new primary key, `retired == 1 / created == 1`, `unchanged ==
+    0` -- with both new boundaries equal to the AUSTRALIAN site's real `sun_event()` values
+    for the same night, resolved through `night_bounds()` exactly as `_mint_fields()` itself
+    would, never a hardcoded timestamp."""
+
+    def test_site_correction_on_an_already_projected_run_remints_to_the_new_sites_sun_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        recorded_token_before = event_before.telescope_label_meta.minted_sub_night_window
+        # Plan 35-24 (T-35-24-01) Rule 1 deviation: the version marker this assertion pins
+        # bumped from 'v2' to 'v3' in the SAME plan that widened the token with a site
+        # position fingerprint -- this literal is updated to the current marker, exactly as
+        # plan 35-21 updated the equivalent pre-version literal when CR-02 introduced 'v2'.
+        # The class's actual behaviour under test (a SITE SWAP re-mints) is unchanged.
+        self.assertTrue(recorded_token_before.startswith('v3|'))
+
+        run.site = self.australian_site
+        run.site_raw = 'E10'
+        run.save(update_fields=['site', 'site_raw'])
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        expected_sunset, expected_sunrise = sun_event(self.australian_site, night, kind='sun')
+        expected_start, expected_end = night_bounds(run, night, expected_sunset, expected_sunrise)
+        self.assertEqual(event_after.start_time, expected_start)
+        self.assertEqual(event_after.end_time, expected_end)
+        recorded_token_after = event_after.telescope_label_meta.minted_sub_night_window
+        self.assertTrue(recorded_token_after.startswith('v3|'))
+        self.assertNotEqual(recorded_token_after, recorded_token_before)
+
+
+class TestObservatoryCorrectionRemints(AllocationProjectorTestBase):
+    """The escalated decision (35-VERIFICATION.md "Human Verification Required" #1;
+    35-UAT.md test 4; user decision 2026-09-16: fix in round 6). `TestSiteChangeRemints`
+    above proves a SITE SWAP (`run.site` reassigned to a different `Observatory` row)
+    re-mints; this class proves the harder, previously-broken case: correcting the SAME
+    `Observatory` row's `lat`/`lon`/`altitude`/`timezone` IN PLACE, with `run.site` never
+    touched, must also re-mint.
+
+    Reproduces the round-5 verifier's own probe transcript exactly, as this fixture's
+    provenance (35-VERIFICATION.md):
+
+    ```
+    PROBE token= v2|1|none|none
+    PROBE before start/end= 2026-07-09 22:06:35+00:00 2026-07-10 11:29:46+00:00
+    PROBE result= ReconcileResult(created=0, updated=0, unchanged=1, ..., retired=0, ...)
+    PROBE after  start/end= 2026-07-09 22:06:35+00:00 2026-07-10 11:29:46+00:00
+    PROBE true corrected sunset/sunrise= 2026-07-09 07:20:39  2026-07-09 20:57:12
+    PROBE same pk? True
+    ```
+
+    Before this plan's `v3` position fingerprint, the token recorded only WHICH
+    `Observatory` row supplied the position (`site_id`), never the position itself -- so an
+    in-place edit of that SAME row was invisible to `_span_needs_remint()` forever, and a
+    ~15-hour error was reported as `unchanged`, permanently, with no counter and no log
+    line. `ObservatoryAdmin` declares no `readonly_fields`, so a staff member correcting a
+    site definition reaches this path directly."""
+
+    def test_in_place_observatory_correction_remints_to_the_corrected_positions_sun_event(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        recorded_token_before = event_before.telescope_label_meta.minted_sub_night_window
+        self.assertTrue(recorded_token_before.startswith('v3|'))
+        site_pk_before = run.site_id
+        self.assertEqual(site_pk_before, self.chilean_site.pk)
+
+        # Correct the SAME Observatory row in place, to the Australian site's real values --
+        # never reassign run.site. This is the verifier's own reproduction shape.
+        site = Observatory.objects.get(pk=self.chilean_site.pk)
+        site.lat = self.australian_site.lat
+        site.lon = self.australian_site.lon
+        site.altitude = self.australian_site.altitude
+        site.timezone = self.australian_site.timezone
+        site.save()
+
+        run = CampaignRun.objects.get(pk=run.pk)
+        self.assertEqual(run.site_id, site_pk_before)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.unchanged, 0)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.telescope_label_meta.run_id, run.pk)
+
+        corrected_site = Observatory.objects.get(pk=self.chilean_site.pk)
+        expected_sunset, expected_sunrise = sun_event(corrected_site, night, kind='sun')
+        expected_start, expected_end = night_bounds(run, night, expected_sunset, expected_sunrise)
+        self.assertEqual(event_after.start_time, expected_start)
+        self.assertEqual(event_after.end_time, expected_end)
+
+        recorded_token_after = event_after.telescope_label_meta.minted_sub_night_window
+        self.assertTrue(recorded_token_after.startswith('v3|'))
+        self.assertNotEqual(recorded_token_after, recorded_token_before)
+
+        # A further reconcile with nothing changed must now report unchanged, astropy-free --
+        # the corrected position's fingerprint is recorded, so the next sweep decides this
+        # night without ever calling sun_event() again.
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            idempotent_result = reconcile_run(run)
+        mock_sun_event.assert_not_called()
+        self.assertEqual(idempotent_result.unchanged, 1)
+
+
+class TestSetWindowSiteCorrection(AllocationProjectorTestBase):
+    """WR-05 (35-REVIEW.md iteration 9, plan 35-24): a fully-set sub-night pair pins both
+    boundaries at ``_span_needs_remint()``'s step 2, before the token is ever read -- so an
+    in-place ``Observatory`` correction never re-mints such a run's nights the way
+    `TestObservatoryCorrectionRemints` proves for a null/null run. Before this fix, the
+    boundaries stayed correctly pinned but the event's stored dark-window line kept the
+    PRE-correction site's numbers forever, silently -- covered by no existing test, since
+    every prior site test in this module uses the null/null fixture."""
+
+    def _apply_big_same_timezone_correction(self) -> None:
+        """Corrects the Chilean site's `lat`/`lon`/`altitude` in place to SAAO Sutherland's
+        real coordinates, keeping `America/Santiago` as the `timezone` -- large enough to
+        move `sun_event()` results by more than a rounding error (a sub-thousandth-degree
+        correction can shift a crossing time by a fraction of a second, which
+        `.replace(microsecond=0)` can then round back to an IDENTICAL isoformat string,
+        making a real dark-window change look like no change at all). Leaving `timezone`
+        untouched keeps `_night_span_utc()` -- and therefore a fully-set run's SET-field
+        boundary comparison in `_span_needs_remint()` step 1 -- unaffected by this
+        correction, isolating what these tests exercise from WR-05's separate
+        cross-timezone case (`test_a_set_window_moved_across_timezones_has_a_pinned_outcome`
+        below)."""
+        site = Observatory.objects.get(pk=self.chilean_site.pk)
+        site.lat = self.saao_site.lat
+        site.lon = self.saao_site.lon
+        site.altitude = self.saao_site.altitude
+        site.save()
+
+    def test_same_timezone_correction_on_a_set_window_run_refreshes_the_dark_window_line(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+        start_before, end_before = event_before.start_time, event_before.end_time
+        token_before = event_before.telescope_label_meta.minted_sub_night_window
+
+        self._apply_big_same_timezone_correction()
+        run = CampaignRun.objects.get(pk=run.pk)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 0)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.updated, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+
+        corrected_site = Observatory.objects.get(pk=self.chilean_site.pk)
+        expected_dark_start, expected_dark_end = sun_event(corrected_site, night, kind='dark')
+        expected_dark_start_iso = (
+            expected_dark_start.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
+        )
+        expected_dark_end_iso = (
+            expected_dark_end.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0).isoformat()
+        )
+        expected_line = f'{_DARK_WINDOW_PREFIX}{expected_dark_start_iso} to {expected_dark_end_iso}'
+        self.assertEqual(event_after.description.split('\n', 1)[0], expected_line)
+        token_after = event_after.telescope_label_meta.minted_sub_night_window
+        self.assertEqual(token_after, _sub_night_provenance_token(run))
+        self.assertNotEqual(token_after, token_before)
+
+    def test_idempotent_reconcile_after_the_refresh_makes_zero_sun_event_calls(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        self._apply_big_same_timezone_correction()
+        run = CampaignRun.objects.get(pk=run.pk)
+        reconcile_run(run)
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            result = reconcile_run(run)
+
+        mock_sun_event.assert_not_called()
+        self.assertEqual(result.unchanged, 1)
+        self.assertEqual(result.updated, 0)
+
+    def test_dry_run_parity_and_zero_astropy_cost_for_the_correction(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        self._apply_big_same_timezone_correction()
+        run = CampaignRun.objects.get(pk=run.pk)
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event:
+            dry_result = reconcile_run(run, dry_run=True)
+        mock_sun_event.assert_not_called()
+        self.assertEqual(dry_result.updated, 1)
+        self.assertEqual(dry_result.unchanged, 0)
+
+        real_result = reconcile_run(run)
+        self.assertEqual(real_result.updated, dry_result.updated)
+        self.assertEqual(real_result.unchanged, dry_result.unchanged)
+        self.assertEqual(real_result.retired, dry_result.retired)
+        self.assertEqual(real_result.created, dry_result.created)
+
+    def test_preview_may_over_report_updated_by_one_on_a_site_correction(self):
+        """Deliberate accepted divergence, bounded to one count on exactly this
+        transition: when a site correction's position happens to produce an identical
+        dark window (here, a SWAP to a second `Observatory` row with byte-identical
+        position and timezone -- `site_id` differs so `_site_provenance_differs()` is
+        True, but the corrected `sun_event(kind='dark')` result is unchanged), the
+        preview cannot know the real write will be a no-op without paying the astropy
+        call it must not pay -- so it reports `updated` while the real run reports
+        `unchanged`."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        twin_site = Observatory.objects.create(
+            obscode='8TW',
+            name='ESO, La Silla (twin fixture)',
+            short_name='NTT-twin',
+            lat=self.chilean_site.lat,
+            lon=self.chilean_site.lon,
+            altitude=self.chilean_site.altitude,
+            timezone=self.chilean_site.timezone,
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        run.site = twin_site
+        run.site_raw = '8TW'
+        run.save(update_fields=['site', 'site_raw'])
+        run = CampaignRun.objects.get(pk=run.pk)
+
+        dry_result = reconcile_run(run, dry_run=True)
+        self.assertEqual(dry_result.updated, 1)
+        self.assertEqual(dry_result.unchanged, 0)
+
+        real_result = reconcile_run(run)
+        self.assertEqual(real_result.unchanged, 1)
+        self.assertEqual(real_result.updated, 0)
+
+    def test_null_null_and_half_null_runs_never_take_the_refresh_path(self):
+        """Both shapes are decided by the token comparison alone (re-mint, here, since the
+        corrected position is far beyond the one-minute tolerance) -- neither ever reaches
+        the plain-update path's dark-window-refresh exception, because
+        `_span_needs_remint()` re-mints them itself before the plain-update path is ever
+        reached for this night in the same sweep. Uses the same non-timezone-crossing
+        correction as the set/set tests above -- WR-05's cross-timezone shape is this
+        class's own dedicated case below, not this one."""
+        night = date(2026, 7, 9)
+        run_null_null = self._make_run(window_start=night, window_end=night)
+        run_half_null = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=None
+        )
+        reconcile_run(run_null_null)
+        reconcile_run(run_half_null)
+
+        self._apply_big_same_timezone_correction()
+        run_null_null = CampaignRun.objects.get(pk=run_null_null.pk)
+        run_half_null = CampaignRun.objects.get(pk=run_half_null.pk)
+
+        result_nn = reconcile_run(run_null_null)
+        self.assertEqual(result_nn.retired, 1)
+        self.assertEqual(result_nn.created, 1)
+        self.assertEqual(result_nn.updated, 0)
+
+        result_hn = reconcile_run(run_half_null)
+        self.assertEqual(result_hn.retired, 1)
+        self.assertEqual(result_hn.created, 1)
+        self.assertEqual(result_hn.updated, 0)
+
+    def test_a_set_window_moved_across_timezones_has_a_pinned_outcome(self):
+        """Cross-timezone set/set case (35-REVIEW.md WR-05): moving a fully-set sub-night
+        window from La Silla (`America/Santiago`) to Siding Spring (`Australia/Sydney`)
+        resolves the same 23:00/05:00 UTC time-of-day fields against a DIFFERENT
+        observing-night UTC span. For this fixture the resolved span INVERTS -- both
+        boundaries resolve onto the same UTC date, with the resolved end before the
+        resolved start -- matching the review's own hand-trace, run and pinned here
+        rather than assumed.
+
+        `night_bounds()`'s inversion guard therefore raises, from inside `_mint_fields()`,
+        called BEFORE `existing.delete()` in the re-mint branch (plan 35-20's CR-03
+        compute-before-destroy ordering) -- so the failed reconcile leaves the night's
+        existing event intact rather than destroyed.
+
+        Operator remedy, stated in `_span_needs_remint()`'s own step-2 docstring
+        paragraph: a sub-night window pinned to one site's night is not portable to
+        another site's timezone, so `night_start_utc`/`night_end_utc` must be corrected
+        together with the site."""
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before = event_before.pk
+
+        run.site = self.australian_site
+        run.site_raw = 'E10'
+        run.save(update_fields=['site', 'site_raw'])
+
+        with self.assertRaises(ValueError):
+            reconcile_run(run)
+
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.pk, pk_before)
+
+
+class TestDeclinedNightResolutionCostIsBounded(AllocationProjectorTestBase):
+    """WR-07 (35-REVIEW.md iteration 9, plan 35-24): the docstring used to promise at most
+    one `sun_event(kind='sun')` call per unrecorded night, ONCE EVER. With plan 35-20's
+    human-confirmation guard, a stale night carrying staff state is DECLINED instead of
+    re-minted, so it never receives a token from the re-mint path either -- and re-resolves
+    on every sweep, forever. This class proves the repetition is BOUNDED (exactly one call
+    per sweep, never more, both warnings each time) rather than merely present, across two
+    consecutive real sweeps, and proves no false provenance is ever recorded for boundaries
+    that were not re-minted -- the alternative round 2 was reverted for."""
+
+    def test_a_declined_and_unrecorded_night_resolves_once_per_sweep_and_records_nothing(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(
+            window_start=night, window_end=night, night_start_utc=time(23, 0), night_end_utc=time(5, 0)
+        )
+        reconcile_run(run)
+        event_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event_before.pk, event_before.start_time, event_before.end_time
+        staff_user = User.objects.create(username='bounded-cost-staffer')
+        CalendarEventMeta.objects.filter(event=event_before).update(
+            confirmed_by=staff_user, confirmed_at=timezone.now(), minted_sub_night_window=None
+        )
+        run.night_start_utc = None
+        run.night_end_utc = None
+        run.save(update_fields=['night_start_utc', 'night_end_utc'])
+
+        # Sweep 1.
+        with (
+            patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event,
+            self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx_1,
+        ):
+            result_1 = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result_1.remint_declined, 1)
+        self.assertEqual(result_1.retired, 0)
+        self.assertEqual(result_1.created, 0)
+        staleness_warnings_1 = [r for r in log_ctx_1.records if 'unrecorded-provenance night' in r.getMessage()]
+        declined_warnings_1 = [r for r in log_ctx_1.records if 're-mint declined' in r.getMessage()]
+        self.assertEqual(len(staleness_warnings_1), 1)
+        self.assertEqual(len(declined_warnings_1), 1)
+        event_after_1 = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after_1.start_time, start_before)
+        self.assertEqual(event_after_1.end_time, end_before)
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event_after_1).minted_sub_night_window)
+
+        # Sweep 2 -- the repetition, not a one-off.
+        with (
+            patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event_2,
+            self.assertLogs('solsys_code.allocation_projector', level='WARNING') as log_ctx_2,
+        ):
+            result_2 = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event_2.call_count, 1)
+        self.assertEqual(result_2.remint_declined, 1)
+        self.assertEqual(result_2.retired, 0)
+        self.assertEqual(result_2.created, 0)
+        staleness_warnings_2 = [r for r in log_ctx_2.records if 'unrecorded-provenance night' in r.getMessage()]
+        declined_warnings_2 = [r for r in log_ctx_2.records if 're-mint declined' in r.getMessage()]
+        self.assertEqual(len(staleness_warnings_2), 1)
+        self.assertEqual(len(declined_warnings_2), 1)
+        event_after_2 = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after_2.pk, pk_before)
+        self.assertEqual(event_after_2.start_time, start_before)
+        self.assertEqual(event_after_2.end_time, end_before)
+        self.assertIsNone(CalendarEventMeta.objects.get(event=event_after_2).minted_sub_night_window)
+
+
+class TestProvenanceTokenFormat(AllocationProjectorTestBase):
+    """Pins CR-02's format contract (35-REVIEW.md iteration 8, plan 35-21, and IN-02's
+    widening/bound), extended by T-35-24-01/T-35-24-03 (35-REVIEW.md iteration 9, plan
+    35-24) for the `v3` version bump and part-count test: three groups of cases, each named
+    for what it pins. Group 1 -- `NULL`, `''`, a pre-release (no-version) token, a `v2|`
+    (previous-version) token, and a current-version token with the WRONG part count all
+    read as unrecorded and take the identical bounded resolution branch. Group 2 -- the
+    tolerance boundary, pinned on both sides, so a later change from `>` to `>=` cannot
+    pass silently -- untouched by this round (prohibition 9), and itself evidence the `v3`
+    bump changed nothing in step 4. Group 3 -- the widened column is wide enough for the
+    worst-case token, now including the position fingerprint, proven against the model
+    field's own declared `max_length` rather than assumed, because SQLite does not enforce
+    `max_length` and a regression here would surface only on the PostgreSQL deployment
+    CLAUDE.md names as the production target (35-REVIEW.md IN-02)."""
+
+    def _clear_provenance(self, event: CalendarEvent) -> None:
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=None)
+
+    # -- Group 1: every empty-ish provenance value reads as unrecorded -----------------
+
+    def test_null_token_reads_as_unrecorded_and_resolves_once(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=None)
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        # Plan 35-24 (T-35-24-01) Rule 1 deviation: version literal updated 'v2|' -> 'v3|'
+        # for the same reason TestSiteChangeRemints's literals were -- see that class.
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v3|'))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    def test_empty_string_token_reads_as_unrecorded_and_resolves_once(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window='')
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        # Plan 35-24 (T-35-24-01) Rule 1 deviation: version literal updated 'v2|' -> 'v3|'.
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v3|'))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    def test_pre_release_token_reads_as_unrecorded_and_resolves_once(self):
+        """The literal form 35-19 wrote: two sub-night sides joined by `|`, no version
+        marker -- exactly what an existing row minted before CR-02 shipped carries."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window='none|none')
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        # Plan 35-24 (T-35-24-01) Rule 1 deviation: version literal updated 'v2|' -> 'v3|'.
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v3|'))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    def test_v2_token_reads_as_unrecorded_and_resolves_once(self):
+        """T-35-24-01 (35-REVIEW.md iteration 9, plan 35-24): the exact literal form CR-02
+        (plan 35-21) wrote -- version `v2`, `site_id`, and the sub-night pair, four parts,
+        no position fingerprint -- is exactly what an existing row minted after CR-02 but
+        before this round carries. It must read as unrecorded (the version-prefix test
+        fails) and resolve through the same bounded branch, ending in a fresh `v3` token."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=f'v2|{run.site_id}|none|none')
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        self.assertTrue(event_after.telescope_label_meta.minted_sub_night_window.startswith('v3|'))
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    def test_current_version_wrong_part_count_token_reads_as_unrecorded_and_resolves_once(self):
+        """T-35-24-01: a token that starts with the CURRENT version marker but does not
+        split into the current format's five parts (here, four -- as if the fingerprint
+        component were dropped by a hand edit or a bug) is no more trustworthy than an
+        old-version token, and takes the identical bounded branch."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        pk_before, start_before, end_before = event.pk, event.start_time, event.end_time
+        CalendarEventMeta.objects.filter(event=event).update(minted_sub_night_window=f'v3|{run.site_id}|none|none')
+
+        with patch('solsys_code.allocation_projector.sun_event', wraps=sun_event) as mock_sun_event:
+            result = reconcile_run(run)
+
+        self.assertEqual(mock_sun_event.call_count, 1)
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, start_before)
+        self.assertEqual(event_after.end_time, end_before)
+        recorded_token_after = event_after.telescope_label_meta.minted_sub_night_window
+        self.assertTrue(recorded_token_after.startswith('v3|'))
+        self.assertEqual(len(recorded_token_after.split('|')), 5)
+
+        with patch('solsys_code.allocation_projector.sun_event') as mock_sun_event_again:
+            reconcile_run(run)
+        mock_sun_event_again.assert_not_called()
+
+    # -- Group 2: the tolerance boundary, both sides ------------------------------------
+
+    def _displaced_start(self, run: CampaignRun, night, displacement: timedelta):
+        """Mint a correct night, then directly displace the stored `start_time` by
+        `displacement` and clear provenance -- simulating a legacy night whose stored
+        boundary disagrees with the true sun event by exactly `displacement`."""
+        reconcile_run(run)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        expected_sunset, _expected_sunrise = sun_event(self.chilean_site, night, kind='sun')
+        expected_start = expected_sunset.to_datetime(timezone=dt_timezone.utc).replace(microsecond=0)
+        displaced_start = expected_start + displacement
+        CalendarEvent.objects.filter(pk=event.pk).update(start_time=displaced_start)
+        self._clear_provenance(event)
+        return event.pk, expected_start, displaced_start
+
+    def test_a_boundary_exactly_equal_to_the_sun_event_resolves_as_correct(self):
+        """The zero-displacement control: an exact match must never re-mint."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        pk_before, expected_start, displaced_start = self._displaced_start(run, night, timedelta(0))
+        self.assertEqual(expected_start, displaced_start)
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, expected_start)
+
+    def test_a_boundary_exactly_at_the_tolerance_resolves_as_correct(self):
+        """The comparison is strictly greater-than: a boundary sitting exactly at
+        `_UNRECORDED_PROVENANCE_TOLERANCE` must still resolve as correct, not re-mint. A
+        later change from `>` to `>=` would flip this test, which is the point of pinning
+        it -- that change would otherwise pass silently."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        pk_before, _expected_start, displaced_start = self._displaced_start(
+            run, night, _UNRECORDED_PROVENANCE_TOLERANCE
+        )
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.unchanged, 1)
+        event_after = CalendarEvent.objects.get(pk=pk_before)
+        self.assertEqual(event_after.start_time, displaced_start)
+
+    def test_a_boundary_one_microsecond_beyond_the_tolerance_remints(self):
+        """One microsecond past the tolerance must re-mint -- pinning the other side of the
+        same boundary the previous test pins, so both directions of a `>`-to-`>=` regression
+        are caught."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        pk_before, expected_start, _displaced_start = self._displaced_start(
+            run, night, _UNRECORDED_PROVENANCE_TOLERANCE + timedelta(microseconds=1)
+        )
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+        self.assertEqual(event_after.start_time, expected_start)
+
+    # -- Group 3: the column is wide enough, proven not assumed -------------------------
+
+    def test_worst_case_token_fits_within_the_declared_max_length(self):
+        """Builds the worst-case token directly -- a microsecond-valued sub-night pair, a
+        many-digit `site_id`, and a real position fingerprint (T-35-24-01, plan 35-24).
+        `_sub_night_provenance_token()` now reads `run.site` (not just `run.site_id`) to
+        build the fingerprint, so the many-digit `site_id` this test pins must resolve to a
+        REAL `Observatory` row -- an explicit huge primary key, set at create time exactly
+        as Django's ORM allows for an integer PK, rather than an unsaved FK id with no
+        matching row (which raises `Observatory.DoesNotExist` the moment the fingerprint
+        helper dereferences it -- setting `.site_id` directly does not leave a stale cached
+        `.site` behind to paper over that). The position fingerprint is a FIXED-WIDTH
+        16-character hexadecimal digest regardless of the underlying
+        lat/lon/altitude/timezone values (`_site_position_fingerprint()`'s own docstring),
+        so which real site supplies it does not change the worst-case WIDTH being pinned
+        here. Asserts against
+        `CalendarEventMeta._meta.get_field('minted_sub_night_window').max_length`, read off
+        the model field rather than hardcoded, so this assertion and the schema cannot drift
+        apart."""
+        worst_case_site = Observatory.objects.create(
+            pk=999999999,
+            obscode='WC9',
+            name='Worst-case fixture site',
+            short_name='WC9',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        worst_case_run = CampaignRun(
+            site=worst_case_site,
+            night_start_utc=time(23, 59, 59, 999999),
+            night_end_utc=time(0, 0, 0, 999999),
+        )
+
+        token = _sub_night_provenance_token(worst_case_run)
+
+        max_length = CalendarEventMeta._meta.get_field('minted_sub_night_window').max_length
+        self.assertLessEqual(len(token), max_length)
+
+
+class TestMintInputInvariant(AllocationProjectorTestBase):
+    """The assumption-delta invariant test (`<assumption_delta_decision>`, plan 35-21): the
+    recorded token must carry every input `_mint_fields()`'s boundary computation reads. As
+    of today that set is `night_start_utc`, `night_end_utc`, `site` (both its IDENTITY and,
+    since T-35-24-01, its boundary-relevant POSITION), and the `night` the event's own key
+    already carries -- CR-02 (35-REVIEW.md iteration 8) promoted the recorded fact from "the
+    sub-night pair" to the wider identity; T-35-24-01 (35-REVIEW.md iteration 9, plan 35-24,
+    the round-5 verifier's escalated decision) promoted the site component again, from
+    identity alone to identity-plus-position.
+
+    Rename trigger, recorded so it is not rediscovered: a THIRD boundary input entering
+    `_mint_fields()`'s boundary computation -- for example a per-run dark-window override or
+    a site-elevation correction feeding `sun_event()` through some OTHER path than the
+    position fingerprint already covers. At that point rename the column (still
+    `minted_sub_night_window` today for historical reasons) rather than widening the token a
+    second time under a name that names one of three inputs.
+
+    Stated honestly as a limitation, not overclaimed: this test cannot detect a NEW input
+    nobody wrote a case for -- it only makes an existing omission visible to the next
+    person editing `_mint_fields()`. One case per recorded mint input today: the sub-night
+    pair, the site's identity, and (since plan 35-24) the site's position, walked here
+    together as one named invariant rather than left implicit across the unrelated classes
+    (`TestClearedSubNightFieldRemints`, `TestSiteChangeRemints`,
+    `TestObservatoryCorrectionRemints`) that each separately pin one of them."""
+
+    def test_changing_the_sub_night_pair_remints(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.night_start_utc = time(23, 0)
+        run.save(update_fields=['night_start_utc'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+
+    def test_changing_the_site_remints(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        run.site = self.australian_site
+        run.site_raw = 'E10'
+        run.save(update_fields=['site', 'site_raw'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+
+    def test_changing_the_sites_position_in_place_remints(self):
+        """T-35-24-01 (35-REVIEW.md iteration 9, plan 35-24): the escalated decision's own
+        shape, walked into this invariant alongside the sub-night pair and the site's
+        identity -- an in-place `Observatory` correction, `run.site` never reassigned, is a
+        recorded mint input exactly like the other two. `TestObservatoryCorrectionRemints`
+        proves this same fact in detail with the verifier's own probe; this case is the
+        one-line version that belongs beside its siblings here."""
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night)
+        reconcile_run(run)
+        pk_before = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}').pk
+
+        site = Observatory.objects.get(pk=self.chilean_site.pk)
+        site.lat = self.australian_site.lat
+        site.lon = self.australian_site.lon
+        site.altitude = self.australian_site.altitude
+        site.timezone = self.australian_site.timezone
+        site.save()
+        run = CampaignRun.objects.get(pk=run.pk)
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event_after = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertNotEqual(event_after.pk, pk_before)
+
+    def test_the_token_functions_source_mentions_every_current_mint_input(self):
+        """A deliberately weak tripwire, not a proof -- see the class docstring: this only
+        checks the token function's SOURCE TEXT names the FK/field inputs it must carry,
+        and (since T-35-24-01) that it reaches for the fingerprint helper too, so a future
+        edit that adds a fourth boundary input to `_mint_fields()` without extending the
+        token has a named test sitting next to the function it changed."""
+        source = inspect.getsource(_sub_night_provenance_token)
+        self.assertIn('run.site_id', source)
+        self.assertIn('run.night_start_utc', source)
+        self.assertIn('run.night_end_utc', source)
+        self.assertIn('_site_position_fingerprint', source)
+
+
+class TestAllocationNightCarriesProposal(AllocationProjectorTestBase):
+    """F12 (quick task 261006-lsf): every ``ALLOC:`` night carries its run's proposal code on
+    all four write paths (new, re-minted, label refresh, legacy re-key); night titles stay
+    ``<telescope> <instrument>``."""
+
+    def test_every_night_carries_run_proposal_code(self):
+        run = self._make_run(proposal_code='117.2A2N.001')
+
+        reconcile_run(run)
+
+        events = list(allocation_events(run))
+        self.assertEqual(len(events), 3)
+        for event in events:
+            self.assertEqual(event.proposal, '117.2A2N.001')
+
+    def test_blank_code_writes_blank_proposal(self):
+        run = self._make_run(proposal_code='')
+
+        reconcile_run(run)
+
+        events = list(allocation_events(run))
+        self.assertEqual(len(events), 3)
+        for event in events:
+            self.assertEqual(event.proposal, '')
+
+    def test_second_reconcile_is_unchanged(self):
+        run = self._make_run(proposal_code='117.2A2N.001')
+
+        first = reconcile_run(run)
+        self.assertEqual(first.created, 3)
+        modified_before = {e.pk: e.modified for e in allocation_events(run)}
+
+        second = reconcile_run(run)
+
+        self.assertEqual(second.unchanged, 3)
+        self.assertEqual(second.created, 0)
+        self.assertEqual(second.updated, 0)
+        for event in allocation_events(run):
+            self.assertEqual(event.modified, modified_before[event.pk])
+
+    def test_filling_a_blank_code_updates_each_night_once(self):
+        run = self._make_run(proposal_code='')
+        reconcile_run(run)
+        pks_before = set(allocation_events(run).values_list('pk', flat=True))
+
+        run.proposal_code = '117.2A2N.001'
+        run.save(update_fields=['proposal_code'])
+
+        dry = reconcile_run(run, dry_run=True)
+        self.assertEqual(dry.updated, 3)
+
+        real = reconcile_run(run)
+        self.assertEqual(real.updated, 3)
+        events = list(allocation_events(run))
+        for event in events:
+            self.assertEqual(event.proposal, '117.2A2N.001')
+        self.assertEqual({e.pk for e in events}, pks_before)
+
+        third = reconcile_run(run)
+        self.assertEqual(third.unchanged, 3)
+
+    def test_rekeyed_legacy_night_carries_proposal(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, proposal_code='117.2A2N.001')
+        legacy_url = f'RUN:{run.pk}:{night.isoformat()}'
+        legacy_event = CalendarEvent.objects.create(
+            title='NTT EFOSC2',
+            url=legacy_url,
+            telescope='NTT',
+            instrument='EFOSC2',
+            start_time=datetime(2026, 7, 9, 23, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=legacy_event, run=run)
+        legacy_pk = legacy_event.pk
+
+        result = reconcile_run(run)
+
+        self.assertEqual(result.rekeyed, 1)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.pk, legacy_pk)
+        self.assertEqual(event.proposal, '117.2A2N.001')
+
+    def test_night_title_is_not_led_by_a_target(self):
+        run = self._make_run(target=NonSiderealTargetFactory.create(name='65803'), proposal_code='117.2A2N.001')
+
+        reconcile_run(run)
+
+        events = list(allocation_events(run))
+        self.assertEqual(len(events), 3)
+        for event in events:
+            self.assertEqual(event.title, 'NTT EFOSC2')
+
+    def test_reminted_night_carries_proposal(self):
+        night = date(2026, 7, 9)
+        run = self._make_run(window_start=night, window_end=night, proposal_code='117.2A2N.001')
+        reconcile_run(run)
+
+        run.site = self.australian_site
+        run.site_raw = 'E10'
+        run.save(update_fields=['site', 'site_raw'])
+        result = reconcile_run(run)
+
+        self.assertEqual(result.retired, 1)
+        self.assertEqual(result.created, 1)
+        event = CalendarEvent.objects.get(url=f'ALLOC:{run.pk}:{night.isoformat()}')
+        self.assertEqual(event.proposal, '117.2A2N.001')

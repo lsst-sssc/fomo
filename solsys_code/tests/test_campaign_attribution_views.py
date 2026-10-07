@@ -10,13 +10,16 @@ context assembly). Plan 28-04's classes below are written against the real templ
 GET-render the page directly through ``self.client.get()``, now that it exists.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
+from django.db.models.signals import post_save
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import escape
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
@@ -24,8 +27,12 @@ from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
 from solsys_code import campaign_attribution
+from solsys_code.allocation_projector import allocation_events
 from solsys_code.campaign_attribution import candidates_for_event, event_attribution_backlog
-from solsys_code.campaign_views import AttributionQueueView
+from solsys_code.campaign_reconciler import reconcile_run
+from solsys_code.campaign_tables import AttributionConfirmedTable, AttributionDismissedTable
+from solsys_code.campaign_utils import unlink_event_from_run
+from solsys_code.campaign_views import AttributionQueueView, _confirmed_attribution_rows
 from solsys_code.models import (
     CalendarEventDismissal,
     CalendarEventMeta,
@@ -33,7 +40,9 @@ from solsys_code.models import (
     CampaignRunObservation,
     ObservationRecordDismissal,
 )
+from solsys_code.observation_projector import receiver_on_record_save
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import observing_night
 
 
 class AttributionViewTestBase(TestCase):
@@ -194,6 +203,26 @@ class TestConfirmUndo(AttributionViewTestBase):
         self.assertEqual(meta.confirmed_by, self.staff_user)
         self.assertIsNotNone(meta.confirmed_at)
         self.assertIn('Attribution confirmed.', self._message_strings(response))
+
+    def test_confirm_event_for_a_records_own_event_is_refused(self):
+        """37.1 WR-05 (D-09): a record-backed event is attributed only through its record, so
+        a stale page or hand-crafted POST confirming the event directly writes nothing."""
+        record = self._make_record()
+        meta = CalendarEventMeta.objects.get(observation_record=record)
+        self.assertIsNone(meta.run_id)
+
+        response = self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'confirm', 'kind': 'event', 'orphan_pk': meta.event_id, 'run_pk': self.campaign_run.pk},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        meta.refresh_from_db()
+        self.assertIsNone(meta.run_id)
+        self.assertIsNone(meta.confirmed_by)
+        self.assertIn(
+            'This candidate was already confirmed or dismissed by someone else.', self._message_strings(response)
+        )
 
     def test_confirm_record_creates_link_and_stamps_audit_fields(self):
         record = self._make_record()
@@ -890,6 +919,14 @@ class TestBandFilterAndBanner(AttributionViewTestBase):
         self.assertContains(response, 'awaiting attribution')
         self.assertContains(response, reverse('campaigns:attribution'))
 
+    def test_banner_counts_a_record_and_its_own_event_once(self):
+        """37.1 D-09/D-10: one record plus the event the projector drew from it is ONE orphan."""
+        record = self._make_record()
+        self.assertEqual(CalendarEventMeta.objects.filter(observation_record=record).count(), 1)
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertContains(response, '1 orphan awaiting attribution')
+        self.assertNotContains(response, '2 orphans awaiting attribution')
+
     def test_anonymous_campaign_list_banner_shows_neither(self):
         self._make_event()
         self.client.logout()
@@ -897,6 +934,30 @@ class TestBandFilterAndBanner(AttributionViewTestBase):
         content = response.content.decode()
         self.assertNotIn('awaiting attribution', content)
         self.assertNotIn(reverse('campaigns:attribution'), content)
+
+    def test_staff_campaign_list_links_the_attribution_page_when_nothing_awaits(self):
+        """G-37.1-1-nav: since 37.1 an empty queue is the normal state, so the route in must not
+        depend on the count-gated banner -- staff always get the header button."""
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertEqual(response.context['attribution_count'], 0)
+        self.assertContains(response, reverse('campaigns:attribution'))
+        self.assertContains(response, 'Attribution</a>')
+        self.assertNotContains(response, 'awaiting attribution')
+
+    def test_staff_campaign_list_shows_button_and_banner_link_when_an_orphan_waits(self):
+        self._make_event()
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertContains(response, 'Attribution</a>')
+        self.assertContains(response, 'Attribution queue')
+        self.assertContains(response, 'awaiting attribution')
+
+    def test_non_staff_campaign_list_has_no_attribution_link(self):
+        """T-37.1-19: the header button is staff-only."""
+        self.client.logout()
+        self.client.login(username='regularobserver', password='pw')
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse('campaigns:attribution'))
 
 
 class TestQueueDrainsToEmpty(AttributionViewTestBase):
@@ -923,7 +984,26 @@ class TestQueueDrainsToEmpty(AttributionViewTestBase):
 
     def test_confirming_and_dismissing_every_candidate_drains_the_queue(self):
         event = self._make_event()
-        record = self._make_record()
+        # 34-01: the observation projector's post_save receiver now fires for every
+        # ObservationRecord save, and would auto-create its own orphan CalendarEvent for
+        # this fixture record -- one this test never asked for and that
+        # orphans_needing_attribution_count() would still see as unattributed after the
+        # record-level confirm below. Disconnect the receiver around this one call; this
+        # test predates the projector and exercises the attribution queue in isolation.
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            record = self._make_record()
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
         self._make_unattributable_event()
 
         self.client.post(
@@ -985,3 +1065,330 @@ class TestQueueDrainsToEmpty(AttributionViewTestBase):
         self.assertIn('Attribution complete', content)
         self.assertIn('None still have no matching run', content)
         self.assertNotIn('0 orphan', content)
+
+
+class TestUnlinkEventFromRun(AttributionViewTestBase):
+    """Plan 33-04 Task 1: ``unlink_event_from_run()`` is the single writer that clears an
+    event's attribution -- ``run``, ``confirmed_by`` and ``confirmed_at`` together -- and
+    refuses to touch anything the caller did not explicitly name."""
+
+    def _linked_meta(self, run=None, night_offset: int = 0):
+        """One event whose companion row is linked to `run` (default self.campaign_run)
+        with populated audit stamps -- the "currently attributed" starting state most of
+        these tests need."""
+        event = self._make_event(night_offset=night_offset)
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.run = run or self.campaign_run
+        meta.confirmed_by = self.staff_user
+        meta.confirmed_at = datetime(2026, 7, 1, 12, 0, tzinfo=dt_timezone.utc)
+        meta.save()
+        return event, meta
+
+    def test_clears_the_matching_run_and_returns_one(self):
+        event, meta = self._linked_meta()
+
+        changed = unlink_event_from_run(event, self.campaign_run)
+
+        self.assertEqual(changed, 1)
+        meta.refresh_from_db()
+        self.assertIsNone(meta.run_id)
+        self.assertIsNone(meta.confirmed_by_id)
+        self.assertIsNone(meta.confirmed_at)
+
+    def test_wrong_run_returns_zero_and_changes_nothing(self):
+        event, meta = self._linked_meta()
+
+        changed = unlink_event_from_run(event, self.other_run)
+
+        self.assertEqual(changed, 0)
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, self.campaign_run.pk)
+        self.assertEqual(meta.confirmed_by_id, self.staff_user.pk)
+        self.assertIsNotNone(meta.confirmed_at)
+
+    def test_no_companion_row_returns_zero_and_raises_nothing(self):
+        event = CalendarEvent.objects.create(
+            title='No companion row at all',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+        )
+
+        changed = unlink_event_from_run(event, self.campaign_run)
+
+        self.assertEqual(changed, 0)
+
+    def test_already_unlinked_row_returns_zero_and_leaves_audit_fields(self):
+        # _make_event()'s companion row starts with run=None (RESEARCH.md Pitfall 2 shape).
+        event = self._make_event()
+
+        changed = unlink_event_from_run(event, self.campaign_run)
+
+        self.assertEqual(changed, 0)
+
+    def test_null_run_returns_zero_and_never_touches_an_already_unlinked_rows_audit_fields(self):
+        """T-33-21 / 33-REVIEWS.md Agreed Concern 2: run=None must never build a
+        run_id=None filter, which would match every already-unlinked companion row and
+        wipe audit stamps that belong to no attribution at all."""
+        stamped_at = datetime(2026, 6, 1, 8, 0, tzinfo=dt_timezone.utc)
+        event = self._make_event(night_offset=1)
+        meta = CalendarEventMeta.objects.get(event=event)
+        # run stays unset (the fixture's default), but the audit fields are stale-populated
+        # -- exactly the second-row shape 33-REVIEWS.md's concern names.
+        meta.confirmed_by = self.staff_user
+        meta.confirmed_at = stamped_at
+        meta.save()
+
+        changed = unlink_event_from_run(event, None)
+
+        self.assertEqual(changed, 0)
+        meta.refresh_from_db()
+        self.assertIsNone(meta.run_id)
+        self.assertEqual(meta.confirmed_by_id, self.staff_user.pk)
+        self.assertEqual(meta.confirmed_at, stamped_at)
+
+    def test_bare_int_primary_key_clears_exactly_that_one_event(self):
+        """33-REVIEW.md WR-04: the bare-int branch is the shape
+        ``campaign_views._undo_confirmation()`` actually calls with (``orphan_pk`` from
+        ``_as_pk_or_none()``). Asserted directly here rather than only inferred from the
+        ``CalendarEvent``-instance branch."""
+        event_a, meta_a = self._linked_meta(night_offset=10)
+        event_b, meta_b = self._linked_meta(night_offset=11)
+
+        changed = unlink_event_from_run(event_a.pk, self.campaign_run)
+
+        self.assertEqual(changed, 1)
+        meta_a.refresh_from_db()
+        self.assertIsNone(meta_a.run_id)
+        self.assertIsNone(meta_a.confirmed_by_id)
+        self.assertIsNone(meta_a.confirmed_at)
+        # The second event, attributed to the same run, is untouched.
+        meta_b.refresh_from_db()
+        self.assertEqual(meta_b.run_id, self.campaign_run.pk)
+        self.assertEqual(meta_b.confirmed_by_id, self.staff_user.pk)
+        self.assertIsNotNone(meta_b.confirmed_at)
+
+    def test_queryset_clears_every_matching_event(self):
+        """33-REVIEW.md WR-04: the queryset branch is the shape
+        ``campaign_reconciler._detach_stale_family_events()`` actually calls with."""
+        event_a, meta_a = self._linked_meta(night_offset=12)
+        event_b, meta_b = self._linked_meta(night_offset=13)
+        queryset = CalendarEvent.objects.filter(pk__in=[event_a.pk, event_b.pk])
+
+        changed = unlink_event_from_run(queryset, self.campaign_run)
+
+        self.assertEqual(changed, 2)
+        meta_a.refresh_from_db()
+        meta_b.refresh_from_db()
+        self.assertIsNone(meta_a.run_id)
+        self.assertIsNone(meta_b.run_id)
+
+    def test_string_primary_key_raises_type_error_and_changes_nothing(self):
+        """33-REVIEW.md WR-04: a string is iterable, and the previous catch-all branch would
+        silently expand it into a per-character ``event__in`` filter -- e.g. ``'12'`` would
+        match whichever events actually hold primary keys 1 and 2, clearing the wrong
+        attributions with no error raised. Builds the dangerous string from these two
+        events' own primary keys, so it demonstrates the exact failure shape the type check
+        prevents, then confirms neither event's attribution changed."""
+        event_1, meta_1 = self._linked_meta(night_offset=14)
+        event_2, meta_2 = self._linked_meta(night_offset=15)
+        dangerous_string = f'{event_1.pk}{event_2.pk}'
+
+        with self.assertRaises(TypeError):
+            unlink_event_from_run(dangerous_string, self.campaign_run)
+
+        meta_1.refresh_from_db()
+        meta_2.refresh_from_db()
+        self.assertEqual(meta_1.run_id, self.campaign_run.pk)
+        self.assertEqual(meta_2.run_id, self.campaign_run.pk)
+
+    def test_bytes_primary_key_raises_type_error_and_changes_nothing(self):
+        """33-REVIEW.md WR-04: ``bytes`` is iterable the same way a ``str`` is (yielding
+        per-byte ints on Python 3), so it must be rejected identically."""
+        event_1, meta_1 = self._linked_meta(night_offset=16)
+        event_2, meta_2 = self._linked_meta(night_offset=17)
+        dangerous_bytes = f'{event_1.pk}{event_2.pk}'.encode()
+
+        with self.assertRaises(TypeError):
+            unlink_event_from_run(dangerous_bytes, self.campaign_run)
+
+        meta_1.refresh_from_db()
+        meta_2.refresh_from_db()
+        self.assertEqual(meta_1.run_id, self.campaign_run.pk)
+        self.assertEqual(meta_2.run_id, self.campaign_run.pk)
+
+    def test_campaign_run_shaped_argument_with_no_pk_behaves_like_none(self):
+        event, meta = self._linked_meta()
+        unsaved_run = CampaignRun(campaign=self.campaign, telescope_instrument='FTN/MuSCAT3')
+        self.assertIsNone(unsaved_run.pk)
+
+        changed = unlink_event_from_run(event, unsaved_run)
+
+        self.assertEqual(changed, 0)
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, self.campaign_run.pk)
+
+    def test_verification_flag_is_never_touched(self):
+        event, meta = self._linked_meta()
+        meta.is_verified = False
+        meta.save(update_fields=['is_verified'])
+
+        unlink_event_from_run(event, self.campaign_run)
+
+        meta.refresh_from_db()
+        self.assertFalse(meta.is_verified)
+
+    def test_neither_event_nor_companion_row_is_deleted(self):
+        event, meta = self._linked_meta()
+        event_count_before = CalendarEvent.objects.count()
+        meta_count_before = CalendarEventMeta.objects.count()
+
+        unlink_event_from_run(event, self.campaign_run)
+
+        self.assertEqual(CalendarEvent.objects.count(), event_count_before)
+        self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
+
+    def test_clears_every_matching_row_in_a_multi_row_filter(self):
+        event_a, meta_a = self._linked_meta(night_offset=0)
+        event_b, meta_b = self._linked_meta(night_offset=1)
+
+        events = CalendarEvent.objects.filter(pk__in=[event_a.pk, event_b.pk])
+        changed = unlink_event_from_run(events, self.campaign_run)
+
+        self.assertEqual(changed, 2)
+        meta_a.refresh_from_db()
+        meta_b.refresh_from_db()
+        self.assertIsNone(meta_a.run_id)
+        self.assertIsNone(meta_b.run_id)
+
+
+class TestSystemLinkInConfirmedTable(AttributionViewTestBase):
+    """37.1 D-05/D-06: a link whose ``confirmed_by`` is None is a system link -- the Confirmed
+    table labels it, and staff undo it with the existing button, which restores the retired
+    allocation night."""
+
+    def setUp(self):
+        self.client.login(username='staffcoordinator', password='pw')
+
+    def test_system_link_row_renders_system_label(self):
+        record = self._make_record()
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=record, confirmed_at=timezone.now()
+        )
+        response = self.client.get(reverse('campaigns:attribution'))
+        self.assertContains(response, 'System (exact match)')
+
+    def test_render_confirmed_by_per_row_kind(self):
+        table = AttributionConfirmedTable([], request=None)
+        system_link = CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self._make_record(), confirmed_at=timezone.now()
+        )
+        staff_link = CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self._make_record(night_offset=1),
+            confirmed_by=self.staff_user,
+            confirmed_at=timezone.now(),
+        )
+        event = self._make_event()
+        meta = CalendarEventMeta.objects.get(event=event)
+        meta.run = self.campaign_run
+        meta.save()
+        self.assertEqual(table.render_confirmed_by(system_link, None), 'System (exact match)')
+        self.assertEqual(str(table.render_confirmed_by(staff_link, staff_link.confirmed_by)), 'staffcoordinator')
+        self.assertEqual(table.render_confirmed_by(meta, None), table.default)
+
+    def test_a_linked_record_and_its_own_event_appear_once_in_the_confirmed_rows(self):
+        """WR-02: the record's own event is adopted into the run by the link, but only the
+        record row is listed -- an event row's Undo would be reverted by the next reconcile."""
+        record = self._make_record()
+        link = CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=record, confirmed_at=timezone.now()
+        )
+        # The observation projector gave the record its own event; the link adopts it into the run.
+        record_meta = CalendarEventMeta.objects.get(observation_record=record)
+        record_meta.run = self.campaign_run
+        record_meta.save()
+        # A genuinely event-confirmed row for an event with no record must still be listed.
+        plain_event = self._make_event(night_offset=3)
+        plain_meta = CalendarEventMeta.objects.get(event=plain_event)
+        plain_meta.run = self.campaign_run
+        plain_meta.save()
+
+        rows = _confirmed_attribution_rows()
+
+        self.assertIn(link, rows)
+        self.assertIn(plain_meta, rows)
+        self.assertNotIn(record_meta, rows)
+        self.assertEqual(sum(1 for row in rows if isinstance(row, CalendarEventMeta)), 1)
+        self.assertEqual(sum(1 for row in rows if isinstance(row, CampaignRunObservation)), 1)
+
+    def test_undo_of_a_system_link_restores_the_allocation_night(self):
+        """SC4: undoing a system link deletes it, writes a dismissal naming the staff user and
+        the existing post_delete receiver brings the allocation night back."""
+        site = Observatory.objects.create(
+            obscode='809',
+            name='ESO, La Silla',
+            short_name='NTT',
+            lat=-29.2567,
+            lon=-70.7300,
+            altitude=2347,
+            timezone='America/Santiago',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            source=CampaignRun.Source.CLASSICAL_FILE,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument='NTT/EFOSC2',
+            site=site,
+            site_raw='809',
+            window_start=date(2026, 7, 9),
+            window_end=date(2026, 7, 11),
+        )
+        reconcile_run(run)
+        self.assertEqual(allocation_events(run).count(), 3)
+
+        scheduled_start = datetime(2026, 7, 10, 20, 0, tzinfo=dt_timezone.utc)
+        record = self._make_record(
+            observation_id='SYSLINK-UNDO',
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_start + timedelta(hours=1),
+            status='COMPLETED',
+        )
+        CampaignRunObservation.objects.create(run=run, observation_record=record, confirmed_at=timezone.now())
+        retired_night = observing_night(scheduled_start, ZoneInfo('America/Santiago'))
+        retired_url = f'ALLOC:{run.pk}:{retired_night.isoformat()}'
+        self.assertEqual(allocation_events(run).count(), 2)
+        self.assertFalse(CalendarEvent.objects.filter(url=retired_url).exists())
+
+        response = self.client.post(
+            reverse('campaigns:attribution_decide'),
+            {'action': 'undo_confirmation', 'kind': 'record', 'orphan_pk': record.pk, 'run_pk': run.pk},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(CampaignRunObservation.objects.filter(observation_record=record).exists())
+        dismissal = ObservationRecordDismissal.objects.get(observation_record=record, run=run)
+        self.assertEqual(dismissal.dismissed_by, self.staff_user)
+        self.assertIn('Confirmation undone — back in the queue.', self._message_strings(response))
+        self.assertEqual(allocation_events(run).count(), 3)
+        self.assertTrue(CalendarEvent.objects.filter(url=retired_url).exists())
+
+
+class TestUndoDismissalPrompt(AttributionViewTestBase):
+    """37.1 D-06 addendum: the Dismissed table's Undo confirmation tells staff that an exactly
+    matching record is linked automatically by the next sweep; an event's prompt is unchanged."""
+
+    def test_record_dismissal_prompt_mentions_the_automatic_link(self):
+        dismissal = ObservationRecordDismissal.objects.create(
+            observation_record=self._make_record(), run=self.campaign_run, dismissed_by=self.staff_user
+        )
+        html = str(AttributionDismissedTable([], request=None).render_actions(dismissal))
+        self.assertIn('the next discovery sweep or backfill run will link it to that run automatically', html)
+
+    def test_event_dismissal_prompt_is_unchanged(self):
+        dismissal = CalendarEventDismissal.objects.create(
+            event=self._make_event(), run=self.campaign_run, dismissed_by=self.staff_user
+        )
+        html = str(AttributionDismissedTable([], request=None).render_actions(dismissal))
+        self.assertIn('Undo this dismissal? It will return to the worklist above.', html)
+        self.assertNotIn('link it to that run automatically', html)

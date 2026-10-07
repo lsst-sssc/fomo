@@ -1,0 +1,507 @@
+{
+  "captured_at": "2026-09-15T15:04:51.716779+00:00",
+  "proposal": "KEY2026B-004",
+  "record_count": 50,
+  "records": {
+    "4378026": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-13T06:15:00+00:00",
+      "scheduled_end": "2026-09-13T06:31:50+00:00",
+      "event_start": "2026-09-13T06:15:00+00:00",
+      "event_end": "2026-09-13T06:31:50+00:00",
+      "event_title": "[S] 1m0 220P"
+    },
+    "4378027": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-15T06:00:00+00:00",
+      "scheduled_end": "2026-09-15T06:16:50+00:00",
+      "event_start": "2026-09-15T06:00:00+00:00",
+      "event_end": "2026-09-15T06:16:50+00:00",
+      "event_title": "[S] 1m0 220P"
+    },
+    "4378028": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-16T15:15:00+00:00",
+      "scheduled_end": "2026-09-16T15:31:50+00:00",
+      "event_start": "2026-09-16T15:15:00+00:00",
+      "event_end": "2026-09-16T15:31:50+00:00",
+      "event_title": "[S] 1m0 220P"
+    },
+    "4378029": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-18T07:14:00+00:00",
+      "scheduled_end": "2026-09-18T07:30:50+00:00",
+      "event_start": "2026-09-18T07:14:00+00:00",
+      "event_end": "2026-09-18T07:30:50+00:00",
+      "event_title": "[S] 1m0 220P"
+    },
+    "4378030": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-20T00:14:00+00:00",
+      "event_end": "2026-09-21T05:14:00+00:00",
+      "event_title": "[Q] 1m0 220P"
+    },
+    "4378031": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-21T17:14:00+00:00",
+      "event_end": "2026-09-22T22:14:00+00:00",
+      "event_title": "[Q] 1m0 220P"
+    },
+    "4378032": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-23T10:14:00+00:00",
+      "event_end": "2026-09-24T15:14:00+00:00",
+      "event_title": "[Q] 1m0 220P"
+    },
+    "4378033": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-25T03:14:00+00:00",
+      "event_end": "2026-09-26T08:14:00+00:00",
+      "event_title": "[Q] 1m0 220P"
+    },
+    "4378034": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-26T20:14:00+00:00",
+      "event_end": "2026-09-28T01:14:00+00:00",
+      "event_title": "[Q] 1m0 220P"
+    },
+    "4378035": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-10-01T23:14:00+00:00",
+      "event_end": "2026-10-03T04:14:00+00:00",
+      "event_title": "[Q] 1m0 220P"
+    },
+    "4378036": {
+      "target": "220P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-10-03T16:14:00+00:00",
+      "event_end": "2026-10-04T12:44:00+00:00",
+      "event_title": "[Q] 1m0 220P"
+    },
+    "4378047": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-13T01:10:00+00:00",
+      "scheduled_end": "2026-09-13T01:23:22+00:00",
+      "event_start": "2026-09-13T01:10:00+00:00",
+      "event_end": "2026-09-13T01:23:22+00:00",
+      "event_title": "[S] 1m0 10P"
+    },
+    "4378048": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-13T23:45:00+00:00",
+      "scheduled_end": "2026-09-13T23:58:22+00:00",
+      "event_start": "2026-09-13T23:45:00+00:00",
+      "event_end": "2026-09-13T23:58:22+00:00",
+      "event_title": "[S] 1m0 10P"
+    },
+    "4378049": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-14T16:21:00+00:00",
+      "scheduled_end": "2026-09-14T16:34:22+00:00",
+      "event_start": "2026-09-14T16:21:00+00:00",
+      "event_end": "2026-09-14T16:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
+    },
+    "4378050": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-15T15:21:00+00:00",
+      "scheduled_end": "2026-09-15T15:34:22+00:00",
+      "event_start": "2026-09-15T15:21:00+00:00",
+      "event_end": "2026-09-15T15:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
+    },
+    "4378051": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-16T14:21:00+00:00",
+      "scheduled_end": "2026-09-16T14:34:22+00:00",
+      "event_start": "2026-09-16T14:21:00+00:00",
+      "event_end": "2026-09-16T14:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
+    },
+    "4378052": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-17T13:21:00+00:00",
+      "scheduled_end": "2026-09-17T13:34:22+00:00",
+      "event_start": "2026-09-17T13:21:00+00:00",
+      "event_end": "2026-09-17T13:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
+    },
+    "4378053": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-18T12:21:00+00:00",
+      "scheduled_end": "2026-09-18T12:34:22+00:00",
+      "event_start": "2026-09-18T12:21:00+00:00",
+      "event_end": "2026-09-18T12:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
+    },
+    "4378054": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "placed",
+      "scheduled_start": "2026-09-19T11:21:00+00:00",
+      "scheduled_end": "2026-09-19T11:34:22+00:00",
+      "event_start": "2026-09-19T11:21:00+00:00",
+      "event_end": "2026-09-19T11:34:22+00:00",
+      "event_title": "[S] 1m0 10P"
+    },
+    "4378055": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-20T10:21:00+00:00",
+      "event_end": "2026-09-21T03:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378056": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-21T09:21:00+00:00",
+      "event_end": "2026-09-22T02:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378057": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-25T05:21:00+00:00",
+      "event_end": "2026-09-25T22:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378058": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-26T04:21:00+00:00",
+      "event_end": "2026-09-26T21:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378059": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-27T03:21:00+00:00",
+      "event_end": "2026-09-27T20:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378060": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-28T02:21:00+00:00",
+      "event_end": "2026-09-28T19:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378061": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-29T01:21:00+00:00",
+      "event_end": "2026-09-29T18:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378062": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-30T00:21:00+00:00",
+      "event_end": "2026-09-30T17:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378063": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-30T23:21:00+00:00",
+      "event_end": "2026-10-01T16:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378064": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-10-01T22:21:00+00:00",
+      "event_end": "2026-10-02T15:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378065": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-10-02T21:21:00+00:00",
+      "event_end": "2026-10-03T14:21:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378066": {
+      "target": "10P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-10-03T20:21:00+00:00",
+      "event_end": "2026-10-04T12:51:00+00:00",
+      "event_title": "[Q] 1m0 10P"
+    },
+    "4378333": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-12T23:37:00+00:00",
+      "event_end": "2026-09-13T16:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378334": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-13T22:37:00+00:00",
+      "event_end": "2026-09-14T15:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378335": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-14T21:37:00+00:00",
+      "event_end": "2026-09-15T14:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378336": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-15T20:37:00+00:00",
+      "event_end": "2026-09-16T13:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378337": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-16T19:37:00+00:00",
+      "event_end": "2026-09-17T12:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378338": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-17T18:37:00+00:00",
+      "event_end": "2026-09-18T11:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378339": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-18T17:37:00+00:00",
+      "event_end": "2026-09-19T10:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378340": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-19T16:37:00+00:00",
+      "event_end": "2026-09-20T09:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378341": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-20T15:37:00+00:00",
+      "event_end": "2026-09-21T08:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378342": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-21T14:37:00+00:00",
+      "event_end": "2026-09-22T07:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378343": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-22T13:37:00+00:00",
+      "event_end": "2026-09-23T06:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378344": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-23T12:37:00+00:00",
+      "event_end": "2026-09-24T05:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378345": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-24T11:37:00+00:00",
+      "event_end": "2026-09-25T04:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378346": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-25T10:37:00+00:00",
+      "event_end": "2026-09-26T03:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378347": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-09-26T09:37:00+00:00",
+      "event_end": "2026-09-27T02:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378348": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-10-01T04:37:00+00:00",
+      "event_end": "2026-10-01T21:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378349": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-10-02T03:37:00+00:00",
+      "event_end": "2026-10-02T20:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378350": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-10-03T02:37:00+00:00",
+      "event_end": "2026-10-03T19:37:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    },
+    "4378351": {
+      "target": "11P",
+      "status": "PENDING",
+      "stage": "queued",
+      "scheduled_start": null,
+      "scheduled_end": null,
+      "event_start": "2026-10-04T01:37:00+00:00",
+      "event_end": "2026-10-04T18:07:00+00:00",
+      "event_title": "[Q] 1m0 11P"
+    }
+  }
+}

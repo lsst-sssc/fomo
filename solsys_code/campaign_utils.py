@@ -17,14 +17,19 @@ import logging
 import re
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 import requests
 from django.core.cache import cache
+from django.db import transaction
 from django.db.utils import IntegrityError
+from django.utils import timezone
+from tom_calendar.models import CalendarEvent
 from tom_dataservices.dataservices import MissingDataException
+from tom_observations.models import ObservationRecord
 
-from solsys_code.models import CampaignRun
+from solsys_code.campaign_reconciler import ReconcileResult, reconcile_run
+from solsys_code.models import CalendarEventMeta, CampaignRun, CampaignRunObservation
 from solsys_code.observer_codes import HORIZONS_OBSERVER_TO_OBSCODE
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.solsys_code_observatory.utils import MPCObscodeFetcher
@@ -851,3 +856,266 @@ def insert_or_create_campaign_run(lookup: dict[str, Any], fields: dict[str, Any]
         run.save(update_fields=list(fields.keys()))
         return run, 'updated'
     return run, 'unchanged'
+
+
+def preview_campaign_run_action(run: CampaignRun | None, fields: dict[str, Any]) -> str:
+    """Report what ``insert_or_create_campaign_run()`` would do, without writing or querying.
+
+    This is the run-level twin of ``calendar_utils.preview_calendar_event_action()`` (Phase
+    35 Task 2's ``--dry-run`` support). It exists so a dry run can never disagree with what
+    ``insert_or_create_campaign_run()`` would report: it uses the identical
+    ``getattr(run, f) != v`` comparison rule that function's own field-diff loop uses.
+
+    Args:
+        run: the already-matched CampaignRun, or None if no run exists yet for this key.
+        fields: field-value mapping that would be applied.
+
+    Returns:
+        str: 'created' when run is None; 'updated' when any field in fields differs from
+            the run's current value; 'unchanged' when none do. Writes nothing, issues no
+            query.
+    """
+    if run is None:
+        return 'created'
+    changed = [f for f, v in fields.items() if getattr(run, f) != v]
+    return 'updated' if changed else 'unchanged'
+
+
+# 33-REVIEW.md WR-02: the single declaration of what clearing an attribution means, so
+# `unlink_event_from_run()`'s bulk `.update()` and `CalendarEventMetaAdmin.save_model()`'s
+# in-memory clear (solsys_code/admin.py) both derive from the same field set instead of each
+# keeping its own copy -- a fourth key added here reaches both writers with no second edit.
+#
+# `is_verified` and the two PROJ-04 carrier fields (`observation_record`, `observation_group`)
+# must NEVER be added to this set: unlinking a campaign attribution must not touch
+# verification history or the observation projector's links (D-09).
+UNLINK_CLEARED_FIELDS: dict[str, None] = {
+    'run': None,
+    'confirmed_by': None,
+    'confirmed_at': None,
+}
+
+
+def unlink_event_from_run(events: CalendarEvent | int | Any, run: CampaignRun | int | None) -> int:
+    """Clear an event's attribution to ``run`` and take its audit stamps with it (D-16).
+
+    The inverse of :func:`adopt_event_into_run`: where that function links an event to a
+    run, this one is the single writer that clears the link again, for every call site that
+    needs to (RESEARCH.md Pitfall 2) -- the attribution-undo view's conditional per-pair
+    clear, the reconciler's bulk detach step, and the admin's standalone clear branch. Like
+    its mirror, it never touches a ``CalendarEvent`` field and never removes a row --
+    clearing an attribution is a change to three link/audit values on the companion row,
+    nothing else (ROADMAP criterion 4). The three fields cleared, and their shared value of
+    ``None``, are the single declaration in :data:`UNLINK_CLEARED_FIELDS` above -- this
+    function's own ``.update()`` and ``CalendarEventMetaAdmin.save_model()``'s in-memory
+    clear both consume it (WR-02), so the two writers cannot drift apart.
+
+    The run filter is not a defensive nicety: without it, a stale or tampered caller could
+    clear a confirmation made for a DIFFERENT run than the one actually named (T-29-19) -- a
+    human attribution elsewhere always outranks an automated or stale-POST clear. And
+    because clearing the link erases the very fields that recorded who confirmed it, the
+    audit stamps are cleared together with the link in the same write, so no row can go on
+    displaying a confirmation for an attribution that no longer exists (D-16).
+
+    Args:
+        events: the event(s) to unlink -- a single ``CalendarEvent`` instance, a bare event
+            primary key (``int``), or a queryset/iterable of event primary keys/instances to
+            clear in bulk. A ``str`` or ``bytes`` value is rejected (see Raises) rather than
+            accepted as an iterable of characters/bytes.
+        run: the ``CampaignRun`` (or its primary key) the event(s) must currently be linked
+            to for the clear to apply. Passing ``None``, or a run whose primary key is
+            ``None``, changes nothing.
+
+    Returns:
+        int: the number of companion rows actually changed. ``0`` means no row matched
+            (already unlinked, linked to a different run, or the resolved run had no
+            primary key) -- the caller can use this to gate its own follow-on writes
+            (28-REVIEW WR-01).
+
+    Raises:
+        TypeError: if ``events`` is a ``str`` or ``bytes``. Both are iterable, so falling
+            through to the queryset/iterable branch would silently expand a string primary
+            key into a per-character ``event__in`` filter (WR-04) -- clearing whichever
+            events happen to hold those digits as primary keys, with no error raised. Checked
+            after the ``run_pk`` guard above, so a null run with a string argument still
+            returns 0 rather than raising.
+    """
+    run_pk = getattr(run, 'pk', run)
+    if not run_pk:
+        # 33-REVIEWS.md Agreed Concern 2 / T-33-21: bail out here, before building any
+        # filter at all. A None run would otherwise build a lookup keyed on a null run,
+        # which in SQL matches every companion row whose link is ALREADY empty -- silently
+        # wiping confirmation stamps on rows that belong to no attribution the caller ever
+        # named. Do not delete this guard as redundant.
+        return 0
+
+    if isinstance(events, CalendarEvent):
+        event_filter = {'event_id': events.pk}
+    elif isinstance(events, int):
+        event_filter = {'event_id': events}
+    elif isinstance(events, str | bytes):
+        # WR-04: str/bytes are iterable, so without this check the catch-all branch below
+        # would silently expand a string primary key into a per-character `event__in`
+        # filter -- e.g. '12' would clear whichever events hold primary keys 1 and 2,
+        # not the (nonexistent) event with primary key '12'. An integer primary key is
+        # required instead.
+        raise TypeError(
+            f'unlink_event_from_run() received a {type(events).__name__} for `events` '
+            f'({events!r}); a str/bytes is iterable and would be silently expanded into a '
+            'per-character event__in filter. Pass an int primary key instead.'
+        )
+    else:
+        event_filter = {'event__in': events}
+
+    return CalendarEventMeta.objects.filter(run_id=run_pk, **event_filter).update(**UNLINK_CLEARED_FIELDS)
+
+
+def adopt_event_into_run(event: CalendarEvent, run: CampaignRun) -> bool:
+    """Attribution bridge (Phase 32, ADAPT-05): attach a pre-existing ``CalendarEvent`` to
+    ``run`` via its ``CalendarEventMeta`` companion row, instead of letting a fresh
+    adapter-written run mint a second event for the same observation.
+
+    Closes the duplicate-event hole Phase 31's research flagged as this phase's
+    highest-risk correctness question: without this bridge, the first time a
+    ``CampaignRun`` written by :func:`write_and_reconcile_campaign_run` reconciles, it
+    would mint a brand-new ``CalendarEvent`` even when one already exists for the same
+    observation (e.g. a ``load_telescope_runs``-created classical event, or a
+    url-keyed queue event a sync command wrote before this phase's cutover).
+
+    Never touches a ``CalendarEvent`` field: setting ``CalendarEventMeta.run`` is an
+    attribution link, the same write Phase 28's confirmation queue already makes, not a
+    calendar write -- calling this does not re-acquire the direct ``CalendarEvent`` write
+    path the reconciler alone still owns.
+
+    Args:
+        event: the pre-existing ``CalendarEvent`` to (re-)attribute to ``run``.
+        run: the ``CampaignRun`` claiming attribution.
+
+    Returns:
+        bool: ``True`` when the event either had no companion row, an unset ``run``, or
+            already pointed at ``run`` (in every case, ``CalendarEventMeta.run`` now points
+            at ``run``). ``False``, writing nothing, when the companion row already points
+            at a DIFFERENT run -- a staff member's confirmed attribution through Phase 28's
+            queue outranks an adapter's guess.
+    """
+    meta = CalendarEventMeta.objects.filter(event=event).first()
+    if meta is not None and meta.run_id is not None and meta.run_id != run.pk:
+        return False
+    meta, _created = CalendarEventMeta.objects.get_or_create(event=event)
+    if meta.run_id != run.pk:
+        meta.run = run
+        meta.save(update_fields=['run'])
+    return True
+
+
+def create_system_link(record: ObservationRecord, run: CampaignRun) -> bool:
+    """Write the one system link that ties an ObservationRecord to a CampaignRun (ALLOC-06).
+
+    A system link is a ``CampaignRunObservation`` row whose ``confirmed_by`` is left unset
+    (``None`` is the provenance: no staff member confirmed it) and whose ``confirmed_at`` is
+    stamped now. This is the single definition of a system-link write: both
+    :func:`write_and_reconcile_campaign_run` and the discovery sweep's exact-identity step
+    (:mod:`solsys_code.campaign_system_links`) go through it.
+
+    The write does NOT call ``reconcile_run()``: the ``CampaignRunObservation`` post_save
+    receiver already re-projects the run (35 D-11), retiring the record's allocation night or
+    attributing its own event to a container run.
+
+    The write runs inside its own ``transaction.atomic()`` savepoint, so a raised
+    ``IntegrityError`` (for example a lost race on ``unique_campaign_run_observation_record``)
+    cannot poison a caller that is itself inside a transaction (D-08).
+
+    Args:
+        record: the ObservationRecord to link.
+        run: the CampaignRun it realises.
+
+    Returns:
+        bool: True when a new row was created; False when a row for this record already
+            existed (possibly a staff link to a different run) and it was left untouched.
+
+    Raises:
+        IntegrityError: when the new row was rolled back by a failure inside the post_save
+            receiver chain, so a reported link is always backed by a row.
+    """
+    with transaction.atomic():
+        link, created = CampaignRunObservation.objects.get_or_create(
+            observation_record=record,
+            defaults={'run': run, 'confirmed_at': timezone.now()},
+        )
+    # CR-01 (37.1-REVIEW.md): never report a link that is not in the database. A failure inside the
+    # post_save receiver chain can mark the savepoint for rollback; Django then undoes the INSERT
+    # without raising, yet ``get_or_create()`` still returns ``created=True``.
+    if created and not CampaignRunObservation.objects.filter(pk=link.pk).exists():
+        raise IntegrityError('system link rolled back by a post_save receiver failure')
+    return created
+
+
+class WriteAndReconcileResult(NamedTuple):
+    """Outcome of one :func:`write_and_reconcile_campaign_run` call."""
+
+    run: CampaignRun
+    action: str
+    reconcile: ReconcileResult
+
+
+def write_and_reconcile_campaign_run(
+    lookup: dict[str, Any],
+    fields: dict[str, Any],
+    *,
+    observation_record: ObservationRecord | None = None,
+    adopt_event: CalendarEvent | None = None,
+) -> WriteAndReconcileResult:
+    """The single create-or-update-then-reconcile helper every Phase 32 adapter calls
+    instead of writing a ``CalendarEvent`` directly (ADAPT-05's cutover-safety machinery).
+
+    Wraps :func:`insert_or_create_campaign_run` (never reimplements its field-diff loop)
+    and hands the resulting run to :func:`solsys_code.campaign_reconciler.reconcile_run`
+    for calendar projection -- an adapter must never re-acquire a direct ``CalendarEvent``
+    write path after cutover.
+
+    ``fields`` must carry ``approval_status=CampaignRun.ApprovalStatus.APPROVED`` and the
+    caller's own non-``WEB`` ``source`` value, or the reconciler's stage-0 guard rejects the
+    row before any calendar projection is attempted (``_skip_reason()`` returns
+    ``'not approved'``). The returned ``WriteAndReconcileResult.reconcile.skipped_reason`` is
+    the caller's to report -- this helper never discards or swallows it.
+
+    When an existing row matched by ``lookup`` already carries ``source == Source.WEB``,
+    ``source``/``approval_status`` are dropped from ``fields`` before the write (T-32-01):
+    a public web submission must never be silently relabeled or auto-approved by a batch
+    ingest path (the same guard ``import_campaign_csv.py`` already applies).
+
+    Args:
+        lookup: the natural-key mapping passed straight through to
+            :func:`insert_or_create_campaign_run` (typically keyed on
+            ``source_identifier`` for an adapter-written row).
+        fields: the field-value mapping to create or update the run with.
+        observation_record: when given, creates the exact-identity
+            ``CampaignRunObservation`` link (system link -- ``confirmed_by=None``,
+            ``confirmed_at=timezone.now()``) through :func:`create_system_link` -- the
+            one definition of a system-link write -- before reconciling, so a fresh
+            single-observation queue run already has its link in place on its very
+            first reconcile.
+        adopt_event: when given, calls :func:`adopt_event_into_run` after the run write
+            and before reconciling, so the reconciler's own adopt paths can find the link.
+
+    Returns:
+        WriteAndReconcileResult: ``run``, the create/update ``action``
+            (``'created'``/``'updated'``/``'unchanged'``), and the ``ReconcileResult`` from
+            :func:`~solsys_code.campaign_reconciler.reconcile_run`.
+    """
+    existing = CampaignRun.objects.filter(**lookup).first()
+    if existing is not None and existing.source == CampaignRun.Source.WEB:
+        # T-32-01/WR-01/CANON-01 precedent (import_campaign_csv.py:356-358): never relabel
+        # or re-approve a public web submission from a batch ingest path.
+        fields = {k: v for k, v in fields.items() if k not in ('source', 'approval_status')}
+
+    run, action = insert_or_create_campaign_run(lookup, fields)
+
+    if observation_record is not None:
+        create_system_link(observation_record, run)
+
+    if adopt_event is not None:
+        adopt_event_into_run(adopt_event, run)
+
+    reconcile_result = reconcile_run(run)
+    return WriteAndReconcileResult(run=run, action=action, reconcile=reconcile_result)

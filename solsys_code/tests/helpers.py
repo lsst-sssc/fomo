@@ -1,10 +1,11 @@
 """Fixture builders shared by more than one test module in ``solsys_code/tests/``.
 
 IN-02: ``test_calendar_utils`` previously imported ``_observations_block_response`` directly
-from ``test_sync_lco_observation_calendar``. That coupled the two modules' import graphs --
-any import-time failure in the sync command's test module (a renamed facility import, a
-missing fixture) would also fail ``test_calendar_utils``, for a helper that has nothing to do
-with the sync command. Shared fixture builders belong here instead.
+from the (now retired, 34-02/D-18) LCO/SOAR sync command's own test module. That coupled the
+two modules' import graphs -- any import-time failure in the sync command's test module (a
+renamed facility import, a missing fixture) would also fail ``test_calendar_utils``, for a
+helper that has nothing to do with the sync command. Shared fixture builders belong here
+instead.
 
 This module is deliberately NOT named ``test_*.py``, so neither the Django test runner's
 default ``test*.py`` pattern nor pytest collects it as a test module.

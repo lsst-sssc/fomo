@@ -8,8 +8,11 @@ from datetime import datetime
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
 from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
 from django.test import TestCase
+from django.urls import reverse
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
@@ -107,9 +110,11 @@ class TestCampaignRunObservation(TestCase):
         self.assertFalse(CampaignRunObservation.objects.filter(pk=link.pk).exists())
         self.assertTrue(CampaignRun.objects.filter(pk=self.run_a.pk).exists())
 
-    def test_deleting_confirming_user_sets_confirmed_by_null_and_keeps_link_row(self):
-        """D-03: confirmed_by is SET_NULL, not CASCADE -- deleting the confirming user must
-        not delete the confirmed attribution itself.
+    def test_deleting_confirming_user_is_protected_and_keeps_the_link_row(self):
+        """37.1 WR-03 (supersedes D-03's SET_NULL): ``confirmed_by IS NULL`` is the system-link
+        provenance, so deleting a confirming user must be refused -- SET_NULL would silently
+        turn the person's link into a "System (exact match)" link. The confirmed attribution
+        itself survives, as D-03 required.
         """
         link = CampaignRunObservation.objects.create(
             run=self.run_a,
@@ -118,11 +123,37 @@ class TestCampaignRunObservation(TestCase):
             confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
         )
 
-        self.user.delete()
+        with self.assertRaises(ProtectedError):
+            self.user.delete()
         link.refresh_from_db()
 
-        self.assertIsNone(link.confirmed_by)
-        self.assertTrue(CampaignRunObservation.objects.filter(pk=link.pk).exists())
+        self.assertEqual(link.confirmed_by, self.user)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+
+    def test_deleting_a_user_who_confirmed_a_calendar_event_is_protected(self):
+        """37.1 WR-11: ``CalendarEventMeta.confirmed_by IS NULL`` lets the reconciler release or
+        delete an event, so deleting a confirming user must be refused for event confirmations
+        too -- SET_NULL would silently strip the human guard from every event they confirmed.
+        """
+        event = CalendarEvent.objects.create(
+            title='FTN/MuSCAT3 run',
+            start_time=datetime(2025, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        meta = CalendarEventMeta.objects.create(
+            event=event,
+            is_verified=True,
+            run=self.run_a,
+            confirmed_by=self.user,
+            confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.user.delete()
+        meta.refresh_from_db()
+
+        self.assertEqual(meta.confirmed_by, self.user)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
 
     def test_plain_orm_create_leaves_confirmed_by_and_confirmed_at_blank(self):
         """D-01/D-03: the row's existence carries 'confirmed'; only the admin's
@@ -151,3 +182,109 @@ class TestCampaignRunObservation(TestCase):
         self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
         self.assertTrue(CalendarEventMeta.objects.filter(pk=meta.pk).exists())
         self.assertIsNone(meta.run_id)
+
+
+class TestUserDeleteView(TestCase):
+    """WR-10 (37.1-REVIEW.md): TOM's user-delete page must refuse, not crash, on a protected account."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.admin_user = User.objects.create_superuser(username='delete-admin', password='pw', email='a@example.com')
+        cls.target = NonSiderealTargetFactory.create()
+        cls.record_owner = User.objects.create(username='delete-record-owner')
+        cls.record = ObservationRecord.objects.create(
+            target=cls.target,
+            user=cls.record_owner,
+            facility='LCO',
+            observation_id='user-delete-record',
+            status='COMPLETED',
+            parameters={},
+        )
+        cls.campaign_run = CampaignRun.objects.create(
+            campaign=TargetList.objects.create(name='user-delete campaign'),
+            telescope_instrument='FTN/MuSCAT3',
+            window_start='2025-07-04',
+            window_end='2025-07-04',
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.admin_user)
+
+    def _post_delete(self, user: User):
+        return self.client.post(reverse('user-delete', kwargs={'pk': user.pk}))
+
+    def test_deleting_a_user_who_confirmed_a_link_redirects_with_a_message_instead_of_a_500(self) -> None:
+        confirmer = User.objects.create(username='delete-link-confirmer')
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self.record,
+            confirmed_by=confirmer,
+            confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
+        )
+
+        response = self._post_delete(confirmer)
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertTrue(User.objects.filter(pk=confirmer.pk).exists())
+        self.assertEqual(CampaignRunObservation.objects.get(observation_record=self.record).confirmed_by, confirmer)
+        messages_text = ' '.join(str(m) for m in get_messages(response.wsgi_request))
+        self.assertIn('cannot be deleted', messages_text)
+        self.assertIn('delete-link-confirmer', messages_text)
+
+    def test_http_delete_for_a_protected_user_redirects_with_a_message_instead_of_a_500(self) -> None:
+        """WR-12: DELETE reaches DeletionMixin.delete(), not form_valid(), so it needs the same guard."""
+        confirmer = User.objects.create(username='delete-http-delete-confirmer')
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self.record,
+            confirmed_by=confirmer,
+            confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
+        )
+
+        response = self.client.delete(reverse('user-delete', kwargs={'pk': confirmer.pk}))
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertTrue(User.objects.filter(pk=confirmer.pk).exists())
+        self.assertEqual(CampaignRunObservation.objects.get(observation_record=self.record).confirmed_by, confirmer)
+        messages_text = ' '.join(str(m) for m in get_messages(response.wsgi_request))
+        self.assertIn('cannot be deleted', messages_text)
+        self.assertIn('delete-http-delete-confirmer', messages_text)
+
+    def test_http_delete_for_an_unprotected_user_still_deletes_it(self) -> None:
+        bystander = User.objects.create(username='delete-http-delete-bystander')
+
+        response = self.client.delete(reverse('user-delete', kwargs={'pk': bystander.pk}))
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertFalse(User.objects.filter(pk=bystander.pk).exists())
+
+    def test_deleting_an_unprotected_user_still_works(self) -> None:
+        bystander = User.objects.create(username='delete-bystander')
+
+        response = self._post_delete(bystander)
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertFalse(User.objects.filter(pk=bystander.pk).exists())
+
+    def test_deleting_a_user_who_confirmed_only_a_calendar_event_also_redirects_with_a_message(self) -> None:
+        """WR-11 compounds WR-10: an account with only event confirmations is now protected too."""
+        confirmer = User.objects.create(username='delete-event-confirmer')
+        event = CalendarEvent.objects.create(
+            title='FTN/MuSCAT3 run',
+            start_time=datetime(2025, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(
+            event=event,
+            is_verified=True,
+            run=self.campaign_run,
+            confirmed_by=confirmer,
+            confirmed_at=datetime(2026, 7, 30, 12, 0, tzinfo=dt_timezone.utc),
+        )
+
+        response = self._post_delete(confirmer)
+
+        self.assertRedirects(response, reverse('user-list'), fetch_redirect_response=False)
+        self.assertTrue(User.objects.filter(pk=confirmer.pk).exists())
+        self.assertEqual(CalendarEventMeta.objects.get(event=event).confirmed_by, confirmer)
+        self.assertIn('cannot be deleted', ' '.join(str(m) for m in get_messages(response.wsgi_request)))

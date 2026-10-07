@@ -22,8 +22,6 @@ from datetime import date, datetime
 from datetime import timezone as dt_timezone
 
 from django.contrib import messages
-from django.contrib.auth.models import User
-from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Case, CharField, Count, EmailField, F, Value, When
@@ -34,14 +32,16 @@ from django.utils import timezone
 from django.views.generic import FormView, ListView, TemplateView, View
 from django_filters.views import FilterView
 from django_tables2 import RequestConfig
+from django_tables2.utils import Accessor
 from django_tables2.views import SingleTableMixin
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 
+from solsys_code import notifications
 from solsys_code.solsys_code_observatory.models import Observatory
 
-from . import campaign_attribution
+from . import campaign_attribution, campaign_tally
 from .campaign_filters import CampaignRunFilterSet
 from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
 from .campaign_gap import clamp_date_range, get_or_compute_gap
@@ -59,6 +59,7 @@ from .campaign_utils import (
     resolve_site,
     selection_to_obscode,
     substring_or_fuzzy_match_candidates,
+    unlink_event_from_run,
 )
 from .mixins import StaffRequiredMixin
 from .models import (
@@ -112,6 +113,30 @@ ALLOWED_FIELDS_FOR_NON_STAFF = [
     'comments',
 ]
 
+# T-37-09-02: CampaignRunTableView is public and unauthenticated, and RequestConfig.configure()
+# reads `per_page` straight from the query string, OVERRIDING table_pagination -- so following
+# the rendered rows (get_table() below) removes an accidental bound the old hardcoded-25 tally
+# slice used to provide for free. An uncapped `per_page` would let one GET fan the per-row tally
+# pass out across an entire campaign, so this bounds the rendered page size.
+#
+# WR-07 (37-REVIEW.md): 100 is a deliberate tradeoff, stated in the actual query cost it
+# authorises, not by analogy to CampaignListView.paginate_by below (that page's 100 rows are
+# fully cached campaign summaries costing nothing marginal per row -- a different page with a
+# different cost shape). This view's own test
+# (test_page_query_count_grows_by_a_bounded_per_row_amount_not_unboundedly) pins the per-rendered-
+# row cost of campaign_tally.tallies_for_runs() at exactly 3 queries (two live unused-rule
+# queries per row plus one for the roll-up strip above the table, none of them cacheable by
+# D-15 design). 100 rows x 3 queries/row ~= 300 queries is therefore the accepted anonymous
+# ceiling for one unauthenticated GET to this view -- there is no throttle on this endpoint.
+# Lower this constant (e.g. to 50) to halve that ceiling if 300 turns out to be too much.
+MAX_TABLE_PER_PAGE = 100
+# CR-01 (37-REVIEW.md): the low-end fallback for an out-of-range `per_page` (0, negative,
+# unparseable-as-positive). MUST be a valid, small page size -- never MAX_TABLE_PER_PAGE, which
+# would clamp a *too-small* request UP to the *most expensive* one this cap exists to bound.
+# Shares the same value get() and table_pagination below already use as the default page size,
+# so a degenerate per_page produces exactly what an absent per_page would.
+DEFAULT_TABLE_PER_PAGE = 25  # D-11
+
 
 class CampaignRunTableView(SingleTableMixin, FilterView):
     """Sortable/paginated/filterable table of every CampaignRun for one campaign (VIEW-01/04).
@@ -126,7 +151,59 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
     table_class = CampaignRunTable
     filterset_class = CampaignRunFilterSet
     template_name = 'campaigns/campaignrun_table.html'
-    table_pagination = {'per_page': 25}  # D-11
+    table_pagination = {'per_page': DEFAULT_TABLE_PER_PAGE}  # D-11
+
+    def get(self, request, *args, **kwargs):
+        """T-37-09-02/CR-01: cap an attacker-controlled ``per_page`` at ``MAX_TABLE_PER_PAGE``
+        (and, for a too-small value, fall back to ``DEFAULT_TABLE_PER_PAGE`` rather than
+        the maximum) before anything downstream reads it.
+
+        ``RequestConfig.configure()`` reads ``per_page`` straight from
+        ``self.request.GET`` and uses it to OVERRIDE ``table_pagination`` -- so the cap
+        cannot live in ``get_table_pagination()``, which ``configure()`` bypasses
+        entirely for this parameter. Instead, when the incoming ``per_page`` parses as an
+        integer outside ``[1, MAX_TABLE_PER_PAGE]``, it is replaced on a mutable copy of
+        ``request.GET`` before ``super().get()`` runs -- every other query parameter on
+        the copy (``sort``, ``page``, and every ``CampaignRunFilterSet`` field) is left
+        untouched. A ``per_page`` that does not parse as an integer is left exactly as it
+        is: ``RequestConfig.configure()`` already ignores it via its own
+        ``except (ValueError, KeyError)``.
+
+        CR-01 (37-REVIEW.md): the two out-of-range directions are NOT clamped to the same
+        value. A too-LARGE ``per_page`` (``> MAX_TABLE_PER_PAGE``) is clamped DOWN to
+        ``MAX_TABLE_PER_PAGE`` -- that is the ceiling this cap exists for. A too-SMALL
+        ``per_page`` (``< 1``, i.e. ``0`` or negative) is clamped to
+        ``DEFAULT_TABLE_PER_PAGE`` instead -- clamping it UP to ``MAX_TABLE_PER_PAGE``
+        would make the cheapest-looking query string (``?per_page=0``) render the MOST
+        expensive page this view will serve, the opposite of what a cost cap should do.
+
+        A legitimate ``per_page`` at or below the cap (e.g. ``?per_page=50``, needed for
+        the G-37-5 fix this cap ships alongside) is honoured exactly -- this is a ceiling,
+        not a re-hardcoding of the old 25-row default.
+
+        WR-06 (37-REVIEW.md): the query-string field name is resolved from
+        ``self.table_class._meta`` (``prefix + per_page_field``) rather than the bare
+        literal ``'per_page'`` -- that is the exact same
+        ``table.prefixed_per_page_field`` expression ``RequestConfig.configure()`` itself
+        reads (django-tables2 ``config.py``). Today the two agree only because
+        ``CampaignRunTable.Meta`` sets neither ``prefix`` nor ``per_page_field``; resolving
+        it dynamically means the cap keeps matching whichever parameter django-tables2
+        actually reads even if that ever changes (e.g. a ``prefix`` added so a second table
+        can render on the same page, as ``ApprovalQueueView`` already does).
+        """
+        per_page_field = self.table_class._meta.prefix + self.table_class._meta.per_page_field
+        raw_per_page = request.GET.get(per_page_field)
+        if raw_per_page is not None:
+            try:
+                per_page = int(raw_per_page)
+            except (TypeError, ValueError):
+                per_page = None
+            if per_page is not None and not (1 <= per_page <= MAX_TABLE_PER_PAGE):
+                clamped = MAX_TABLE_PER_PAGE if per_page > MAX_TABLE_PER_PAGE else DEFAULT_TABLE_PER_PAGE
+                mutable_get = request.GET.copy()
+                mutable_get[per_page_field] = str(clamped)
+                request.GET = mutable_get
+        return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
         """Restrict to this campaign; non-staff get a PII-safe .values() queryset (D-13).
@@ -186,16 +263,68 @@ class CampaignRunTableView(SingleTableMixin, FilterView):
         VIEW-05: contact_person/contact_email are no longer excluded for non-staff -- they're
         always safe to render now (blank string for opted-out rows, populated for opted-in
         ones), gated at the SQL SELECT by get_queryset()'s Case/When annotation, not here.
+
+        TALLY-01/D-08/G-37-5: the tally is no longer attached here. This method runs BEFORE
+        django-tables2 has resolved ``sort``/``page``/``per_page`` (that happens inside
+        ``get_table()``'s own ``RequestConfig(...).configure(table)`` call, overridden
+        below), so any attempt here to predict which rows will render is one GET param
+        behind by construction -- see ``get_table()``'s docstring for the fix.
         """
         return {'order_by': ()}
 
+    def get_table(self, **kwargs):
+        """G-37-5/CR-01: attach the TALLY-01/D-08 Progress tally to the table AFTER
+        django-tables2 has resolved which rows it is actually going to render.
+
+        ``SingleTableMixin.get_table()`` (called via ``super()`` first, below) builds the
+        table and then runs ``RequestConfig(self.request, ...).configure(table)``, which
+        reads THREE query-string parameters -- ``sort`` (``table.order_by``), ``page`` and
+        ``per_page`` (both consumed by ``table.paginate()``) -- and only after that call
+        returns is it known which rows ``table.paginated_rows`` will iterate. The former
+        ``get_table_kwargs()`` computed a page of pks BEFORE this call, mirroring only
+        ``page`` and hardcoding ``per_page`` from ``table_pagination`` -- it never saw
+        ``sort`` at all, so a sorted request rendered a different 25 rows than the ones the
+        tally was computed for (G-37-5, reproduced as CR-01: 5 of 25 rendered rows lost
+        their tally under ``?sort=-telescope_instrument``, 5 of 30 under ``?per_page=50``).
+
+        Reading ``table.paginated_rows`` here instead is definitionally correct for every
+        combination of ``sort``, ``page`` and ``per_page``: it is the exact same ``BoundRows``
+        the django-tables2 table templates (``table.html``/``bootstrap4.html``/
+        ``bootstrap5.html``, none of them overridden in ``src/templates/``) iterate to
+        render rows, so the tallies dict covers exactly the rendered rows with no
+        reimplementation left to fall behind. Iterating it costs no extra query: it wraps
+        the ONE already-evaluated, already-sliced page queryset, whose result cache is
+        shared between this iteration and the template's own.
+
+        Each row's pk is resolved via ``Accessor('pk')`` (never ``row.record.pk`` or a dict
+        subscript) because a staff row is a ``CampaignRun`` model instance and a non-staff
+        row is a plain dict from ``get_queryset()``'s ``.values()`` projection -- the same
+        resolution ``CampaignRunTable.render_progress()`` itself uses. The resulting
+        ``CampaignRun`` MODEL queryset (``site`` pre-selected so
+        ``campaign_tally.night_counts_for_run()``'s per-run site-timezone read costs no
+        extra query on a cache miss) is built from those pks and handed to
+        ``campaign_tally.tallies_for_runs()`` for the WHOLE rendered page in one pass --
+        still never one ``tally_for_run()`` call per row (D-08) -- and used only to feed
+        that counts dict, never merged into ``table.data`` or rendered as a row field
+        (T-37-09-01). ``get_queryset()`` and ``ALLOWED_FIELDS_FOR_NON_STAFF`` are untouched.
+        """
+        table = super().get_table(**kwargs)
+        pks = {Accessor('pk').resolve(row.record, quiet=True) for row in table.paginated_rows}
+        pks.discard(None)
+        runs = CampaignRun.objects.filter(pk__in=pks).select_related('site')
+        table.tallies = campaign_tally.tallies_for_runs(runs)
+        return table
+
     def get_context_data(self, **kwargs):
-        """Add the campaign (TargetList) and D-14 gap-analysis-button availability to context."""
+        """Add the campaign (TargetList), D-14 gap-analysis-button availability, and the
+        TALLY-02/D-10 campaign roll-up (summary strip above the table) to context."""
         context = super().get_context_data(**kwargs)
         context['campaign'] = get_object_or_404(TargetList, pk=self.kwargs['pk'])
         # D-14: reuse gap_analysis_available() (defined below) rather than duplicating its
         # target-count / resolved-site logic here -- gates the "Show Coverage Gaps" button.
         context['gap_analysis_available'] = gap_analysis_available(context['campaign'])
+        context['rollup'] = campaign_tally.get_or_compute_rollup(context['campaign'])
+        context['rollup_segments'] = campaign_tally.tally_segments(context['rollup'])
         return context
 
 
@@ -229,10 +358,32 @@ class CampaignListView(ListView):
     """
 
     queryset = (
-        TargetList.objects.filter(campaign_runs__isnull=False).distinct().annotate(run_count=Count('campaign_runs'))
+        TargetList.objects.filter(campaign_runs__isnull=False)
+        .distinct()
+        .annotate(run_count=Count('campaign_runs'))
+        # WR-05 (37-REVIEW.md): pagination needs a deterministic ordering -- an unordered
+        # queryset can show/hide/duplicate rows across page loads (Django's own
+        # UnorderedObjectListWarning). 'name' matches the page's own alphabetising-free,
+        # simplest deterministic tiebreak; nothing about which campaigns list first was a
+        # documented contract before this fix.
+        .order_by('name')
     )
     template_name = 'campaigns/campaign_list.html'
     context_object_name = 'campaigns'
+    # WR-05 (37-REVIEW.md), revised for G-37-4 (37-08-PLAN.md, Task 3): this page is
+    # reachable anonymously, and get_context_data() below computes a get_or_compute_rollup()
+    # for every listed campaign. Since G-37-4's fix, that cost is not a cache-flush-only
+    # spike: each listed campaign's three unused_* keys are recomputed LIVE on EVERY
+    # anonymous GET (never served from the cache, D-15), costing a campaign_records_version()
+    # change-stamp probe, a run-fetch and one allocation-event lookup per run within that
+    # campaign -- on top of the five record-derived keys, which stay fully cached and cost
+    # nothing marginal once warm. A cache flush additionally re-derives that record-driven
+    # half for every campaign too, so the O(campaigns x runs) worst case still exists there.
+    # Bounding the page to 100 campaigns bounds both costs per request, while keeping every
+    # campaign's tally genuinely visible to any visitor (TALLY-01) -- never hidden behind a
+    # cache-hit gate -- just reachable a page at a time once the list is long enough to
+    # matter.
+    paginate_by = 100
 
     def get_context_data(self, **kwargs):
         """Add the three staff-only banner counts: pending_count, its 27.1-03 sibling, and
@@ -252,6 +403,12 @@ class CampaignListView(ListView):
         ).count()
         context['site_review_count'] = runs_needing_site_review().count()
         context['attribution_count'] = campaign_attribution.orphans_needing_attribution_count()
+        # TALLY-02/D-10: one cached roll-up per listed campaign, attached directly to each
+        # campaign object so the template reads campaign.rollup.nights_observed -- iterating
+        # context['campaigns'] here (rather than a second queryset) caches the same queryset
+        # result the template itself iterates, so this costs no extra campaign-list query.
+        for campaign in context['campaigns']:
+            campaign.rollup = campaign_tally.get_or_compute_rollup(campaign)
         return context
 
 
@@ -327,20 +484,19 @@ class CampaignRunSubmissionView(FormView):
         """Email every staff user with an email on file that a submission is pending (SUBMIT-05).
 
         Body/subject intentionally carry no PII (D-04) -- a bare ping plus the approval-queue
-        link, nothing about the submitter, telescope, or campaign.
+        link, nothing about the submitter, telescope, or campaign. Delegates to the shared,
+        request-free ``notifications.notify_staff()`` helper (Phase 36, D-11) so this call
+        site and the unattended runner's own failure-notification call site can never drift
+        apart on the recipient rule or the no-PII body -- only the base URL and the
+        outage-tolerance differ between the two.
         """
-        recipients = list(User.objects.filter(is_staff=True).exclude(email='').values_list('email', flat=True))
-        if not recipients:
-            return  # no staff with an email on file -- nothing to notify, not an error
         # WR-03: campaigns:approval_queue is wired up by campaign_urls.py/src/fomo/urls.py in
         # this same shipped changeset, so reverse() always succeeds here -- no NoReverseMatch
         # fallback needed.
-        queue_url = self.request.build_absolute_uri(reverse('campaigns:approval_queue'))
-        send_mail(
+        queue_url = notifications.absolute_url(reverse('campaigns:approval_queue'))
+        notifications.notify_staff(
             subject='FOMO: new campaign run submission pending review',
             message=f'A new run submission is pending review: {queue_url}',
-            from_email=None,
-            recipient_list=recipients,
             fail_silently=True,  # Pitfall 6: a mail outage must never break the submission
         )
 
@@ -431,6 +587,57 @@ _ACTION_TO_RUN_STATUS = {
 }
 
 
+def _message_reconcile_side_effects(request, result) -> None:
+    """WR-12 (33-REVIEW.md): the single wording for what a ``reconcile_run()`` call actually
+    did, shared by all three call sites inside ``CampaignRunDecisionView`` -- approve,
+    ``_resolve_site()`` and ``_set_run_status()`` -- which together cover the four staff
+    actions (approve, resolve site, mark cancelled, mark weather failure). Defining this
+    once is the point: three call sites each growing their own wording is exactly how a
+    staff-facing message drifts out of sync with what the reconciler actually reports.
+
+    Emits a warning naming ``result.detached`` when it is non-zero (entries were released
+    back into the attribution queue), a second warning naming ``result.legacy_deleted``
+    when it is non-zero (Task 1, Phase 35: leftover per-night events from the retired
+    ``RUN:{pk}:{date}`` family, belonging to a run that now dispatches to the whole-window
+    container, deleted as one-time churn -- never a detach, since there is no attribution
+    left to release once the row is gone), an info message naming ``result.detach_declined``
+    when it is non-zero (entries were left attributed because a person had already confirmed
+    them -- 33-10 Task 1, UAT option B, 2026-09-09), and an info message naming
+    ``result.remint_declined`` when it is non-zero (an allocation night's boundaries were
+    left unchanged because a person's confirmation, an observation link, or an unverified
+    companion row outranks the automated correction -- 35-23, CR-04/WR-06). No message names
+    a contact field, an email, a ``source`` value or another run's identity -- only counts
+    and this run's own calendar state.
+    """
+    if result.detached:
+        messages.warning(
+            request,
+            f'{result.detached} calendar entr{"y" if result.detached == 1 else "ies"} '
+            'released back into the attribution queue.',
+        )
+    if result.legacy_deleted:
+        messages.warning(
+            request,
+            f'{result.legacy_deleted} leftover per-night calendar entr'
+            f'{"y" if result.legacy_deleted == 1 else "ies"} deleted -- this run now keeps a single '
+            'whole-window entry.',
+        )
+    if result.detach_declined:
+        messages.info(
+            request,
+            f'{result.detach_declined} superseded entr{"y" if result.detach_declined == 1 else "ies"} '
+            'left attributed -- someone had already confirmed them.',
+        )
+    if result.remint_declined:
+        messages.info(
+            request,
+            f'{result.remint_declined} allocation night{"" if result.remint_declined == 1 else "s"} kept '
+            f'{"its" if result.remint_declined == 1 else "their"} existing boundaries -- a person\'s '
+            'confirmation, an observation link, or an unverified companion row outranks this automated '
+            'correction.',
+        )
+
+
 class CampaignRunDecisionView(StaffRequiredMixin, View):
     """POST-only atomic approve/reject decision endpoint (SUBMIT-03) + calendar projection,
     plus the resolve_site action (D-08) that resolves an approved run's still-unmatched site
@@ -511,25 +718,29 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
                     run.site, run.site_needs_review = site, needs_review and not run.telescope_class
                     run.save(update_fields=['site', 'site_needs_review'])
 
-                # Projection now runs through the shared reconciler (D-01/D-03/RECON-08); the
-                # approve branch ignores its ReconcileResult. reconcile_run() still raises
-                # ValueError when sun_event() fails (e.g. a Tier-2-resolved site with a blank
-                # timezone) so resolve_site() can treat it as a real failure. approve() has no
-                # retry surface to protect (unlike resolve_site()'s "Sites Needing Review"
-                # row), so it swallows specifically this expected-failure-mode ValueError here
-                # to preserve its original behavior: the approval still succeeds without a
+                # Projection now runs through the shared reconciler (D-01/D-03/RECON-08).
+                # WR-12: the approve branch now captures the ReconcileResult so it can warn
+                # about a release/decline via the shared side-effect messenger below -- it
+                # previously discarded it entirely. reconcile_run() still raises ValueError
+                # when sun_event() fails (e.g. a Tier-2-resolved site with a blank timezone)
+                # so resolve_site() can treat it as a real failure. approve() has no retry
+                # surface to protect (unlike resolve_site()'s "Sites Needing Review" row), so
+                # it swallows specifically this expected-failure-mode ValueError here to
+                # preserve its original behavior: the approval still succeeds without a
                 # calendar entry (D-04). Anything else reconcile_run() raises (e.g.
                 # insert_or_create_calendar_event() itself failing) is a genuine unexpected
                 # failure and still falls through to the broader except Exception below,
                 # which reverts the approval.
                 try:
-                    reconcile_run(run)
+                    result = reconcile_run(run)
                 except ValueError:
                     logger.debug(
                         'Calendar projection skipped for CampaignRun %s on approve '
                         '(sun_event ValueError, e.g. blank site timezone).',
                         pk,
                     )
+                else:
+                    _message_reconcile_side_effects(request, result)
             except Exception:
                 # CR-01: the conditional .update() above is its own auto-committed statement,
                 # so the APPROVED transition has already landed. If site resolution (a network
@@ -690,12 +901,21 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         # Only after the reconcile call returned without raising: clear the flag.
         run.site_needs_review = False
         run.save(update_fields=['site_needs_review'])
-        # result.skipped_reason is None is the documented successor to the old bool return
-        # from the now-retired projection helper (D-04).
-        if result.skipped_reason is None:
+        _message_reconcile_side_effects(request, result)
+        # WR-12 (33-REVIEW.md): keyed on what actually happened, not on
+        # `skipped_reason is None` alone -- a run whose every night was already covered by
+        # an attributed entry elsewhere (D-01/ANNOT-01) has `skipped_reason is None` too, and
+        # must not claim 'run added to the calendar' when nothing was added.
+        if result.skipped_reason is not None:
+            messages.success(request, 'Site resolved.')
+        elif result.created or result.updated:
             messages.success(request, 'Site resolved — run added to the calendar.')
         else:
-            messages.success(request, 'Site resolved.')
+            messages.success(
+                request,
+                f'Site resolved — {result.skipped_nights} night(s) are already covered by entries '
+                'attributed to this run, so no new calendar entries were created.',
+            )
         return redirect('campaigns:approval_queue')
 
     def _set_run_status(self, request, pk, action):
@@ -755,7 +975,7 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
         # description line itself (event_title()/event_description()), so no title-helper
         # call or prefix lookup is needed here.
         try:
-            reconcile_run(run)
+            result = reconcile_run(run)
         except Exception:
             logger.exception('Calendar sync failed for CampaignRun %s during _set_run_status.', pk)
             messages.warning(
@@ -765,6 +985,7 @@ class CampaignRunDecisionView(StaffRequiredMixin, View):
             )
             return redirect('campaigns:approval_queue')
 
+        _message_reconcile_side_effects(request, result)
         messages.success(request, 'Run status updated.')
         return redirect('campaigns:approval_queue')
 
@@ -987,7 +1208,8 @@ def _dismissed_attribution_rows(limit: int = 50) -> list:
 
 def _confirmed_attribution_rows(limit: int = 50) -> list:
     """D-14: the Confirmed section's rows -- every owned ``CalendarEventMeta`` row plus every
-    ``CampaignRunObservation`` row, newest first, capped and materialized to a plain list. See
+    ``CampaignRunObservation`` row, newest first, capped and materialized to a plain list. An
+    event that follows its record's link to the same run is not listed separately (WR-02). See
     ``_dismissed_attribution_rows()``'s docstring for why the merge happens in Python.
 
     Args:
@@ -997,9 +1219,17 @@ def _confirmed_attribution_rows(limit: int = 50) -> list:
         list: confirmed rows (mixed ``CalendarEventMeta``/``CampaignRunObservation``
             instances) ordered by ``-confirmed_at``, capped at ``limit``.
     """
-    rows = list(
-        CalendarEventMeta.objects.filter(run__isnull=False).select_related('event', 'run__campaign', 'confirmed_by')
-    ) + list(CampaignRunObservation.objects.select_related('observation_record', 'run__campaign', 'confirmed_by'))
+    # WR-02 (37.1-REVIEW.md): a record's own event adopted into the run follows its record's
+    # link, so it is listed once, as the record row. A second row for the event would carry an
+    # Undo that unlinks only the event -- the surviving link re-adopts it on the next reconcile.
+    event_rows = (
+        CalendarEventMeta.objects.filter(run__isnull=False)
+        .exclude(observation_record__campaign_run_links__run=F('run'))
+        .select_related('event', 'run__campaign', 'confirmed_by')
+    )
+    rows = list(event_rows) + list(
+        CampaignRunObservation.objects.select_related('observation_record', 'run__campaign', 'confirmed_by')
+    )
     rows.sort(key=lambda r: r.confirmed_at or datetime.min.replace(tzinfo=dt_timezone.utc), reverse=True)
     return rows[:limit]
 
@@ -1321,11 +1551,12 @@ class AttributionDecisionView(StaffRequiredMixin, View):
         defaults = {'dismissed_by': request.user, 'dismissed_at': timezone.now(), 'reason': reason}
         with transaction.atomic():
             if kind == 'event':
-                # Event side: an .update(), still conditional on the currently-owning run so
-                # a concurrent re-point cannot be silently clobbered.
-                changed_count = CalendarEventMeta.objects.filter(event_id=orphan_pk, run_id=run_pk).update(
-                    run=None, confirmed_by=None, confirmed_at=None
-                )
+                # Event side: routed through the shared unlink_event_from_run() helper
+                # (D-16, plan 33-04), which preserves this call's own conditional-on-both-
+                # event-and-run property -- still gated on the currently-owning run so a
+                # concurrent re-point cannot be silently clobbered -- and returns the
+                # changed count this view's dismissal-write gate below depends on.
+                changed_count = unlink_event_from_run(orphan_pk, run_pk)
             else:
                 # Record side: the link row itself is deleted (Phase 27 D-01: its existence
                 # IS the confirmation).

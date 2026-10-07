@@ -10,16 +10,41 @@ non-sidereal-only fixtures for this project) and a plain `is_staff=True` `User` 
 prior `is_staff` test precedent exists in this codebase per 15-RESEARCH.md Wave 0 Gaps).
 """
 
-from datetime import date, timedelta
+import re
+from datetime import date, datetime, timedelta
+from datetime import timezone as dt_timezone
+from unittest import mock
+from uuid import uuid4
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.cache import cache
+from django.db import connection
+from django.db.models.signals import post_save
+from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
+from django_tables2.utils import Accessor
+from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code.campaign_tables import CampaignRunTable
-from solsys_code.models import CampaignRun
+from solsys_code import campaign_tally, campaign_views
+from solsys_code.allocation_projector import allocation_night_url
+from solsys_code.campaign_tables import (
+    APPROVAL_BADGE_CLASSES,
+    RUN_STATUS_BADGE_CLASSES,
+    CampaignRunTable,
+    _campaign_run_row_id,
+)
+from solsys_code.campaign_views import CampaignListView
+from solsys_code.models import CampaignRun, CampaignRunObservation, ProposalTimeAllocation
+from solsys_code.observation_projector import receiver_on_record_save
+from solsys_code.solsys_code_observatory.models import Observatory
+
+# A locmem cache for the tests that must not touch (or clear) the real shared FileBasedCache.
+TEST_CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
 
 # Cycle of run_status values for the "filler" rows -- deliberately excludes PLANNED/OBSERVED/
 # CANCELLED, which are pinned to specific rows below so the multi-select filter test (VIEW-04)
@@ -482,6 +507,37 @@ class TestCampaignListView(CampaignViewTestBase):
         self.assertEqual(response.context['pending_count'], expected_pending)
 
 
+class TestCampaignListPagination(CampaignViewTestBase):
+    """WR-05 (37-REVIEW.md): the anonymous campaign list must bound its per-campaign
+    get_or_compute_rollup() fan-out to one page's worth of campaigns, rather than looping
+    every campaign with >= 1 run unconditionally on every request."""
+
+    def test_paginate_by_is_set(self):
+        self.assertEqual(CampaignListView.paginate_by, 100)
+
+    def test_list_paginates_once_campaign_count_exceeds_page_size(self):
+        second_campaign = TargetList.objects.create(name='Second Campaign')
+        CampaignRun.objects.create(campaign=second_campaign, telescope_instrument='FTN/Extra')
+        with mock.patch.object(CampaignListView, 'paginate_by', 1):
+            response = self.client.get(self.list_url())
+        self.assertTrue(response.context['is_paginated'])
+        self.assertEqual(response.context['paginator'].num_pages, 2)
+        self.assertEqual(len(response.context['campaigns']), 1)
+
+    def test_second_page_is_reachable(self):
+        """The tally is never hidden from a visitor (TALLY-01) -- only paginated -- so every
+        campaign (and its roll-up) must still be reachable via ?page=2."""
+        second_campaign = TargetList.objects.create(name='Second Campaign')
+        CampaignRun.objects.create(campaign=second_campaign, telescope_instrument='FTN/Extra')
+        with mock.patch.object(CampaignListView, 'paginate_by', 1):
+            first_page = self.client.get(self.list_url())
+            second_page = self.client.get(self.list_url() + '?page=2')
+        first_page_names = {c.name for c in first_page.context['campaigns']}
+        second_page_names = {c.name for c in second_page.context['campaigns']}
+        self.assertEqual(first_page_names | second_page_names, {self.campaign.name, second_campaign.name})
+        self.assertNotContains(first_page, second_page_names.pop())
+
+
 class TestCampaignListSiteReviewEntryPoint(CampaignViewTestBase):
     """27.1-03: the campaign-list staff banner is driven by either queue -- pending_count or
     site_review_count -- not pending_count alone (T-27.1-08 mitigation for the widened,
@@ -629,3 +685,1056 @@ class TestCampaignDetailIntegration(CampaignViewTestBase):
         response = self.client.get(self.list_url())
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'<a class="nav-link" href="{self.list_url()}">Campaigns</a>')
+
+
+class TestCampaignRunRowAnchor(CampaignViewTestBase):
+    """D-13 (Phase 33 Plan 02): every CampaignRunTable row carries an id="run-{pk}"
+    anchor -- the landing spot for the calendar decoration's campaign-table link -- for
+    staff (model-instance rows) and anonymous (dict rows from .values()) readers alike,
+    and a row whose pk cannot be resolved carries no id attribute at all.
+    """
+
+    def test_staff_get_contains_run_row_id(self):
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.table_url())
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(f'id="run-{self.most_recent_run.pk}"', content)
+        self.assertNotIn('id="run-None"', content)
+
+    def test_anonymous_get_contains_run_row_id(self):
+        """The dict-row branch -- the case _campaign_run_row_id's Accessor form exists
+        for and the one most likely to regress."""
+        response = self.client.get(self.table_url())
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(f'id="run-{self.most_recent_run.pk}"', content)
+        self.assertNotIn('id="run-None"', content)
+
+    def test_row_attrs_callable_returns_none_for_unresolvable_pk(self):
+        """Direct unit assertion on the callable itself: an empty dict is the cheapest
+        record with no resolvable pk -- must return None, never the string 'run-None'."""
+        self.assertIsNone(_campaign_run_row_id({}))
+
+    def test_staff_get_contains_tr_target_highlight_rule(self):
+        """CR-01 (Phase 33 Plan 06): the D-13 highlight rule must actually be served in the
+        rendered page, not just sit in the template source outside any rendered block."""
+        self.client.force_login(self.staff_user)
+        response = self.client.get(self.table_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'tr:target')
+
+    def test_anonymous_get_contains_tr_target_highlight_rule(self):
+        """CR-01, anonymous/dict-row branch -- the highlight rule is page-level CSS, not
+        per-row markup, so it must be served identically regardless of viewer."""
+        response = self.client.get(self.table_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'tr:target')
+
+    def test_empty_campaign_still_serves_tr_target_highlight_rule(self):
+        """ANNOT-02 empty edge: the highlight rule ships with the page, not with a row --
+        a campaign with zero run rows must still serve it."""
+        response = self.client.get(self.table_url(campaign=self.empty_campaign))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'tr:target')
+
+
+class TestCampaignRunAnchorPagination(CampaignViewTestBase):
+    """WR-08 (Phase 33 Plan 06): pins a known, documented limitation as a tested constraint
+    rather than a silent dead link. The calendar decoration's #run-{pk} campaign-table link
+    carries no page parameter, so it always lands on page 1 -- a run that sorts past page 1
+    under CampaignRunTableView's default window_start-descending order has no id="run-{pk}"
+    anchor in the unpaginated page-1 document at all. See docs/runbooks/telescope_runs_calendar.rst
+    (added by plan 33-08) for the operator-facing wording.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.pagination_campaign = TargetList.objects.create(name='Pagination Campaign')
+        cls.pagination_runs = []
+        for i in range(26):
+            # Descending-distinct window_start values so run i=0 (earliest date, therefore
+            # LAST under window_start-descending sort) is the one run that falls onto page 2
+            # under per_page: 25.
+            window_date = _BASE_DATE + timedelta(days=i)
+            cls.pagination_runs.append(
+                CampaignRun.objects.create(
+                    campaign=cls.pagination_campaign,
+                    telescope_instrument=f'FTN/MuSCAT3-page-{i}',
+                    window_start=window_date,
+                    window_end=window_date,
+                    run_status=CampaignRun.RunStatus.PLANNED,
+                    approval_status=CampaignRun.ApprovalStatus.APPROVED,
+                )
+            )
+        # Oldest window_start -- sorts last (descending), so it's the sole page-2 row.
+        cls.oldest_run = cls.pagination_runs[0]
+
+    def _pagination_table_url(self):
+        return reverse('campaigns:table', kwargs={'pk': self.pagination_campaign.pk})
+
+    def test_oldest_run_has_no_anchor_on_page_1(self):
+        response = self.client.get(self._pagination_table_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(f'id="run-{self.oldest_run.pk}"', response.content.decode())
+
+    def test_oldest_run_anchor_present_on_page_2(self):
+        response = self.client.get(self._pagination_table_url(), {'page': 2})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(f'id="run-{self.oldest_run.pk}"', response.content.decode())
+
+
+class TestGapAnalysisSiteUnknownCount(TestCase):
+    """GAPB-01/D-17: the gap page's site-unknown count line renders only when there's
+    something to report, and states the count plainly rather than silently dropping an
+    observation the analysis could not place on a site."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.site = Observatory.objects.create(
+            obscode='F65',
+            name='Haleakala (FTN)',
+            short_name='FTN',
+            lon=-156.2570,
+            lat=20.7075,
+            altitude=3055.0,
+            timezone='Pacific/Honolulu',
+        )
+        cls.target = NonSiderealTargetFactory.create()
+        cls.campaign = TargetList.objects.create(name='Site Unknown Campaign')
+        cls.campaign.targets.add(cls.target)
+        # A resolved-site approved run is required for gap_analysis_available() to be True
+        # (D-14) -- this run's own window plays no other part in either test below.
+        CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            site=cls.site,
+            window_start=date(2026, 6, 1),
+            window_end=date(2026, 6, 1),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            run_status=CampaignRun.RunStatus.OBSERVED,
+        )
+
+    def setUp(self):
+        # get_or_compute_gap() caches its result for an hour, keyed by campaign/target/site/
+        # date-range -- both tests below hit the same key, so a cache hit from whichever test
+        # runs first (alphabetical order, not declaration order) would silently make the
+        # second test see a stale result. Never share cache state across test methods here.
+        cache.clear()
+
+    def _gap_url(self):
+        return reverse('campaigns:gap_analysis', kwargs={'pk': self.campaign.pk})
+
+    def test_site_unknown_count_line_renders_when_nonzero(self):
+        # 34-01/WR-02 precedent: disconnect the observation projector's post_save receiver
+        # around this fixture -- its deliberately site-less `parameters` would otherwise
+        # either log as 'unprojectable' or auto-create a CalendarEventMeta this test never
+        # asked for.
+        post_save.disconnect(
+            receiver_on_record_save,
+            sender=ObservationRecord,
+            dispatch_uid='solsys_code.observation_projector.post_save',
+        )
+        try:
+            ObservationRecord.objects.create(
+                target=self.target,
+                facility='LCO',
+                observation_id='SITEUNKNOWN-1',
+                status='COMPLETED',
+                scheduled_start=datetime(2026, 6, 5, 22, 0, tzinfo=dt_timezone.utc),
+                scheduled_end=datetime(2026, 6, 6, 4, 0, tzinfo=dt_timezone.utc),
+                parameters={},
+            )
+        finally:
+            post_save.connect(
+                receiver_on_record_save,
+                sender=ObservationRecord,
+                weak=False,
+                dispatch_uid='solsys_code.observation_projector.post_save',
+            )
+
+        response = self.client.get(self._gap_url(), {'site': self.site.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '1 observation(s)')
+        self.assertContains(response, 'could not')
+        self.assertContains(response, 'not ignored')
+
+    def test_site_unknown_count_line_absent_when_zero(self):
+        response = self.client.get(self._gap_url(), {'site': self.site.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'not ignored')
+
+
+class CampaignTallyViewTestBase(TestCase):
+    """Shared fixture for the TALLY-01/02 Progress-column and roll-up tests: one
+    resolvable ground Observatory (fixed UTC-10, no DST -- mirrors
+    ``test_campaign_tally.CampaignTallyTestBase``) and a campaign, plus run/link factory
+    helpers matching that module's own fixture shape so the two test suites agree on what a
+    linked record's state means.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.site = Observatory.objects.create(
+            obscode='F65',
+            name='Haleakala Observatory',
+            short_name='FTN',
+            lat=20.7069,
+            lon=-156.2570,
+            altitude=3055,
+            timezone='Pacific/Honolulu',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        cls.campaign = TargetList.objects.create(name='Tally View Campaign')
+
+    def _make_run(self, **overrides) -> CampaignRun:
+        kwargs = {
+            'campaign': self.campaign,
+            'approval_status': CampaignRun.ApprovalStatus.APPROVED,
+            'telescope_instrument': f'FTN/FLOYDS-{uuid4().hex[:8]}',
+            'site': self.site,
+            'site_raw': 'F65',
+            'window_start': date(2026, 7, 9),
+            'window_end': date(2026, 7, 11),
+        }
+        kwargs.update(overrides)
+        return CampaignRun.objects.create(**kwargs)
+
+    def _link_record(self, run: CampaignRun, group: ObservationGroup | None = None, **overrides) -> ObservationRecord:
+        """Create one linked ObservationRecord (COMPLETED/OBSERVED by default), matching
+        ``test_campaign_tally.CampaignTallyTestBase._link_record()``'s fixture shape."""
+        target = NonSiderealTargetFactory.create()
+        owner = User.objects.create(username=f'obs-owner-{uuid4().hex[:8]}')
+        kwargs = {
+            'target': target,
+            'user': owner,
+            'facility': 'LCO',
+            'observation_id': f'obs-{uuid4().hex[:8]}',
+            'status': 'COMPLETED',
+            'scheduled_start': None,
+            'scheduled_end': None,
+            'parameters': {},
+        }
+        kwargs.update(overrides)
+        record = ObservationRecord.objects.create(**kwargs)
+        CampaignRunObservation.objects.create(run=run, observation_record=record)
+        if group is not None:
+            group.observation_records.add(record)
+        return record
+
+    def _make_alloc_event(self, run: CampaignRun, night: date, *, end_time: datetime) -> CalendarEvent:
+        """One ``ALLOC:``-namespaced CalendarEvent for ``run``/``night`` -- mirrors
+        ``test_campaign_tally.CampaignTallyTestBase._make_alloc_event()``."""
+        return CalendarEvent.objects.create(
+            title=f'{run.telescope_instrument} allocation',
+            start_time=end_time - timedelta(hours=8),
+            end_time=end_time,
+            url=allocation_night_url(run, night),
+        )
+
+
+class TestCampaignRunTableProgressColumn(CampaignTallyViewTestBase):
+    """TALLY-01/D-08: a public Progress cell on every run row, computed for the whole table
+    in one pass and never a per-row query."""
+
+    def setUp(self):
+        # Each test's fresh CampaignRun can land on the same pk a prior test's rolled-back
+        # transaction used (sqlite reuses rowids after rollback) -- without clearing the
+        # cache, a stale campaign_tally cache entry keyed on that reused pk (with the same
+        # "no linked records" records_version) would be returned instead of a fresh
+        # computation, exactly as TestCampaignRollup.setUp() already guards against.
+        cache.clear()
+
+    def test_progress_cell_shows_groups_records_and_ordered_segments(self):
+        run = self._make_run()
+        group1 = ObservationGroup.objects.create(name='Group A')
+        group2 = ObservationGroup.objects.create(name='Group B')
+        self._link_record(
+            run,
+            group=group1,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        self._link_record(
+            run,
+            group=group2,
+            status='PENDING',
+            scheduled_start=datetime(2026, 7, 11, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 11, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        self._link_record(
+            run,
+            status='WINDOW_EXPIRED',
+            scheduled_start=datetime(2026, 7, 12, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 12, 3, 30, tzinfo=dt_timezone.utc),
+        )
+
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('2 groups', content)
+        self.assertIn('3 records', content)
+        # Fixed order: observed, scheduled, expired-or-failed, unused -- and never split
+        # across lines in a way that reorders the segments.
+        marker_positions = [content.find(marker) for marker in ('[O]', '[S]', '[X/F]', '[U]')]
+        self.assertGreater(min(marker_positions), -1)
+        self.assertEqual(marker_positions, sorted(marker_positions))
+        self.assertIn('[O] 1', content)
+        self.assertIn('[S] 1', content)
+        self.assertIn('[X/F] 1', content)
+
+    def test_run_with_nothing_linked_renders_zeros_not_an_empty_cell(self):
+        self._make_run()
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('0 groups', content)
+        self.assertIn('0 records', content)
+        self.assertIn('[O] 0', content)
+        self.assertIn('[S] 0', content)
+        self.assertIn('[X/F] 0', content)
+        self.assertNotIn('[U] 0', content)  # never zero for an unknown/not-yet-fetched figure
+
+    def test_unused_segment_reads_exact_when_an_allocation_run_has_still_standing_nights(self):
+        run = self._make_run(telescope_instrument='FTN/Exact')
+        self._make_alloc_event(run, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertContains(response, '[U] 1')
+
+    def test_unused_segment_reads_as_an_estimate_for_a_container_run_with_a_fetched_proposal(self):
+        self._make_run(telescope_instrument='FTN/Estimate', proposal_code='EST-2026A-001')
+        ProposalTimeAllocation.objects.create(
+            proposal_code='EST-2026A-001',
+            allocation_type='std',
+            allocated_hours=30.0,
+            used_hours=0.0,
+            fetched_at=timezone.now(),
+        )
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertContains(response, '[U] ≈3')
+
+    def test_unused_segment_reads_not_yet_known_before_any_fetch(self):
+        self._make_run(telescope_instrument='FTN/Unknown', proposal_code='NEVER-FETCHED-001')
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertContains(response, '[U] not yet known')
+
+    def test_anonymous_and_staff_requests_render_the_same_segments(self):
+        staff_user = User.objects.create_user(username='progress-staff', password='pw', is_staff=True)
+        run = self._make_run()
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+
+        anon_content = self.client.get(url).content.decode()
+
+        staff_client = self.client
+        staff_client.force_login(staff_user)
+        staff_content = staff_client.get(url).content.decode()
+
+        for marker in ('[O] 1', '[S] 0', '[X/F] 0'):
+            self.assertIn(marker, anon_content)
+            self.assertIn(marker, staff_content)
+
+    def test_get_queryset_is_unchanged_and_no_field_added_for_the_tally(self):
+        """T-37-17: the tally must never widen ALLOWED_FIELDS_FOR_NON_STAFF."""
+        from solsys_code.campaign_views import ALLOWED_FIELDS_FOR_NON_STAFF
+
+        self.assertNotIn('progress', ALLOWED_FIELDS_FOR_NON_STAFF)
+        self.assertNotIn('tally', ALLOWED_FIELDS_FOR_NON_STAFF)
+
+    def test_page_query_count_grows_by_a_bounded_per_row_amount_not_unboundedly(self):
+        """D-08/T-37-19, revised for CR-02 (37-REVIEW.md) and again for G-37-4 (37-08-PLAN.md,
+        Task 3): the five link/night-count tally fields (groups/records/nights_observed/
+        nights_scheduled/nights_failed) are still fully cached and batched -- an
+        already-cached row costs zero marginal queries for those. CR-02 requires the three
+        unused_* fields to be recomputed LIVE on every call, even a cache hit (never served
+        from the cached value), so the calendar's live [U] marker and the table's unused
+        count can never visibly disagree for up to TALLY_CACHE_TTL_SECONDS the way they
+        could before that fix -- that live recomputation costs two queries per row (one
+        allocation-event lookup, one proposal-allocation existence check). G-37-4's fix adds
+        a THIRD query for the added row: the roll-up strip above this same table is also
+        computed on this page, and its own live unused pass (_apply_rollup_unused_fields())
+        issues one more allocation-event lookup for the run just added, on top of the two the
+        row's own per-run split already costs -- the price of the strip agreeing with the row
+        beneath it. Pinned here at exactly 3 extra queries for the one added row, so a future
+        regression that makes it grow per LINKED RECORD instead of per RENDERED ROW is still
+        caught."""
+        run1 = self._make_run(telescope_instrument='FTN/Q1')
+        run2 = self._make_run(telescope_instrument='FTN/Q2')
+        campaign_tally.tallies_for_runs([run1, run2])
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+
+        # Prime any process-level framework caches (e.g. ContentType) with one throwaway
+        # request first -- the very first request in a test process costs extra queries for
+        # reasons unrelated to this feature, which would bias the two-vs-three comparison.
+        self.client.get(url)
+
+        with CaptureQueriesContext(connection) as ctx_two:
+            self.client.get(url)
+        two_row_count = len(ctx_two.captured_queries)
+
+        run3 = self._make_run(telescope_instrument='FTN/Q3')
+        campaign_tally.tallies_for_runs([run3])
+
+        with CaptureQueriesContext(connection) as ctx_three:
+            self.client.get(url)
+        three_row_count = len(ctx_three.captured_queries)
+
+        self.assertEqual(three_row_count - two_row_count, 3)
+
+
+class TestProgressColumnCoversEveryRenderedRow(CampaignTallyViewTestBase):
+    """G-37-5/CR-01: every row django-tables2 actually renders carries a real Progress
+    tally -- under ``?sort=``, ``?per_page=``, ``?page=``, and any combination of the
+    three -- not only the page a pre-``RequestConfig`` slice predicted.
+
+    Named and asserted for the coverage PROPERTY (every rendered row has a tally), never
+    for the mechanism or for row order: the set of pks resolved from
+    ``table.paginated_rows`` must equal the set of keys in ``table.tallies``, with no
+    assertion anywhere in this class on which order those rows render in.
+    """
+
+    def setUp(self):
+        # Same pk-reuse rationale as TestCampaignRunTableProgressColumn.setUp().
+        cache.clear()
+
+    def test_per_page_field_name_used_by_the_cap_matches_the_table(self):
+        """WR-06 (37-REVIEW.md): CampaignRunTableView.get() resolves the query-string field
+        name it caps from ``CampaignRunTable``'s own Meta rather than restating the literal
+        ``'per_page'`` -- this pins that they agree with what django-tables2's own
+        ``RequestConfig.configure()`` reads (``table.prefixed_per_page_field``), so a future
+        ``prefix`` or ``per_page_field`` override on ``CampaignRunTable.Meta`` would break
+        this test loudly instead of silently disabling the cap."""
+        self.assertEqual(CampaignRunTable(data=[]).prefixed_per_page_field, 'per_page')
+
+    def _make_thirty_runs(self) -> list[CampaignRun]:
+        """30 runs on ``self.campaign``, each with a distinct ``window_start`` so
+        ``get_queryset()``'s default nulls-last descending order is well defined. Each
+        run's ``telescope_instrument`` carries a ``uuid4`` suffix (via the inherited
+        ``_make_run()``), so sorting by that column produces an order genuinely different
+        from the ``window_start``-descending default -- exactly the mismatch G-37-5 is
+        about."""
+        runs = []
+        for i in range(30):
+            window_date = _BASE_DATE + timedelta(days=i)
+            runs.append(self._make_run(window_start=window_date, window_end=window_date))
+        return runs
+
+    def _assert_full_coverage(self, response):
+        """The two invariants every case in this class checks: zero muted not-available
+        Progress cells in the rendered body, and the rendered-pk set equals the tallies
+        key set -- SET equality, never a list or an order comparison (the ordering
+        must_have; this probe is literally the ``?sort=`` bug)."""
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        not_available_count = content.count('Progress not available')
+        table = response.context['table']
+        rendered_pks = {Accessor('pk').resolve(row.record, quiet=True) for row in table.paginated_rows}
+        rendered_pks.discard(None)
+        self.assertEqual(
+            not_available_count,
+            0,
+            f'{not_available_count} occurrences of the not-available token in the rendered body '
+            f'({len(rendered_pks)} rows rendered)',
+        )
+        self.assertEqual(rendered_pks, set(table.tallies))
+        return rendered_pks
+
+    def test_sorted_request_covers_every_rendered_row(self):
+        """RED today: sorting by telescope_instrument re-orders the table AFTER
+        get_table_kwargs() already sliced the first 25 pks in window_start order, so 5 of
+        the 25 rendered rows have no entry in table.tallies (10 occurrences of the token,
+        two per cell -- the title attribute and the body text)."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': '-telescope_instrument'})
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 25)
+
+    def test_unsorted_request_still_covers_every_rendered_row(self):
+        """The un-sorted control: same 30-run campaign, no query string, zero occurrences
+        of the token too -- distinguishes "the sort broke it" from "the fixture never had
+        tallies at all"."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url)
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 25)
+
+    def test_per_page_widened_covers_every_rendered_row(self):
+        """RED before the Task 1 fix and the T-37-09-02 cap: 10 occurrences of the token
+        (5 of 30 rows) when ``per_page`` widens the page past the old hardcoded 25-row
+        tally slice. ``?per_page=50`` is at/below MAX_TABLE_PER_PAGE, so it must be
+        honoured exactly -- all 30 rows render."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'per_page': '50'})
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 30)
+
+    def test_sort_and_per_page_combined_cover_every_rendered_row(self):
+        """Both G-37-5 GET params applied at once -- still zero."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': 'telescope_instrument', 'per_page': '50'})
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 30)
+
+    def test_sorted_page_two_boundary_covers_every_rendered_row(self):
+        """Adjacency: the short final page of a sorted 30-run campaign -- rows 25/26
+        change identity when the sort changes, and this is the short 5-row tail."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': '-telescope_instrument', 'page': '2'})
+        rendered_pks = self._assert_full_coverage(response)
+        self.assertEqual(len(rendered_pks), 5)
+
+    def test_tied_window_start_ordering_covers_every_rendered_row(self):
+        """SQLite gives no tie-break guarantee for rows whose ``window_start`` compares
+        equal, so the default ``get_queryset()`` ordering has real ties here. Coverage is
+        asserted, never which of the tied rows lands on which page -- the tie-break order
+        itself is deliberately not a contract of this plan (TALLY-01's ordering must_have)."""
+        tied_date = _BASE_DATE + timedelta(days=100)
+        for _ in range(6):
+            self._make_run(window_start=tied_date, window_end=tied_date)
+        for i in range(25):
+            window_date = _BASE_DATE + timedelta(days=i)
+            self._make_run(window_start=window_date, window_end=window_date)
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url)
+        self._assert_full_coverage(response)
+
+    def test_out_of_range_page_number_covers_every_rendered_row(self):
+        """RequestConfig falls back to the last page via its own EmptyPage handling; the
+        tallies follow whatever it settled on, because they are read afterwards."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': '-telescope_instrument', 'page': '99'})
+        self._assert_full_coverage(response)
+
+    def test_non_integer_page_number_covers_every_rendered_row(self):
+        """RequestConfig falls back to page 1 via its own PageNotAnInteger handling."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'sort': '-telescope_instrument', 'page': 'banana'})
+        self._assert_full_coverage(response)
+
+    def _make_n_runs(self, n: int) -> list[CampaignRun]:
+        """Like ``_make_thirty_runs()`` but for an arbitrary count -- used by the cap tests
+        below (WR-01, 37-REVIEW.md), which need more runs than ``MAX_TABLE_PER_PAGE`` to make
+        the cap's effect on ``per_page`` observable at all (30 runs can never expose a 100-row
+        cap: every value from 30 upward renders the same 30 rows whether or not the cap
+        exists)."""
+        runs = []
+        for i in range(n):
+            window_date = _BASE_DATE + timedelta(days=i)
+            runs.append(self._make_run(window_start=window_date, window_end=window_date))
+        return runs
+
+    def test_huge_per_page_is_capped_at_the_maximum(self):
+        """WR-01 (37-REVIEW.md): with MORE runs than ``MAX_TABLE_PER_PAGE`` in the campaign,
+        ``?per_page=100000`` must render EXACTLY ``MAX_TABLE_PER_PAGE`` rows, not merely "at
+        most" -- the previous version of this test fixtured only 30 runs, so
+        ``assertLessEqual(30, 100)`` held whether or not the cap existed at all (deleting the
+        whole ``get()`` override left it passing)."""
+        self._make_n_runs(120)
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'per_page': '100000'})
+        self.assertEqual(response.status_code, 200)
+        table = response.context['table']
+        rendered_count = len(list(table.paginated_rows))
+        self.assertEqual(rendered_count, campaign_views.MAX_TABLE_PER_PAGE)
+        self.assertEqual(len(table.tallies), rendered_count)
+        self._assert_full_coverage(response)
+
+    def test_per_page_exactly_at_the_cap_is_honoured(self):
+        """The boundary itself: ``?per_page=100`` (== MAX_TABLE_PER_PAGE) must render exactly
+        100 rows, not be treated as one-past-the-cap."""
+        self._make_n_runs(120)
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'per_page': str(campaign_views.MAX_TABLE_PER_PAGE)})
+        self.assertEqual(response.status_code, 200)
+        rendered_count = len(list(response.context['table'].paginated_rows))
+        self.assertEqual(rendered_count, campaign_views.MAX_TABLE_PER_PAGE)
+        self._assert_full_coverage(response)
+
+    def test_first_value_above_the_cap_is_clamped_down(self):
+        """The first integer actually above the cap (``MAX_TABLE_PER_PAGE + 1``) must still be
+        clamped DOWN to the cap, not merely "some value <= 100 renders"."""
+        self._make_n_runs(120)
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        response = self.client.get(url, {'per_page': str(campaign_views.MAX_TABLE_PER_PAGE + 1)})
+        self.assertEqual(response.status_code, 200)
+        rendered_count = len(list(response.context['table'].paginated_rows))
+        self.assertEqual(rendered_count, campaign_views.MAX_TABLE_PER_PAGE)
+        self._assert_full_coverage(response)
+
+    def test_degenerate_per_page_falls_back_to_the_default_not_the_maximum(self):
+        """CR-01 (37-REVIEW.md): a below-range ``per_page`` (``0``, ``-1``, a large negative
+        value) must fall back to ``DEFAULT_TABLE_PER_PAGE`` (the view's normal page size),
+        never to ``MAX_TABLE_PER_PAGE`` -- clamping the cheapest-looking query string to the
+        most expensive page is the exact regression CR-01 fixed."""
+        self._make_thirty_runs()
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        for value in ('0', '-1', '-9999'):
+            with self.subTest(per_page=value):
+                response = self.client.get(url, {'per_page': value})
+                self.assertEqual(response.status_code, 200)
+                rendered_count = len(list(response.context['table'].paginated_rows))
+                self.assertEqual(rendered_count, campaign_views.DEFAULT_TABLE_PER_PAGE)
+
+
+class TestProgressColumnOnDegenerateCampaigns(CampaignTallyViewTestBase):
+    """G-37-5 edge coverage: a campaign with zero or exactly one run must still render
+    cleanly -- no exception from an empty pk list, and a single row still gets a real
+    tally."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_zero_run_campaign_renders_with_empty_tallies(self):
+        empty_campaign = TargetList.objects.create(name='Zero-Run Tally Campaign')
+        url = reverse('campaigns:table', kwargs={'pk': empty_campaign.pk})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        table = response.context['table']
+        self.assertEqual(table.tallies, {})
+        self.assertEqual(response.content.decode().count('Progress not available'), 0)
+
+    def test_one_run_campaign_renders_with_a_real_tally(self):
+        one_run_campaign = TargetList.objects.create(name='One-Run Tally Campaign')
+        CampaignRun.objects.create(
+            campaign=one_run_campaign,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+            telescope_instrument=f'FTN/Solo-{uuid4().hex[:8]}',
+            site=self.site,
+            site_raw='F65',
+            window_start=_BASE_DATE,
+            window_end=_BASE_DATE,
+        )
+        url = reverse('campaigns:table', kwargs={'pk': one_run_campaign.pk})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        table = response.context['table']
+        self.assertEqual(len(table.tallies), 1)
+        self.assertEqual(response.content.decode().count('Progress not available'), 0)
+
+
+class TestCampaignRollup(CampaignTallyViewTestBase):
+    """TALLY-02/D-10: a header strip above the runs table and a nights-observed badge on
+    the campaign list, rolled up only across publicly visible runs."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_runs_page_shows_rollup_strip_with_group_record_and_segment_counts(self):
+        run = self._make_run()
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('1 record', content)
+        self.assertIn('Observed', content)
+        self.assertIn('[O]', content)
+
+    def test_pending_review_run_excluded_from_rollup_and_not_inferable(self):
+        pending_run = self._make_run(approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW)
+        self._link_record(
+            pending_run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        rollup = response.context['rollup']
+        self.assertEqual(rollup['runs'], 0)
+        self.assertEqual(rollup['records'], 0)
+
+    def test_anonymous_get_of_runs_page_returns_200_with_rollup_content(self):
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'group')
+
+    def test_campaign_list_badge_reads_runs_and_nights_observed(self):
+        run = self._make_run()
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '1 run')
+        self.assertContains(response, '1 night')
+        self.assertContains(response, 'observed')
+
+    def test_campaign_list_badge_omits_nights_clause_when_zero(self):
+        self._make_run()
+        response = self.client.get(reverse('campaigns:list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '1 run')
+        self.assertNotContains(response, 'nights observed')
+
+    def test_saving_a_linked_record_moves_the_rollup_on_next_load_no_clock_advance_no_cache_clear(self):
+        run = self._make_run()
+        table_url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+        list_url = reverse('campaigns:list')
+
+        first_table = self.client.get(table_url)
+        self.assertEqual(first_table.context['rollup']['records'], 0)
+        first_list = self.client.get(list_url)
+        self.assertNotContains(first_list, 'nights observed')
+
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 3, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 3, 30, tzinfo=dt_timezone.utc),
+        )
+
+        second_table = self.client.get(table_url)
+        self.assertEqual(second_table.context['rollup']['records'], 1)
+        second_list = self.client.get(list_url)
+        self.assertContains(second_list, '1 night')
+
+    def test_build_rollup_cache_key_moves_with_the_change_stamp(self):
+        a = campaign_tally.build_rollup_cache_key(1, datetime(2026, 1, 1, tzinfo=dt_timezone.utc))
+        b = campaign_tally.build_rollup_cache_key(1, datetime(2026, 1, 2, tzinfo=dt_timezone.utc))
+        c = campaign_tally.build_rollup_cache_key(1, datetime(2026, 1, 1, tzinfo=dt_timezone.utc))
+        self.assertNotEqual(a, b)
+        self.assertEqual(a, c)
+
+    def test_rollup_strip_agrees_with_progress_cells_after_a_staff_status_edit_not_a_records_change(self):
+        """G-37-4/D-15: the roll-up strip's [U] total must equal the sum of the Progress
+        cells' [U] values on the SAME rendered page response, across a driver that moves the
+        unused figure without moving campaign_records_version() -- a staff run_status edit.
+        Before this fix, get_or_compute_rollup() served the cached whole dict unchanged on a
+        hit, so the strip kept reading the pre-edit total while the row beneath it (computed
+        live via tallies_for_runs()) already read the post-edit one -- one page response
+        contradicting itself.
+
+        Body assertions run against a WHITESPACE-COLLAPSED copy of the response body. The
+        strip renders its marker and its count on two separate template lines
+        (campaignrun_table.html's rollup_segments loop), while the row cell emits them
+        contiguously (campaign_tables.py render_progress()'s f-string) -- a raw-body
+        contiguous-token check on the strip would distinguish nothing, passing or failing
+        identically before and after the fix.
+        """
+        run_a = self._make_run(telescope_instrument='FTN/RunA')
+        run_b = self._make_run(telescope_instrument='FTN/RunB')
+        self._make_alloc_event(run_a, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_alloc_event(run_a, date(2026, 7, 10), end_time=timezone.now() - timedelta(days=1))
+        self._make_alloc_event(run_b, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+
+        url = reverse('campaigns:table', kwargs={'pk': self.campaign.pk})
+
+        first = self.client.get(url)
+        self.assertEqual(first.context['rollup']['nights_unused'], 3)
+        self.assertTrue(first.context['rollup']['unused_known'])
+        self.assertFalse(first.context['rollup']['unused_is_estimate'])
+        first_body = ' '.join(first.content.decode().split())
+        self.assertIn('[U] 3', first_body)
+        self.assertIn('[U] 2', first_body)
+        self.assertIn('[U] 1', first_body)
+
+        # A staff edit, exactly like the approval-queue decision view makes. Touches no
+        # ObservationRecord, so campaign_records_version() -- and the roll-up cache key --
+        # does not move.
+        run_b.run_status = CampaignRun.RunStatus.CANCELLED
+        run_b.save(update_fields=['run_status'])
+
+        second = self.client.get(url)
+        self.assertEqual(second.context['rollup']['nights_unused'], 2)
+        second_body = ' '.join(second.content.decode().split())
+        self.assertNotIn('[U] 3', second_body)
+        self.assertIn('[U] 2', second_body)
+        self.assertIn('[U] 0', second_body)
+
+        # The roll-up-equals-its-rows property in its computed form, independent of how the
+        # HTML wraps.
+        per_run = campaign_tally.tallies_for_runs([run_a, run_b])
+        self.assertEqual(
+            second.context['rollup']['nights_unused'],
+            per_run[run_a.pk]['nights_unused'] + per_run[run_b.pk]['nights_unused'],
+        )
+
+    def test_campaign_list_query_count_bound_with_three_campaigns(self):
+        """D-10/T-37-19, revised for G-37-4 (37-08-PLAN.md, Task 3): each listed campaign's
+        five record-derived keys are still fully cached and cost nothing marginal once warm
+        -- that half of the roll-up is unchanged by this plan. The three unused_* keys are
+        now recomputed live on every call (G-37-4/D-15), so the campaign-list badge can
+        never disagree with the runs page's own strip and rows the way it could before this
+        fix; that live recomputation costs the campaign_records_version() probe, the shared
+        run-fetch (_rollup_runs()) and one allocation-event lookup per run within the
+        campaign -- per LISTED campaign, on every load. For this fixture's one-run,
+        no-proposal-code, no-allocation-event-yet campaigns that marginal cost is measured
+        at MARGINAL_QUERIES_PER_CAMPAIGN queries.
+
+        Pinned as an equality against that named constant, and a SECOND added campaign
+        proves the cost stays CONSTANT per campaign rather than growing with how many are
+        already on the page -- the real invariant that catches a regression making the
+        roll-up re-scan every campaign's runs, or making one campaign's marginal cost
+        depend on the page's existing campaign count."""
+        MARGINAL_QUERIES_PER_CAMPAIGN = 3  # measured: records_version probe, run-fetch, 1 allocation-event lookup
+
+        campaigns = [TargetList.objects.create(name=f'Bound Campaign {i}') for i in range(3)]
+        for c in campaigns:
+            self._make_run(campaign=c, telescope_instrument=f'FTN/{c.pk}')
+        # Warm the rollup cache for every campaign (including the fixture's own) first.
+        for c in list(campaigns) + [self.campaign]:
+            campaign_tally.get_or_compute_rollup(c)
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse('campaigns:list'))
+        base_count = len(ctx.captured_queries)
+
+        extra_campaign_1 = TargetList.objects.create(name='Bound Campaign Extra 1')
+        self._make_run(campaign=extra_campaign_1, telescope_instrument='FTN/extra1')
+        campaign_tally.get_or_compute_rollup(extra_campaign_1)
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse('campaigns:list'))
+        first_marginal_count = len(ctx.captured_queries) - base_count
+        self.assertEqual(first_marginal_count, MARGINAL_QUERIES_PER_CAMPAIGN)
+
+        # A second added campaign, warmed the same way -- proves the marginal cost per
+        # campaign is CONSTANT rather than growing with the number of campaigns already
+        # listed.
+        base_count_after_first_extra = base_count + first_marginal_count
+        extra_campaign_2 = TargetList.objects.create(name='Bound Campaign Extra 2')
+        self._make_run(campaign=extra_campaign_2, telescope_instrument='FTN/extra2')
+        campaign_tally.get_or_compute_rollup(extra_campaign_2)
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse('campaigns:list'))
+        second_marginal_count = len(ctx.captured_queries) - base_count_after_first_extra
+        self.assertEqual(second_marginal_count, first_marginal_count)
+
+    def test_an_unknown_contributor_is_never_absorbed_as_zero_into_the_strip_total(self):
+        """G-37-6/D-20: a run whose own unused figure is not yet known must not be silently
+        counted as zero in the roll-up strip's total, and the total must say how many runs
+        it could not account for. Developer's own reproduction: one allocation run with two
+        already-elapsed still-standing ``ALLOC:`` nights (exact 2), plus one container run
+        with a non-blank, never-fetched ``proposal_code`` (own figure: not yet known).
+
+        RED today: ``unused_is_estimate`` is True (derived from the code ATTEMPTED, not
+        contributed) and the ``unused_unknown_runs`` key does not exist at all.
+        """
+        run_a = self._make_run(telescope_instrument='FTN/G376-A')
+        self._make_run(telescope_instrument='FTN/G376-B', proposal_code='NEVER-FETCHED-37-6')
+        self._make_alloc_event(run_a, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_alloc_event(run_a, date(2026, 7, 10), end_time=timezone.now() - timedelta(days=1))
+
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        rollup = response.context['rollup']
+        self.assertEqual(rollup['nights_unused'], 2)
+        self.assertTrue(rollup['unused_known'])
+        self.assertFalse(rollup['unused_is_estimate'])
+        self.assertEqual(rollup['unused_unknown_runs'], 1)
+
+        # Collapse first, then assert (37-08's Task 1 idiom): the strip renders its marker
+        # and value on two separate template lines, while the row cell emits them
+        # contiguously, so the raw body carries a newline between them.
+        body = ' '.join(response.content.decode().split())
+        self.assertIn('[U] at least 2 (1 run not yet known)', body)
+        self.assertIn('[U] 2', body)
+        self.assertIn('[U] not yet known', body)
+        self.assertNotIn('[U] ≈2', body)
+
+    def test_the_approximation_qualifier_and_the_unknown_run_count_can_co_occur(self):
+        """G-37-6/D-20: the two signals must not cancel each other. Same reproduction as
+        above, plus a third run carrying a DIFFERENT proposal code that DOES have a stored
+        ``ProposalTimeAllocation`` (20 allocated, 10 used -> 1 estimated night), so an
+        estimate contributes AND a run is still unknown at the same time.
+        """
+        run_a = self._make_run(telescope_instrument='FTN/G376-CoA')
+        self._make_run(telescope_instrument='FTN/G376-CoB', proposal_code='NEVER-FETCHED-37-6-CO')
+        self._make_run(telescope_instrument='FTN/G376-CoC', proposal_code='FETCHED-37-6-CO')
+        self._make_alloc_event(run_a, date(2026, 7, 9), end_time=timezone.now() - timedelta(days=1))
+        self._make_alloc_event(run_a, date(2026, 7, 10), end_time=timezone.now() - timedelta(days=1))
+        ProposalTimeAllocation.objects.create(
+            proposal_code='FETCHED-37-6-CO',
+            allocation_type='std',
+            allocated_hours=20.0,
+            used_hours=10.0,
+            fetched_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        rollup = response.context['rollup']
+        self.assertEqual(rollup['nights_unused'], 3)
+        self.assertTrue(rollup['unused_is_estimate'])
+        self.assertEqual(rollup['unused_unknown_runs'], 1)
+
+        # The strip emits the approximation sign as the `&approx;` HTML entity (the row cell
+        # emits the literal `≈` character through format_html), so this assertion is
+        # entity-spelled on purpose -- a literal-character assertion would never match the
+        # strip in either state.
+        body = ' '.join(response.content.decode().split())
+        self.assertIn('[U] at least &approx;3 (1 run not yet known)', body)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestProgressColumnOnClassWideRun(CampaignTallyViewTestBase):
+    """F13 (quick task 261006-nga), the end-to-end leg: a class-wide run (no site) shows its
+    nights on the public row and in the roll-up instead of ``[O] 0 [S] 0 [X/F] 0``."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_class_wide_run_row_and_rollup_show_its_nights(self):
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            source=CampaignRun.Source.LCO_QUEUE,
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
+        coj = {'observed_site': 'coj', 'observed_telescope': '1m0a', 'observed_enclosure': 'doma'}
+        ogg = {'observed_site': 'ogg', 'observed_telescope': '2m0a', 'observed_enclosure': 'clma'}
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 10, 30, tzinfo=dt_timezone.utc),
+            parameters=coj,
+        )
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 12, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 12, 30, tzinfo=dt_timezone.utc),
+            parameters=ogg,
+        )
+        self._link_record(
+            run,
+            status='PENDING',
+            scheduled_start=datetime(2026, 7, 20, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 20, 10, 30, tzinfo=dt_timezone.utc),
+            parameters={},
+        )
+        self._link_record(
+            run,
+            status='WINDOW_EXPIRED',
+            scheduled_start=None,
+            scheduled_end=None,
+            parameters={'start': '2026-07-21T00:00:00', 'end': '2026-07-23T00:00:00'},
+        )
+
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        start = content.index(f'id="run-{run.pk}"')
+        row = ' '.join(content[start : content.index('</tr>', start)].split())
+        self.assertIn('[O] 2', row)
+        self.assertIn('[S] 1', row)
+        self.assertIn('[X/F] 1', row)
+
+        rollup = response.context['rollup']
+        self.assertEqual(rollup['nights_observed'], 2)
+        self.assertEqual(rollup['nights_scheduled'], 1)
+        self.assertEqual(rollup['nights_failed'], 1)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestCampaignTableBadgesAndProgressLayout(CampaignTallyViewTestBase):
+    """F14 (quick task 261006-nga): every badge on the campaign table uses a Bootstrap 5
+    colour class (the Bootstrap 4 names render white-on-white under the 5.3 this site loads),
+    and the Progress cell is two lines that never wrap internally."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_telescope_class_badge_is_dark_text_on_a_light_background(self):
+        run = self._make_run(telescope_class=CampaignRun.TelescopeClass.ONE_M0)
+        cell = str(CampaignRunTable([run]).rows[0].get_cell('telescope_class'))
+        for token in (
+            'class="badge text-bg-light"',
+            '>1m0<',
+            'title="1m0 class allocation"',
+            'border: 1px solid #6c757d;',
+        ):
+            self.assertIn(token, cell)
+        dict_cell = str(CampaignRunTable([]).render_telescope_class({'telescope_class': '1m0'}))
+        self.assertEqual(dict_cell, cell)
+
+    def test_every_badge_uses_a_bootstrap5_colour_class(self):
+        table = CampaignRunTable([])
+        for value in list(APPROVAL_BADGE_CLASSES.values()) + list(RUN_STATUS_BADGE_CLASSES.values()):
+            self.assertTrue(value.startswith('text-bg-'), value)
+        rendered = []
+        for status in CampaignRun.RunStatus.values:
+            html = str(table.render_run_status({'run_status': status}))
+            self.assertIn(f'class="badge {RUN_STATUS_BADGE_CLASSES[status]}"', html)
+            rendered.append(html)
+        for status in (
+            CampaignRun.RunStatus.CANCELLED,
+            CampaignRun.RunStatus.NOT_AWARDED,
+            CampaignRun.RunStatus.WEATHER_TECH_FAILURE,
+        ):
+            self.assertIn('border: 1px solid #6c757d;', str(table.render_run_status({'run_status': status})))
+        for status in CampaignRun.ApprovalStatus.values:
+            html = str(table.render_approval_status({'approval_status': status}))
+            self.assertIn(f'class="badge {APPROVAL_BADGE_CLASSES[status]}"', html)
+            rendered.append(html)
+        tbd_run = CampaignRun.objects.create(
+            campaign=self.campaign, telescope_instrument='TBD Badge Scope', contact_person='Badge Contact'
+        )
+        tbd_cell = str(CampaignRunTable([tbd_run]).rows[0].get_cell('window_start'))
+        self.assertIn('class="badge text-bg-secondary"', tbd_cell)
+        rendered.append(tbd_cell)
+        for html in rendered:
+            self.assertIsNone(re.search(r'\bbadge-[a-z]', html), html)
+
+    def test_progress_cell_puts_counts_and_segments_on_two_unbreakable_lines(self):
+        run = self._make_run()
+        tally = {
+            'groups': 2,
+            'records': 3,
+            'nights_observed': 1,
+            'nights_scheduled': 1,
+            'nights_failed': 1,
+            'nights_unused': None,
+            'unused_is_estimate': True,
+            'unused_known': False,
+        }
+        table = CampaignRunTable([run])
+        table.tallies = {run.pk: tally}
+        cell = str(table.rows[0].get_cell('progress'))
+        self.assertEqual(cell.count('class="d-block text-nowrap"'), 2)
+        first, second = re.findall(r'<span class="d-block text-nowrap">(.*?)</span>', cell)
+        self.assertEqual(first, '2 groups · 3 records')
+        self.assertEqual(second, '[O] 1 [S] 1 [X/F] 1 [U] not yet known')
+        title = ', '.join(segment['label'] for segment in campaign_tally.tally_segments(tally))
+        self.assertIn(f'title="{title}"', cell)
+
+    def test_public_table_row_carries_the_readable_badge_and_two_line_progress_cell(self):
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            source=CampaignRun.Source.LCO_QUEUE,
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        start = content.index(f'id="run-{run.pk}"')
+        raw_row = content[start : content.index('</tr>', start)]
+        self.assertIn('class="badge text-bg-light"', raw_row)
+        self.assertIn('>1m0<', raw_row)
+        self.assertEqual(raw_row.count('d-block text-nowrap'), 2)
+        self.assertIn('[O] 0', ' '.join(raw_row.split()))

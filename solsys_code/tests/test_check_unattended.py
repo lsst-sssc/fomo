@@ -1,0 +1,831 @@
+"""Tests for `check_unattended` (Phase 36 Plan 04).
+
+Covers the eight prerequisite checks, their aggregation into a single pass/fail run
+(``TestHardChecks``/``TestWarningChecks``), the printed cron line (``TestCronLine``),
+the ``--send-test-email`` flag (``TestTestEmail``), and SCHED-10/D-15 credential-hygiene
+(``TestNoValueLeakage``). No ``Target`` fixture is used anywhere in this module.
+"""
+
+import io
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from unittest import skipIf
+from unittest.mock import patch
+
+from django.conf import settings as django_settings
+from django.contrib.auth.models import User
+from django.core import mail
+from django.core.mail.backends.base import BaseEmailBackend as _BaseEmailBackend
+from django.core.mail.backends.locmem import EmailBackend as _LocmemEmailBackend
+from django.core.management import CommandError, call_command
+from django.test import TestCase, override_settings
+
+from solsys_code.management.commands.check_unattended import _CRON_INTERVAL_MINUTES, _owner_mode, cron_line
+from solsys_code.models import WatchedProposal
+
+_FAKE_HEARTBEAT_URL = 'https://hc.example/UUID-TEST-CHECK-UNATTENDED'
+_FAKE_MAIL_PASSWORD = 'sk-fake-mail-password-check-unattended'  # noqa: S105 -- fixture literal, not a real secret
+_FAKE_LCO_API_KEY = 'fake-lco-api-key-check-unattended'
+# IN-40 (36-REVIEW.md): derived from the same constant cron_line() itself reads, not a
+# hardcoded '*/15' -- a hardcoded literal would silently stop matching the template's
+# own line (or, worse, still match a STALE template line the schedule constant has moved
+# on from) the moment _CRON_INTERVAL_MINUTES changes, defeating every test below that
+# locates the committed template's schedule line by this prefix.
+_TEMPLATE_SCHEDULE_PREFIX = f'*/{_CRON_INTERVAL_MINUTES}'
+
+
+class _FakeDeliveringEmailBackend(_BaseEmailBackend):
+    """A stand-in for "some real, delivering backend" in tests (WR-19, 36-REVIEW.md).
+
+    IN-35 (36-REVIEW.md): a thin, direct subclass of Django's own ``BaseEmailBackend`` --
+    NOT of ``locmem`` (the previous version of this fixture) -- because ``check_email()``
+    now resolves ``EMAIL_BACKEND`` to its actual class and checks ``issubclass()`` against
+    the four non-delivering backends, so a locmem subclass would itself now be (correctly)
+    reported as non-delivering. Replicates just enough of locmem's own
+    ``send_messages()`` to keep populating ``django.core.mail.outbox`` the same way
+    Django's test runner already relies on, without inheriting from any of the four
+    backends the check knows about -- the same shape any real third-party SMTP-backed
+    backend has.
+    """
+
+    def send_messages(self, email_messages):
+        if not hasattr(mail, 'outbox'):
+            mail.outbox = []
+        msg_count = 0
+        for message in email_messages:  # .message() triggers header validation
+            message.message()
+            mail.outbox.append(message)
+            msg_count += 1
+        return msg_count
+
+
+_FAKE_DELIVERING_BACKEND_PATH = f'{__name__}.{_FakeDeliveringEmailBackend.__qualname__}'
+
+
+class _LocmemSubclassEmailBackend(_LocmemEmailBackend):
+    """IN-35 (36-REVIEW.md): a plain subclass of a known non-delivering backend, with no
+    overrides -- exactly the shape a local_settings.py might carry (e.g. to add logging
+    around ``send_messages()``) and exactly the evasion an exact dotted-path comparison
+    would miss. Defined at module level (not inside a test method) so
+    ``django.utils.module_loading.import_string()`` can resolve its dotted path -- a
+    class nested inside a method has a ``<locals>`` qualname that is not importable.
+    """
+
+
+def _run(*args, **kwargs):
+    """Call `check_unattended`, returning (stdout, stderr) as strings.
+
+    Any raised ``CommandError`` propagates -- callers that expect a failure use
+    ``assertRaises`` around this helper.
+    """
+    stdout, stderr = io.StringIO(), io.StringIO()
+    call_command('check_unattended', *args, stdout=stdout, stderr=stderr, **kwargs)
+    return stdout.getvalue(), stderr.getvalue()
+
+
+def _run_merged(*args, **kwargs):
+    """Call `check_unattended` with a single `io.StringIO` bound as both `stdout=`
+    and `stderr=`, returning its captured text.
+
+    G-36-5: this models a terminal, and it models the crontab template's own
+    append-with-merge redirect (``>> ... 2>&1``) -- the condition in which
+    standard output and standard error are one destination, so a command that
+    writes one string to both sinks renders it twice. `_run()` above hands the
+    command two SEPARATE sinks, so that merge never happens there, which is why
+    the regression this helper exists to catch was invisible to the suite before
+    this task.
+
+    Callers that expect a ``CommandError`` cannot use this helper -- once the call
+    raises, the ``io.StringIO`` it would have returned is unreachable. Build the
+    shared sink inline instead, with the same one-line, same-name form this
+    helper uses (``stdout=merged, stderr=merged``), and read ``merged.getvalue()``
+    after the raise.
+    """
+    merged = io.StringIO()
+    call_command('check_unattended', *args, stdout=merged, stderr=merged, **kwargs)
+    return merged.getvalue()
+
+
+def _result_lines(capture: str) -> list[str]:
+    """Return, in order, every line of `capture` whose first token is a bracketed
+    status word (``[ok]``, ``[WARN]``, or ``[FAIL]``) -- the lines the emission
+    loop in `Command.handle()` writes, as distinct from the blank separator, the
+    cron-line block, and the closing summary."""
+    return [line for line in capture.splitlines() if line.startswith(('[ok] ', '[WARN] ', '[FAIL] '))]
+
+
+class CheckUnattendedTestBase(TestCase):
+    """Shared fixture: writable temp lock/log directories and a staff user with an
+    email, so every hard check passes unless a test deliberately breaks one."""
+
+    def setUp(self):
+        super().setUp()
+        self.lock_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.lock_dir.cleanup)
+        self.log_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.log_dir.cleanup)
+
+        settings_override = override_settings(
+            FOMO_LOCK_DIR=self.lock_dir.name,
+            FOMO_STATE_DIR=self.lock_dir.name,
+            FOMO_LOG_FILE=str(Path(self.log_dir.name) / 'unattended.log'),
+            # WR-19 (36-REVIEW.md): Django's test runner swaps EMAIL_BACKEND to `locmem`
+            # for the whole suite -- which is now itself one of the non-delivering
+            # backends this check must fail on. Override it here to a stand-in that
+            # behaves exactly like locmem (mail.outbox still works) but is not one of
+            # the four dotted paths the check knows by name, so "every hard check
+            # passes by default" continues to hold; individual tests below override it
+            # back to each non-delivering backend explicitly.
+            EMAIL_BACKEND=_FAKE_DELIVERING_BACKEND_PATH,
+        )
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+
+        self.staff_user = User.objects.create_user(
+            username='staff-with-email', email='staff@example.org', is_staff=True
+        )
+
+    def _make_unwritable_parent(self) -> Path:
+        """Return a directory whose contents cannot be written to (mode 0o500), with
+        its permissions restored before the enclosing TemporaryDirectory tears down."""
+        readonly_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(readonly_dir.cleanup)
+        path = Path(readonly_dir.name)
+        os.chmod(path, stat.S_IRUSR | stat.S_IXUSR)
+        self.addCleanup(lambda: os.chmod(path, stat.S_IRWXU))
+        return path
+
+
+class TestHardChecks(CheckUnattendedTestBase):
+    def test_missing_flock_fails(self):
+        with patch('solsys_code.management.commands.check_unattended.shutil.which', return_value=None):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('flock', str(ctx.exception))
+
+    def test_flock_probe_raising_oserror_fails_cleanly(self):
+        # WR-20 (36-REVIEW.md): a dangling symlink target, a noexec mount, or a
+        # TOCTOU delete between shutil.which() and subprocess.run() can raise OSError
+        # out of the -E probe. Because check_flock() is the first check run, an
+        # uncaught OSError here would abort the whole command -- losing every other
+        # check's result and the printed cron line -- instead of degrading to a
+        # reported detail, which is what this read-only preflight must always do.
+        with patch('solsys_code.management.commands.check_unattended.subprocess.run', side_effect=OSError('boom')):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('flock', str(ctx.exception))
+
+    def test_flock_outside_system_directories_gets_a_sanity_note(self):
+        # IN-23 (36-REVIEW.md): shutil.which('flock') resolves against the preflight
+        # process's own PATH -- a stale or user-writable directory early in PATH (a
+        # conda/venv bin, a ~/bin) could resolve a non-system flock that then gets
+        # pasted into a persistent, scheduled crontab entry. WR-35 (36-REVIEW.md): the
+        # note must render as [WARN] and reach an operator watching standard error --
+        # an [ok] line (the previous behavior) is invisible to both a "grep FAIL/WARN"
+        # scan and anything watching standard error, exactly the workflow this note
+        # exists to catch. Still advisory only (it works and supports -E): the command
+        # must not exit non-zero for it. The routing contract itself -- that a WARN
+        # line reaches standard error and not standard output -- is pinned once, by
+        # TestResultStreamRouting.test_warning_and_passing_lines_route_to_separate_streams
+        # below, so this test asserts presence against the merged capture only.
+        fake_probe = subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr='')
+        with (
+            patch(
+                'solsys_code.management.commands.check_unattended.shutil.which',
+                return_value='/home/operator/.conda/envs/fomo/bin/flock',
+            ),
+            patch('solsys_code.management.commands.check_unattended.subprocess.run', return_value=fake_probe),
+        ):
+            merged = _run_merged()
+        self.assertIn('[WARN] flock', merged)
+        self.assertIn('outside the usual system directories', merged)
+
+    def test_flock_in_usr_bin_gets_no_sanity_note(self):
+        with patch(
+            'solsys_code.management.commands.check_unattended.subprocess.run',
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr=''),
+        ):
+            stdout, _stderr = _run()
+        flock_line = next(line for line in stdout.splitlines() if line.startswith('[ok] flock'))
+        self.assertNotIn('outside the usual system directories', flock_line)
+
+    def test_flock_in_usr_local_bin_gets_no_sanity_note(self):
+        # IN-36 (36-REVIEW.md): /usr/local/bin is a standard system location on many
+        # hosts (notably the default install prefix for a source-built util-linux) --
+        # previously missing from the allow-list, so a legitimate
+        # /usr/local/bin/flock produced this note as noise.
+        fake_probe = subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr='')
+        with (
+            patch(
+                'solsys_code.management.commands.check_unattended.shutil.which',
+                return_value='/usr/local/bin/flock',
+            ),
+            patch('solsys_code.management.commands.check_unattended.subprocess.run', return_value=fake_probe),
+        ):
+            stdout, _stderr = _run()
+        flock_line = next(line for line in stdout.splitlines() if line.startswith('[ok] flock'))
+        self.assertNotIn('outside the usual system directories', flock_line)
+
+    def test_flock_symlink_resolving_outside_system_directories_gets_a_sanity_note(self):
+        # IN-36 (36-REVIEW.md): the check previously compared shutil.which()'s raw,
+        # unresolved result -- a symlink AT a nominally-trusted path that points OUTSIDE
+        # every system directory passed silently, even though the actual binary a
+        # cron-installed line would execute lives elsewhere. Uses a REAL symlink (not a
+        # mocked Path.resolve()) so the test exercises actual filesystem resolution.
+        with tempfile.TemporaryDirectory() as untrusted_dir, tempfile.TemporaryDirectory() as target_dir:
+            real_target = Path(target_dir) / 'flock'
+            real_target.write_text('#!/bin/sh\n')
+            real_target.chmod(0o755)
+            symlink_path = Path(untrusted_dir) / 'flock'
+            symlink_path.symlink_to(real_target)
+
+            fake_probe = subprocess.CompletedProcess(args=[], returncode=0, stdout='--conflict-exit-code', stderr='')
+            with (
+                patch(
+                    'solsys_code.management.commands.check_unattended.shutil.which',
+                    return_value=str(symlink_path),
+                ),
+                patch('solsys_code.management.commands.check_unattended.subprocess.run', return_value=fake_probe),
+            ):
+                merged = _run_merged()
+            self.assertIn('[WARN] flock', merged)
+            self.assertIn(f'resolves to {real_target.resolve()}', merged)
+
+    def test_flock_probe_timing_out_fails_cleanly(self):
+        # WR-20 (36-REVIEW.md): a flock binary on a stalled NFS mount could otherwise
+        # hang the preflight indefinitely.
+        with patch(
+            'solsys_code.management.commands.check_unattended.subprocess.run',
+            side_effect=subprocess.TimeoutExpired(cmd=['flock', '--help'], timeout=5),
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('flock', str(ctx.exception))
+
+    @skipIf(os.geteuid() == 0, 'unwritable-directory tests are meaningless as root')
+    def test_unwritable_lock_dir_fails(self):
+        readonly_parent = self._make_unwritable_parent()
+        with override_settings(FOMO_LOCK_DIR=str(readonly_parent / 'sublock')):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('FOMO_LOCK_DIR', str(ctx.exception))
+
+    @skipIf(os.geteuid() == 0, 'unwritable-directory tests are meaningless as root')
+    def test_unwritable_log_dir_fails(self):
+        readonly_parent = self._make_unwritable_parent()
+        with override_settings(FOMO_LOG_FILE=str(readonly_parent / 'sublog' / 'unattended.log')):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('FOMO_LOG_FILE', str(ctx.exception))
+
+    def test_console_email_backend_fails(self):
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.console.EmailBackend'):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('EMAIL_BACKEND', str(ctx.exception))
+
+    def test_dummy_email_backend_fails(self):
+        # WR-19 (36-REVIEW.md): `dummy` is the canonical "turn email off" idiom and a
+        # realistic production setting -- it previously passed this check (and
+        # --send-test-email "succeeded" against it, since dummy.EmailBackend.
+        # send_messages() returns len(email_messages) without sending anything).
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.dummy.EmailBackend'):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('EMAIL_BACKEND', str(ctx.exception))
+
+    def test_locmem_email_backend_fails(self):
+        # WR-19 (36-REVIEW.md): what a half-finished local_settings.py copied from a
+        # test config carries -- previously passed this check.
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('EMAIL_BACKEND', str(ctx.exception))
+
+    def test_filebased_email_backend_fails(self):
+        # WR-19 (36-REVIEW.md): writes to a local file nobody reads -- previously
+        # passed this check.
+        with tempfile.TemporaryDirectory() as file_backend_dir:
+            with override_settings(
+                EMAIL_BACKEND='django.core.mail.backends.filebased.EmailBackend',
+                EMAIL_FILE_PATH=file_backend_dir,
+            ):
+                with self.assertRaises(CommandError) as ctx:
+                    _run()
+        self.assertIn('EMAIL_BACKEND', str(ctx.exception))
+
+    def test_subclass_of_a_non_delivering_backend_still_fails(self):
+        # IN-35 (36-REVIEW.md): an exact dotted-path comparison lets a local_settings.py
+        # that subclasses or re-exports a non-delivering backend (e.g. to add logging)
+        # evade the check entirely -- the fixture this module uses to stand in for "some
+        # real, delivering backend" (_FakeDeliveringEmailBackend) previously WAS itself
+        # exactly this evasion (a plain locmem subclass), and would have been reported
+        # as deliverable. check_email() must instead resolve EMAIL_BACKEND to its real
+        # class and reject it via issubclass().
+        backend_path = f'{__name__}.{_LocmemSubclassEmailBackend.__qualname__}'
+        with override_settings(EMAIL_BACKEND=backend_path):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('EMAIL_BACKEND', str(ctx.exception))
+
+    def test_no_staff_email_fails(self):
+        self.staff_user.delete()
+        User.objects.create_user(username='staff-no-email', is_staff=True, email='')
+        User.objects.create_user(username='regular-with-email', is_staff=False, email='regular@example.org')
+        with self.assertRaises(CommandError) as ctx:
+            _run()
+        self.assertIn('staff_recipients', str(ctx.exception))
+
+    def test_all_hard_checks_passing_exits_zero(self):
+        # Does not raise -- that is the assertion.
+        stdout, _stderr = _run()
+        self.assertIn('[ok] flock', stdout)
+        self.assertIn('[ok] FOMO_LOCK_DIR', stdout)
+        self.assertIn('[ok] FOMO_LOG_FILE', stdout)
+        self.assertIn('[ok] FOMO_STATE_DIR', stdout)
+        self.assertIn('[ok] EMAIL_BACKEND', stdout)
+        self.assertIn('[ok] staff_recipients', stdout)
+
+    @skipIf(os.geteuid() == 0, 'unwritable-directory tests are meaningless as root')
+    def test_unwritable_state_dir_fails(self):
+        # WR-15 (36-REVIEW.md): an unwritable FOMO_STATE_DIR must be caught here, before
+        # it turns into the every-15-minutes duplicate-failure-email loop an unpersistable
+        # state file causes at runtime.
+        readonly_parent = self._make_unwritable_parent()
+        with override_settings(FOMO_STATE_DIR=str(readonly_parent / 'substate')):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('FOMO_STATE_DIR', str(ctx.exception))
+
+    def test_flock_without_conflict_exit_code_support_fails(self):
+        # WR-11 (36-REVIEW.md): an older flock (util-linux < 2.27) has no -E option --
+        # the cron line's whole skip-detection scheme silently no-ops on such a host, so
+        # this must be a hard failure, not just a PATH lookup.
+        with patch(
+            'solsys_code.management.commands.check_unattended.subprocess.run',
+            return_value=type('Probe', (), {'stdout': 'Usage: flock [options] ...', 'stderr': ''})(),
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                _run()
+        self.assertIn('flock', str(ctx.exception))
+
+    def test_command_writes_nothing(self):
+        lock_path = Path(self.lock_dir.name) / 'does-not-exist-yet'
+        log_path = Path(self.log_dir.name) / 'does-not-exist-yet'
+        with override_settings(FOMO_LOCK_DIR=str(lock_path), FOMO_LOG_FILE=str(log_path / 'unattended.log')):
+            self.assertFalse(lock_path.exists())
+            self.assertFalse(log_path.exists())
+            _run()
+            self.assertFalse(lock_path.exists())
+            self.assertFalse(log_path.exists())
+        self.assertEqual(WatchedProposal.objects.count(), 0)
+
+    def test_writable_result_names_the_uid_that_was_actually_tested(self):
+        # WR-06 (36-REVIEW.md): os.access() only answers "can *this* process's uid
+        # write here" -- report the resolved owner/mode alongside the verdict, and say
+        # explicitly whose write access was tested, so an operator running the
+        # preflight as root does not mistake that [ok] for one tested as the cron
+        # account.
+        stdout, _stderr = _run()
+        self.assertIn(f'writable by uid {os.geteuid()}', stdout)
+        self.assertIn('run this check as the account that will actually run unattended', stdout)
+
+    def test_none_lock_dir_falls_back_to_the_documented_default_instead_of_raising(self):
+        # IN-14 (36-REVIEW.md): a local_settings.py deriving FOMO_LOCK_DIR from an unset
+        # environment variable with no default of its own yields None, and Path(None)
+        # would raise TypeError from inside check_lock_dir() and cron_line() before this
+        # fix -- an uncaught traceback out of a read-only reporting command, not the
+        # reported failure a bad prerequisite should produce.
+        fallback_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(fallback_dir.cleanup)
+        with (
+            override_settings(FOMO_LOCK_DIR=None),
+            patch('solsys_code.management.commands.check_unattended._DEFAULT_LOCK_DIR', fallback_dir.name),
+        ):
+            stdout, _stderr = _run()  # must not raise TypeError
+        self.assertIn('[ok] FOMO_LOCK_DIR', stdout)
+        self.assertIn(fallback_dir.name, stdout)
+
+
+class TestOwnerModeRobustness(TestCase):
+    """IN-14 (36-REVIEW.md): `_owner_mode()`'s `stat()` call is not atomic with its
+    caller's own `path.exists()` check -- a concurrent delete or an `EACCES` on a parent
+    directory between the two must degrade to a reported detail, never an uncaught
+    traceback out of this read-only preflight."""
+
+    def test_stat_oserror_reports_unavailable_instead_of_raising(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir)
+            with patch.object(Path, 'stat', side_effect=OSError('stat failed')):
+                self.assertEqual(_owner_mode(path), 'owner/mode unavailable')
+
+
+class TestWarningChecks(CheckUnattendedTestBase):
+    def test_unset_heartbeat_is_a_warning(self):
+        with override_settings(FOMO_HEARTBEAT_URL=None):
+            merged = _run_merged()
+        self.assertIn('FOMO_HEARTBEAT_URL', merged)
+        self.assertIn('[WARN]', merged)
+
+    def test_empty_watched_list_is_a_warning(self):
+        merged = _run_merged()
+        self.assertIn('[WARN] watched_proposals', merged)
+
+        WatchedProposal.objects.create(proposal_code='KEY2026B-004', is_active=True)
+        merged = _run_merged()
+        self.assertNotIn('[WARN] watched_proposals', merged)
+        self.assertIn('[ok] watched_proposals', merged)
+
+    def test_warnings_do_not_mask_a_hard_failure(self):
+        self.staff_user.delete()
+        stdout_capture, stderr_capture = io.StringIO(), io.StringIO()
+        with override_settings(FOMO_HEARTBEAT_URL=None):
+            with self.assertRaises(CommandError):
+                call_command('check_unattended', stdout=stdout_capture, stderr=stderr_capture)
+        combined = stdout_capture.getvalue() + stderr_capture.getvalue()
+        self.assertIn('FOMO_HEARTBEAT_URL', combined)
+        self.assertIn('staff_recipients', combined)
+
+    def test_localhost_default_base_url_is_a_warning(self):
+        # WR-07 (36-REVIEW.md): FOMO_BASE_URL left at its localhost dev default makes
+        # every emailed link (failure notice, campaign approval-queue notice) unusable
+        # off this host -- nothing else checks it, so this preflight must.
+        with override_settings(FOMO_BASE_URL='http://localhost:8000'):
+            merged = _run_merged()
+        self.assertIn('[WARN] FOMO_BASE_URL', merged)
+
+        with override_settings(FOMO_BASE_URL='https://fomo.example.org'):
+            merged = _run_merged()
+        self.assertIn('[ok] FOMO_BASE_URL', merged)
+
+    def test_unset_base_url_is_a_warning(self):
+        with override_settings(FOMO_BASE_URL=None):
+            merged = _run_merged()
+        self.assertIn('[WARN] FOMO_BASE_URL', merged)
+
+    def test_missing_facility_credentials_are_a_warning(self):
+        # WR-31 (36-REVIEW.md): the fresh-host runbook names the LCO/SOAR api_key as a
+        # prerequisite, but nothing checked it until this check existed -- a green
+        # preflight followed by status_refresh failing on every non-terminal record.
+        original_lco = django_settings.FACILITIES['LCO'].get('api_key')
+        original_soar = django_settings.FACILITIES['SOAR'].get('api_key')
+        django_settings.FACILITIES['LCO']['api_key'] = ''
+        django_settings.FACILITIES['SOAR']['api_key'] = ''
+        try:
+            merged = _run_merged()
+        finally:
+            django_settings.FACILITIES['LCO']['api_key'] = original_lco
+            django_settings.FACILITIES['SOAR']['api_key'] = original_soar
+        self.assertIn('[WARN] facility_credentials', merged)
+        self.assertIn('LCO', merged)
+        self.assertIn('SOAR', merged)
+
+    def test_configured_facility_credentials_are_ok(self):
+        original_lco = django_settings.FACILITIES['LCO'].get('api_key')
+        original_soar = django_settings.FACILITIES['SOAR'].get('api_key')
+        django_settings.FACILITIES['LCO']['api_key'] = _FAKE_LCO_API_KEY
+        django_settings.FACILITIES['SOAR']['api_key'] = _FAKE_LCO_API_KEY
+        try:
+            stdout, _stderr = _run()
+        finally:
+            django_settings.FACILITIES['LCO']['api_key'] = original_lco
+            django_settings.FACILITIES['SOAR']['api_key'] = original_soar
+        self.assertIn('[ok] facility_credentials', stdout)
+        self.assertNotIn(_FAKE_LCO_API_KEY, stdout)
+
+    def test_set_heartbeat_reminds_about_the_check_period(self):
+        # G-36-3: the runbook once named only the check's grace time, so an operator
+        # left the check's own expected ping interval (Period) at its 1-day default
+        # and never got an alert. This reminder is the last line of defense against
+        # that regenerating -- keep it if this check is ever refactored.
+        #
+        # IN-20 (36-REVIEW.md): also asserts Grace, not Period alone -- the detail
+        # previously reminded about only one of the two knobs the runbook and crontab
+        # template both document, so an operator following the preflight's reminder
+        # alone left Grace at healthchecks.io's 1-hour default.
+        with override_settings(FOMO_HEARTBEAT_URL=_FAKE_HEARTBEAT_URL):
+            stdout, _stderr = _run()
+        self.assertIn('[ok] heartbeat', stdout)
+        self.assertIn('Period', stdout)
+        self.assertIn('Grace', stdout)
+        self.assertNotIn(_FAKE_HEARTBEAT_URL, stdout)
+
+
+class TestResultStreamRouting(CheckUnattendedTestBase):
+    """G-36-5, UAT round 3 Test 1: `Command.handle()`'s emission loop wrote every
+    non-`ok` result line unconditionally to `self.stdout` and then again to
+    `self.stderr`, so on a terminal -- or under any `2>&1` -- the two sinks are one
+    destination and the line renders twice, the second copy red. The operator hit
+    this with exactly one non-`ok` check (`watched_proposals`, D-08's empty-list
+    warning). `_run()` above hands the command two SEPARATE `io.StringIO` sinks, so
+    that merge never happened in the suite either -- this class is what makes the
+    defect class visible to a test at all."""
+
+    def test_watched_proposals_warning_appears_exactly_once_in_merged_capture(self):
+        # The exact reproduction: base fixture (no active WatchedProposal rows),
+        # one merged sink modeling a terminal or `2>&1`. Before this task's fix,
+        # this warning line rendered twice in the same capture.
+        merged = _run_merged()
+        result_lines = _result_lines(merged)
+        watched_proposals_warnings = [line for line in result_lines if line.startswith('[WARN] watched_proposals')]
+        self.assertEqual(len(watched_proposals_warnings), 1)
+        self.assertEqual(len(result_lines), len(set(result_lines)))
+
+    def test_multiple_non_ok_results_produce_no_duplicate_lines(self):
+        # A harder boundary than the single-warning case above: force a hard
+        # failure (delete the only staff user with an email) alongside two
+        # warnings (heartbeat unset, watched list empty by fixture default), so
+        # at least three non-`ok` lines are produced in one run. A helper cannot
+        # return a capture once the call raises, so the shared sink is built
+        # inline here, with the same one-line, same-name form `_run_merged` uses.
+        self.staff_user.delete()
+        merged = io.StringIO()
+        with override_settings(FOMO_HEARTBEAT_URL=None), self.assertRaises(CommandError):
+            call_command('check_unattended', stdout=merged, stderr=merged)
+        capture = merged.getvalue()
+        result_lines = _result_lines(capture)
+        non_ok_lines = [line for line in result_lines if not line.startswith('[ok]')]
+        self.assertGreaterEqual(len(non_ok_lines), 3)
+        self.assertEqual(len(result_lines), len(set(result_lines)))
+        staff_recipients_lines = [line for line in result_lines if line.startswith('[FAIL] staff_recipients')]
+        self.assertEqual(len(staff_recipients_lines), 1)
+
+    def test_merged_capture_has_no_escape_bytes(self):
+        # Django's OutputWrapper.write() applies a style argument unconditionally,
+        # bypassing the terminal check its own default styling is gated on -- so
+        # passing one here would push ANSI escape bytes into a redirected cron
+        # log. GREEN today and after: this pins the prohibition against ever
+        # passing that argument.
+        merged = _run_merged()
+        self.assertNotIn('\x1b', merged)
+
+    def test_warning_and_passing_lines_route_to_separate_streams(self):
+        # The routing contract itself, stated once here so a future routing
+        # change fails this one test instead of quietly emptying every presence
+        # test above that now asserts against the merged capture.
+        stdout, stderr = _run()
+        self.assertIn('[WARN] watched_proposals', stderr)
+        self.assertNotIn('[WARN] watched_proposals', stdout)
+        self.assertIn('[ok] flock', stdout)
+        self.assertNotIn('[ok] flock', stderr)
+        self.assertIn('Cron line to install', stdout)
+        self.assertNotIn('Cron line to install', stderr)
+
+
+class TestCronLine(CheckUnattendedTestBase):
+    def _assert_lock_held_exit_matrix_is_normalized(self, line: str) -> None:
+        """Shared 0/1/99 matrix: splice a stub in place of the real `flock ...
+        run_unattended` invocation in ``line``, keeping its own skip-tail/exit logic
+        verbatim, and run it in a real shell.
+
+        Anchor on ' run_unattended >>' specifically (not the bare command name), which
+        also appears inside the lock file path (`run_unattended.cron.lock`) and inside
+        the skip line's own echoed text ("run_unattended skipped: lock held") -- only
+        the real invocation is immediately followed by ' >>'.
+        """
+        _head, sep, tail = line.partition(' run_unattended >>')
+        self.assertTrue(sep, 'expected exactly one " run_unattended >>" in the line')
+        # The tail really executes, including its `echo ... lock held >> <log>` skip
+        # line, so every occurrence of the line's log path is redirected into this
+        # test's temp directory. The committed template names the real
+        # /var/log/fomo/unattended.log; running it verbatim appended a fake "lock held"
+        # line to the live unattended log on every test run.
+        real_log = tail.split()[0]
+        sandbox_log = Path(self.log_dir.name) / 'lock-held-matrix.log'
+        tail = tail.replace(real_log, str(sandbox_log))
+        self.assertNotIn(real_log, tail)
+        for stub_exit, expected_final_exit in ((0, 0), (1, 1), (99, 0)):
+            with self.subTest(stub_exit=stub_exit):
+                sandbox_log.unlink(missing_ok=True)
+                # The stub's extra positional argument ("run_unattended") is harmless --
+                # `sh -c "exit N" $0 ...` ignores it, since "exit N" never references $0.
+                script = f'sh -c "exit {stub_exit}"{sep}{tail}'
+                result = subprocess.run(['sh', '-c', script], check=False)
+                self.assertEqual(result.returncode, expected_final_exit)
+                skip_line_written = sandbox_log.exists() and 'lock held' in sandbox_log.read_text()
+                self.assertEqual(skip_line_written, stub_exit == 99)
+
+    def test_lock_held_exit_is_normalized_to_zero(self):
+        # WR-16 (36-REVIEW.md): run_tick()'s own contract is that lock contention is NOT
+        # a failure -- it returns exit_code=0, and the heartbeat (D-12) is the
+        # structural backstop. Before this fix, a lock-held skip made the WHOLE cron
+        # line exit 99, which any supervisor (cron's own syslog line, an OnFailure=
+        # hook, a monitoring wrapper) reads as a failure on a routine tick overlap.
+        # Exercises the actual shipped tail in a real shell, not a hand-copied
+        # re-implementation.
+        self._assert_lock_held_exit_matrix_is_normalized(cron_line())
+
+    def test_committed_template_lock_held_exit_is_normalized_to_zero(self):
+        # WR-37 (36-REVIEW.md): the previous version of this test only ever exercised
+        # cron_line()'s OWN generated output -- never the committed
+        # deploy/cron/fomo.crontab.example line an operator might instead copy-paste
+        # directly. The WR-16 rc=0 normalization could regress in the committed template
+        # alone (e.g. losing the `{ ... ; rc=0; }` grouping) and every test would still
+        # pass, in a phase whose CR-01/WR-01/WR-09 history is entirely about these two
+        # artifacts drifting apart. Runs the identical 0/1/99 matrix against the
+        # template's own schedule line, read from disk.
+        template_path = Path(django_settings.BASE_DIR).parent / 'deploy' / 'cron' / 'fomo.crontab.example'
+        template_line = next(
+            (
+                stripped_line
+                for raw_line in template_path.read_text().splitlines()
+                if (stripped_line := raw_line.strip()).startswith(_TEMPLATE_SCHEDULE_PREFIX)
+            ),
+            None,
+        )
+        self.assertIsNotNone(template_line, f'no {_TEMPLATE_SCHEDULE_PREFIX!r} line found in {template_path}')
+        self._assert_lock_held_exit_matrix_is_normalized(template_line)
+
+    def test_line_has_real_paths(self):
+        line = cron_line()
+        self.assertIn(sys.executable, line)
+        manage_py_path = str(Path(django_settings.BASE_DIR).parent / 'manage.py')
+        self.assertIn(manage_py_path, line)
+        self.assertNotIn('/path/to/venv/bin/python', line)
+        self.assertNotIn('/path/to/checkout/manage.py', line)
+
+    def test_line_matches_the_committed_template_shape(self):
+        # IN-08 (36-REVIEW.md): guard against a host with no `flock` on PATH -- `shutil.
+        # which('flock')` would then return None, and the un-guarded f-string built an
+        # assertion for the literal 'None -n -E 99', which can never match `cron_line()`'s
+        # `/usr/bin/flock` fallback and fails the test for a reason unrelated to what it
+        # actually checks.
+        flock_path = shutil.which('flock') or '/usr/bin/flock'
+        line = cron_line()
+        for element in (
+            f'{_TEMPLATE_SCHEDULE_PREFIX} * * * *',
+            f'{flock_path} -n -E 99',
+            'run_unattended.cron.lock',
+            'run_unattended',
+            '2>&1',
+            'rc=$?',
+            '[ $rc -eq 99 ]',
+            'lock held',
+            'exit $rc',
+        ):
+            self.assertIn(element, line)
+        self.assertIn('>>', line)
+
+    def test_line_matches_the_committed_template_token_for_token(self):
+        # IN-08 (36-REVIEW.md): the previous version of this test's name promised
+        # agreement with deploy/cron/fomo.crontab.example but never actually read it,
+        # comparing only a hand-maintained fragment list instead -- drift between the two
+        # is exactly what CR-01/WR-01/WR-09 were about. Read the committed file's own
+        # schedule line and compare option tokens, ignoring the two host-specific
+        # placeholder paths this test doesn't resolve.
+        # IN-23 (36-REVIEW.md): resolve the repo root from settings.BASE_DIR (the same
+        # way cron_line() itself resolves manage.py's path) rather than
+        # Path(__file__).resolve().parents[2], which silently assumes this test file's
+        # own depth below the repo root and breaks if the file is ever moved.
+        template_path = Path(django_settings.BASE_DIR).parent / 'deploy' / 'cron' / 'fomo.crontab.example'
+        template_line = next(
+            (
+                stripped_line
+                for raw_line in template_path.read_text().splitlines()
+                if (stripped_line := raw_line.strip()).startswith(_TEMPLATE_SCHEDULE_PREFIX)
+            ),
+            None,
+        )
+        self.assertIsNotNone(template_line, f'no {_TEMPLATE_SCHEDULE_PREFIX!r} line found in {template_path}')
+        line = cron_line()
+        for token in (
+            # IN-40 (36-REVIEW.md): the schedule field itself was not among the compared
+            # tokens -- changing _CRON_INTERVAL_MINUTES to anything but 15 previously left
+            # this test comparing against a template line that no longer matched the
+            # generated one, and it still passed. Now the same dynamic prefix used to
+            # locate template_line above is also compared token-for-token.
+            _TEMPLATE_SCHEDULE_PREFIX,
+            '-n',
+            '-E 99',
+            '.cron.lock',
+            '>>',
+            '2>&1',
+            'rc=$?',
+            '[ $rc -eq 99 ]',
+            'lock held',
+            # WR-37 (36-REVIEW.md): the previous token list did not cover WR-16's rc=0
+            # normalization or the `{ ... ; }` grouping that makes it work -- the
+            # committed template could lose either and this test would still pass.
+            'rc=0',
+            '; }',
+            'exit $rc',
+        ):
+            self.assertIn(token, template_line, f'{token!r} missing from the committed template line')
+            self.assertIn(token, line, f'{token!r} missing from cron_line()')
+
+    def test_line_ends_with_an_explicit_exit_of_the_captured_status(self):
+        # WR-09 (36-REVIEW.md): the skip-tail's own `[ ... ] && echo ...` must not be the
+        # line's last command -- that made the *tail's* exit status (1 unless it actually
+        # fired) the line's reported status, inverting cron's view of a healthy tick (1)
+        # vs. a skipped one (0). The line must capture flock's status into `$rc` and end
+        # with an explicit `exit $rc` so cron always sees `run_unattended`'s own status.
+        line = cron_line()
+        self.assertTrue(line.rstrip().endswith('exit $rc'), line)
+
+    def test_skip_tail_is_gated_on_exit_code_99_not_any_failure(self):
+        # WR-01 (36-REVIEW.md): the skip tail must be gated on flock's own -E 99 exit
+        # code, never on a bare '||' that would also fire on run_unattended's own exit 1
+        # (a step failure) -- that would mislabel a failing-but-genuinely-ran tick as
+        # "lock held" in the log.
+        line = cron_line()
+        self.assertNotIn('|| echo', line)
+        self.assertIn('-E 99', line)
+
+    def test_flock_path_is_resolved_not_hardcoded(self):
+        # WR-05 (36-REVIEW.md): cron_line() must print the same resolved `flock` path
+        # check_flock() already verified is on PATH -- not a hardcoded '/usr/bin/flock'
+        # that can be wrong on a non-merged-/usr layout, a venv-provided util-linux, or
+        # a container image that only has it in /bin.
+        with patch(
+            'solsys_code.management.commands.check_unattended.shutil.which', return_value='/opt/util-linux/flock'
+        ):
+            line = cron_line()
+        self.assertIn('/opt/util-linux/flock -n', line)
+        self.assertNotIn('/usr/bin/flock', line)
+
+    def test_cron_lock_differs_from_the_runner_internal_lock(self):
+        # CR-01 (36-REVIEW.md): the cron guard and `command_lock('run_unattended')`'s own
+        # lock file must never be the same path -- `flock(2)` locks are per open file
+        # description, so a shared name would deny the child's own lock attempt and
+        # silently no-op every scheduled tick.
+        line = cron_line()
+        runner_internal_lock = str(Path(django_settings.FOMO_LOCK_DIR) / 'run_unattended.lock')
+        self.assertNotIn(runner_internal_lock, line)
+        self.assertIn(str(Path(django_settings.FOMO_LOCK_DIR) / 'run_unattended.cron.lock'), line)
+
+    def test_line_carries_no_setting_value(self):
+        with override_settings(FOMO_HEARTBEAT_URL=_FAKE_HEARTBEAT_URL):
+            original_lco_api_key = django_settings.FACILITIES['LCO'].get('api_key')
+            django_settings.FACILITIES['LCO']['api_key'] = _FAKE_LCO_API_KEY
+            try:
+                stdout, _stderr = _run()
+            finally:
+                django_settings.FACILITIES['LCO']['api_key'] = original_lco_api_key
+        with override_settings(EMAIL_HOST_PASSWORD=_FAKE_MAIL_PASSWORD):
+            line = cron_line()
+        self.assertNotIn(_FAKE_HEARTBEAT_URL, line)
+        self.assertNotIn(_FAKE_MAIL_PASSWORD, line)
+        self.assertNotIn(_FAKE_LCO_API_KEY, line)
+        self.assertNotIn(_FAKE_HEARTBEAT_URL, stdout)
+        self.assertNotIn(_FAKE_LCO_API_KEY, stdout)
+
+
+class TestTestEmail(CheckUnattendedTestBase):
+    def test_send_test_email_sends_one_message(self):
+        _run('--send-test-email')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.staff_user.email, mail.outbox[0].to)
+        self.assertIn('FOMO', mail.outbox[0].subject)
+        self.assertIn('test', mail.outbox[0].subject.lower())
+
+    def test_send_test_email_without_recipients_fails(self):
+        self.staff_user.delete()
+        with self.assertRaises(CommandError) as ctx:
+            _run('--send-test-email')
+        self.assertIn('send_test_email', str(ctx.exception))
+
+    def test_flag_absent_sends_nothing(self):
+        _run()
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class TestNoValueLeakage(CheckUnattendedTestBase):
+    def _seed_fake_values(self):
+        original_lco_api_key = django_settings.FACILITIES['LCO'].get('api_key')
+        django_settings.FACILITIES['LCO']['api_key'] = _FAKE_LCO_API_KEY
+
+        def _restore():
+            django_settings.FACILITIES['LCO']['api_key'] = original_lco_api_key
+
+        self.addCleanup(_restore)
+
+        settings_override = override_settings(
+            FOMO_HEARTBEAT_URL=_FAKE_HEARTBEAT_URL,
+            EMAIL_HOST_PASSWORD=_FAKE_MAIL_PASSWORD,
+        )
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+
+    def _assert_no_leak(self, *outputs: str) -> None:
+        for output in outputs:
+            for secret in (_FAKE_HEARTBEAT_URL, _FAKE_MAIL_PASSWORD, _FAKE_LCO_API_KEY):
+                self.assertNotIn(secret, output)
+
+    def test_output_never_contains_a_seeded_value(self):
+        self._seed_fake_values()
+
+        # All-passing configuration.
+        stdout, stderr = _run()
+        self._assert_no_leak(stdout, stderr)
+
+        # Hard-failing configuration.
+        self.staff_user.delete()
+        stdout_capture, stderr_capture = io.StringIO(), io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command('check_unattended', stdout=stdout_capture, stderr=stderr_capture)
+        self._assert_no_leak(stdout_capture.getvalue(), stderr_capture.getvalue(), str(ctx.exception))

@@ -16,10 +16,15 @@
    owns, and both will drift on a future tomtoolkit upgrade -- diff this file against the
    upstream path above when upgrading.
 
+   Second deviation from upstream (UAT G-37.1-1-allocurl): the URL label's "View" link is limited
+   to http(s) web addresses via the is_web_url filter, because the allocation layer and the campaign
+   reconciler store ALLOC:/RUN: namespace keys in CalendarEvent.url; any other value shows a
+   "not a web link" note instead, and the link gains rel="noopener noreferrer".
+
    Below this point, this file starts as an exact copy of the upstream partial with one
    new block inserted after </form> and before the Todo list heading (D-08).
 {% endcomment %}
-{% load django_bootstrap5 attribution_display_extras %}
+{% load django_bootstrap5 attribution_display_extras calendar_display_extras %}
 <form {% if action == "create" %}
         hx-post="{% url 'calendar:create-event' %}"
       {% else %}
@@ -49,10 +54,12 @@
       <div class="col">
         <label for="{{ form.url.id_for_label }}">
           URL
-          {% if form.url.value %}
+          {% if form.url.value|is_web_url %}
             <small>
-              <a href="{{ form.url.value }}" target="_blank">View  ↗</a>
+              <a href="{{ form.url.value }}" target="_blank" rel="noopener noreferrer">View  ↗</a>
             </small>
+          {% elif form.url.value %}
+            <small class="text-muted">(not a web link)</small>
           {% endif %}
         </label>
         {% bootstrap_field form.url show_label=False %}
@@ -115,43 +122,106 @@
    docs/runbooks/telescope_runs_calendar.rst, "Why doesn't the calendar pop-up show a
    'Campaign run' block?".
 {% endcomment %}
-{% with run=event.telescope_label_meta.run %}
-{% if run.is_publicly_visible %}
-    {% comment %}
-       D-09/D-10: gated on the model's own visibility property so a run not yet approved
-       renders no link here, for every user including staff -- mirrors
-       CampaignRunTableView.get_queryset()'s existing exclude(). There is no run-detail view
-       today (D-06 defers it to Phase 28, where the attribution UI it would host gets
-       built), so the run's identity is rendered inline here rather than relying on the
-       link alone to answer "which run is this" -- and the link below targets the campaign
-       table instead. Contact fields and source are deliberately never rendered here: this
-       modal is a non-staff-visible surface, contact fields are PII gated elsewhere by
-       contact_public_opt_in, and source is staff-only per D-18.
-    {% endcomment %}
+{% comment %}
+   D-14/D-17 (Phase 33): CalendarEventMeta.run means the event is ATTRIBUTED to that
+   run, never that the run OWNS it. The block below is rendered from that link at
+   request time via campaign_decoration() -- nothing is written to the event's own
+   fields -- so a base-layer re-projection of this event's title/description cannot
+   erase the attribution.
+   WR-07 (Phase 33 Plan 06): campaign_decoration()'s own `run is None or not
+   run.is_publicly_visible` rule is now the ONLY place that visibility gate lives --
+   there is no second, independent `run.is_publicly_visible` gate in this template.
+   A run not yet approved therefore renders no link here, for every user including
+   staff -- mirrors CampaignRunTableView.get_queryset()'s existing exclude(). There is
+   no run-detail view today (D-06 defers it to Phase 28, where the attribution UI it
+   would host gets built), so the run's identity is rendered inline here rather than
+   relying on the link alone to answer "which run is this" -- and the link below
+   targets the campaign table instead. Contact fields and source are deliberately
+   never rendered here: this modal is a non-staff-visible surface, contact fields are
+   PII gated elsewhere by contact_public_opt_in, and source is staff-only per D-18.
+   A reverse one-to-one accessor with no row (event.telescope_label_meta) resolves
+   silently in a template because ObjectDoesNotExist sets silent_variable_failure --
+   campaign_decoration() itself guards this, so no {% with %} wrapper is needed here
+   to pre-resolve it.
+{% endcomment %}
+{% comment %}
+   PROJ-04/PROJ-05 (Phase 34 Plan 03, D-04): series identity is read from the companion
+   row's observation_group link at request time via observation_series_decoration() --
+   nothing is written into the event's own title or description -- so a re-projection of
+   this event cannot erase it. This block is a sibling of the campaign-decoration block
+   above, not nested inside it: a record can be in a group with no campaign, or attributed
+   to a campaign with no group, and both cases must render independently.
+{% endcomment %}
+{% observation_series_decoration event as series %}
+{% if series %}
+    <div class="row">
+      <div class="col">
+        <label>Observation series</label>
+        <div>
+          <a href="{{ series.group_list_url }}" target="_blank">{{ series.group_name }} ↗</a>
+          &mdash; Night {{ series.index }} of {{ series.size }}
+          &mdash; <a href="{{ series.record_url }}" target="_blank">View record ↗</a>
+        </div>
+      </div>
+    </div>
+{% endif %}
+{% campaign_decoration event as deco %}
+{% if deco %}
     <div class="row">
       <div class="col">
         <label>
-          Campaign run
+          Attributed campaign run
           <small>
-            <a href="{% url 'campaigns:table' run.campaign_id %}" target="_blank">View campaign ↗</a>
+            {% if deco.table_url %}
+            <a href="{{ deco.table_url }}" target="_blank">View campaign ↗</a>
+            {% endif %}
           </small>
         </label>
         <div>
-          {{ run.telescope_instrument }}
+          {{ deco.campaign_name }} &mdash; {{ deco.telescope_instrument }}
           {% comment %}
              WR-04: window_start and window_end are guaranteed both-NULL or both-set by
              the campaign_run_window_start_end_null_together CheckConstraint, so gating
              on window_start alone is sufficient -- a TBD run (both NULL) must not render
              the literal "(None-None)" here.
           {% endcomment %}
-          {% if run.window_start %}
-          ({{ run.window_start }}&ndash;{{ run.window_end }})
+          {% if deco.window_start %}
+          ({{ deco.window_start }}&ndash;{{ deco.window_end }})
           {% endif %}
-          &mdash; {{ run.get_run_status_display }}
+          &mdash; {{ deco.run_status_display }}
         </div>
+        {% comment %}
+           D-09/TALLY-01 (Phase 37 Plan 06): the run's live tally, read from the same
+           run.is_publicly_visible-gated link campaign_decoration() already applied above --
+           deliberately rendered INSIDE this {% if deco %} block, not behind a second
+           top-level {% if %}, so the visibility gate is applied once. run_tally() mirrors
+           campaign_decoration()'s own guard shape and returns campaign_tally's
+           tally_segments() -- the same ordered segments the campaign table's public
+           Progress column renders (D-15: the two surfaces agree by construction).
+        {% endcomment %}
+        {% run_tally event as tally %}
+        {% if tally %}
+        <div class="small text-secondary" title="{{ tally.summary }}" aria-label="{{ tally.summary }}">
+          {{ tally.groups }} group{{ tally.groups|pluralize }} &middot; {{ tally.records }} record{{ tally.records|pluralize }}
+          {% for segment in tally.segments %}
+          &middot; {{ segment.marker }}
+          {% comment %}
+             WR-04-style guard (event_form.html's own window_start rule, above): a
+             not-yet-known unused figure must never render as a bare zero.
+          {% endcomment %}
+          {% if not segment.known %}
+          {{ segment.label }} not yet known
+          {% elif segment.is_estimate %}
+          &asymp;{{ segment.count }} {{ segment.label }} (estimate)
+          {% else %}
+          {{ segment.count }} {{ segment.label }}
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
-{% elif not run and request.user.is_staff %}
+{% elif not event.telescope_label_meta.run and request.user.is_staff %}
     {% comment %}
        27-07 gap closure (27-UAT.md Test 9, T-27-21): `not run` is true both when
        event.telescope_label_meta has no companion row at all and when the companion row
@@ -180,7 +250,6 @@
     </div>
     {% endif %}
 {% endif %}
-{% endwith %}
 <h6 class="mb-2">Todo list</h6>
 <hr>
 <div id="cal-todos">

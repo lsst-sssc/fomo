@@ -8,8 +8,21 @@ Provides simple_tags consumed by calendar.html (Plan 02):
 - telescope_color: deterministic palette color keyed by telescope name (quick-260724-osc)
 - telescope_stripe_color: deterministic stripe-palette color keyed by telescope name,
   parallel to telescope_color but gated against the gray fill (quick-260724-vb0)
-- visible_classical_telescopes: current-month classical-schedule telescope legend data (quick-260724-osc)
+- visible_classical_telescopes: current-month telescope legend data for events with no proposal
+  recorded (quick-260724-osc)
 - neutral_slot_color: assignment tag exposing NEUTRAL_SLOT_COLOR to templates (quick-260724-osc)
+- campaign_decoration: read-only campaign attribution decoration for event_form.html,
+  rendered from CalendarEventMeta.run at request time (ANNOT-02, Phase 33 D-10/D-11/D-13/D-14)
+- observation_status_legend: fixed, ordered observation-projector marker legend for
+  calendar.html (PROJ-03, D-02, Phase 34 Plan 03)
+- observation_series_decoration: read-only "night n of N" series decoration for
+  event_form.html, rendered from CalendarEventMeta.observation_group at request time
+  (PROJ-04/PROJ-05, D-04, Phase 34 Plan 03)
+- run_tally: read-only run-tally decoration for event_form.html's attributed-run block,
+  rendered from CalendarEventMeta.run at request time (TALLY-01, D-09, Phase 37 Plan 06)
+- unused_night_decoration: read-only "unused awarded night" decoration for calendar.html's
+  two event loops, rendered from CalendarEventMeta.run at request time (UNUSED-01,
+  D-12/D-13/D-14, Phase 37 Plan 06)
 
 All values returned by proposal_color, telescope_color, and status_border_css are drawn
 from fixed internal constants — the raw proposal/telescope/title string is used only as
@@ -19,10 +32,48 @@ T-osc-01/T-osc-02 mitigations).
 
 import hashlib
 from collections import defaultdict
+from datetime import datetime
+from datetime import timezone as dt_timezone
+from typing import Any
+from urllib.parse import urlsplit
 
 from django import template
+from django.core.exceptions import ObjectDoesNotExist
+from django.urls import reverse
+from tom_calendar.models import CalendarEvent
+
+from solsys_code import campaign_tally, status_vocabulary
+from solsys_code.allocation_projector import ALLOC_URL_NAMESPACE
+from solsys_code.calendar_utils import record_time_window
+from solsys_code.models import NO_CAMPAIGN_LABEL
 
 register = template.Library()
+
+
+@register.filter
+def is_web_url(value: Any) -> bool:
+    """Return True only for an http or https web address with a host.
+
+    The allocation layer (``ALLOC:{run.pk}:{night}``) and the campaign reconciler (``RUN:{pk}``)
+    keep their namespace keys in ``CalendarEvent.url``, so the event form must not render them as
+    a link (UAT G-37.1-1-allocurl). A stored ``javascript:`` or any other non-web scheme must never
+    become a link either.
+
+    Args:
+        value: The stored url value (usually a string, but anything may arrive from a template).
+
+    Returns:
+        True when the stripped value is a string whose scheme is ``http`` or ``https``
+        (case-insensitive) with a non-empty host; False otherwise. Never raises.
+    """
+    if not isinstance(value, str):
+        return False
+    try:
+        parts = urlsplit(value.strip())
+        return parts.scheme.lower() in ('http', 'https') and bool(parts.hostname)
+    except ValueError:
+        return False
+
 
 # Colorblind-vetted, white-text-AA palette — 8 hex values locked by 09-UI-SPEC.md
 # Color section.  Mutual distinguishability verified against CVD simulators for
@@ -96,14 +147,16 @@ STRIPE_OUTER_EDGE_COLOR = '#343a40'
 # collide with this value (see 09-RESEARCH Pitfall 1).
 NEUTRAL_SLOT_COLOR = '#5a6268'
 
-# D-06: human-readable label for classical-schedule (empty-proposal) legend entry.
-CLASSICAL_SCHEDULE_LABEL = 'Classical schedule'
+# D-06's empty-proposal legend label, relabelled by F12 (quick task 261006-lsf, 2026-10-06):
+# RUN: containers and ALLOC: nights now carry their run's proposal code, so an empty
+# proposal means only that no code is recorded (a run with a blank code, a hand-entered
+# event, a record with no proposal parameter) -- no longer "a classical schedule line".
+NO_PROPOSAL_LABEL = 'No proposal recorded'
 
-# Title-prefix vocabulary emitted by sync_lco_observation_calendar.py (confirmed live), plus
-# '[WEATHERED]' (D-03, campaign_views._RUN_STATUS_CALENDAR_PREFIX, Phase 23 Plan 02) --
-# both must stay byte-identical. Terminal states: observations that reached an
-# unrecoverable failure state. [QUEUED] is handled separately (its own branch below).
-_TERMINAL_PREFIXES = ('[EXPIRED]', '[CANCELLED]', '[FAILED]', '[WEATHERED]')
+# The two title-prefix vocabularies and the observation-status legend used to live here as
+# local copies that had to stay byte-identical to their producers -- that second copy is
+# gone as of Phase 37 (STATUS-01/02). status_border_css() and observation_status_legend()
+# below now read directly from solsys_code.status_vocabulary, the single definition.
 
 
 @register.simple_tag
@@ -135,13 +188,20 @@ def proposal_color(proposal: str) -> str:
 def status_border_css(title: str) -> str:
     """Return a CSS box-shadow fragment encoding the observation status (DISPLAY-06).
 
-    Maps the title-prefix vocabulary from sync_lco_observation_calendar.py to a
-    box-shadow ring (D-08 resolved=box-shadow).  The placed bucket ([UNVERIFIED]
-    or no prefix) intentionally returns '' because Phase 8's D-09-reserved
-    border treatment already owns the verified/fallback visual distinction —
-    re-encoding it here would cause the two signals to merge into one style
-    attribute branch instead of composing independently (09-RESEARCH Pitfall 3
-    prevention).
+    Resolves the title through ``status_vocabulary.state_for_title()`` (Phase 37
+    STATUS-01/02 -- the single vocabulary definition, replacing this tag's former local
+    ``_TERMINAL_PREFIXES`` tuple) and returns the queued ring, the terminal ring
+    (``status_vocabulary.RING_TERMINAL_STATES``), or '' from the ring buckets. The legacy
+    ``'[QUEUED] '`` word-form prefix (pre-dates the marker vocabulary; not part of
+    ``status_vocabulary`` since it was never a producer this phase consolidates) is kept as
+    a direct check alongside the ``'[Q] '`` marker. The placed bucket ('[UNVERIFIED]', the
+    projector's own '[S] '/'[O] ' markers, or no prefix at all) intentionally returns ''
+    because Phase 8's D-09-reserved border treatment already owns the verified/fallback
+    visual distinction — re-encoding it here would cause the two signals to merge into one
+    style attribute branch instead of composing independently (09-RESEARCH Pitfall 3
+    prevention). '[?] ' (the projector's inconsistent-record marker, D-13) reads as terminal
+    here even though nothing actually failed — an inconsistent record needs an operator's
+    eye, not a placed-looking chip.
 
     Args:
         title: CalendarEvent.title — may start with a known status prefix.
@@ -154,7 +214,10 @@ def status_border_css(title: str) -> str:
     title = title or ''
     if title.startswith('[QUEUED] '):
         return 'box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);'
-    if any(title.startswith(p) for p in _TERMINAL_PREFIXES):
+    state = status_vocabulary.state_for_title(title)
+    if state in status_vocabulary.RING_QUEUED_STATES:
+        return 'box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);'
+    if state in status_vocabulary.RING_TERMINAL_STATES:
         # quick-260724-vb0: this ring is painted outside the chip's border box, so on
         # a classical chip its inner neighbour along the chip's left flank is the
         # stripe's outward-facing edge (STRIPE_OUTER_EDGE_COLOR). rgba(160, 0, 0, 0.55)
@@ -228,8 +291,8 @@ def visible_proposals(weeks) -> list[dict]:
     Iterates the weeks/day context already materialized by render_calendar() —
     no new database query (D-02).  Groups by resulting color so hash-colliding
     proposals share one legend entry (D-04, 09-RESEARCH Pitfall 4).  Neutral-slot
-    events (empty proposal) appear as 'Classical schedule' and are forced last
-    regardless of their hex sort position (D-06 / 09-UI-SPEC.md Legend Layout).
+    events (empty proposal) appear as 'No proposal recorded' and are forced last
+    regardless of their hex sort position (D-06 / 09-UI-SPEC.md Legend Layout; relabelled by F12).
 
     Args:
         weeks: The weeks context list passed to calendar.html — a list of lists
@@ -238,7 +301,7 @@ def visible_proposals(weeks) -> list[dict]:
 
     Returns:
         List of dicts with keys 'color' (hex string), 'codes' (sorted list of
-        proposal code strings or [CLASSICAL_SCHEDULE_LABEL] for the neutral
+        proposal code strings or [NO_PROPOSAL_LABEL] for the neutral
         slot), and 'label' (comma-joined string for display).  Sorted by color
         hex ascending, with the NEUTRAL_SLOT_COLOR entry appended last.
     """
@@ -256,7 +319,7 @@ def visible_proposals(weeks) -> list[dict]:
             for event in list(all_day) + list(timed):
                 normalized = (event.proposal or '').strip().upper()
                 color = proposal_color(event.proposal)
-                label = normalized if normalized else CLASSICAL_SCHEDULE_LABEL
+                label = normalized if normalized else NO_PROPOSAL_LABEL
                 by_color[color].add(label)
 
     result = []
@@ -289,7 +352,7 @@ def neutral_slot_color() -> str:
     """Expose NEUTRAL_SLOT_COLOR to templates without a magic literal (quick-260724-osc).
 
     Lets calendar.html compare an already-computed bg_color to this value to decide
-    whether an all-day event is classical-schedule (no proposal) vs. proposal-having,
+    whether an all-day event has no proposal recorded vs. is proposal-having,
     without re-deriving that distinction a second way.
 
     Returns:
@@ -373,10 +436,10 @@ def telescope_stripe_color(telescope: str) -> str:
 
 @register.simple_tag
 def visible_classical_telescopes(weeks) -> list[dict]:
-    """Compute the set of telescopes visible in the currently-rendered month, classical-schedule only.
+    """Compute the set of telescopes visible in the currently-rendered month, for events with no proposal recorded only.
 
     Mirrors visible_proposals's weeks iteration and dual dict/attribute day support, but
-    scoped to classical-schedule events only (empty proposal) — proposal-having events
+    scoped to events with no proposal recorded (empty proposal) — proposal-having events
     already encode identity via their proposal fill and are excluded here even when their
     telescope field is set. Groups by resulting color so hash-colliding telescopes share
     one legend entry, same collision handling as visible_proposals.
@@ -405,7 +468,7 @@ def visible_classical_telescopes(weeks) -> list[dict]:
             for event in list(all_day) + list(timed):
                 normalized_proposal = (event.proposal or '').strip().upper()
                 if normalized_proposal:
-                    continue  # only classical-schedule (empty-proposal) events contribute
+                    continue  # only no-proposal-recorded (empty-proposal) events contribute
                 normalized_telescope = (event.telescope or '').strip().upper()
                 color = telescope_color(event.telescope)
                 by_color[color].add(normalized_telescope)
@@ -421,3 +484,392 @@ def visible_classical_telescopes(weeks) -> list[dict]:
         )
 
     return result
+
+
+@register.simple_tag
+def observation_status_legend() -> list[dict]:
+    """Return the fixed, ordered observation-status marker legend (PROJ-03, D-02, D-04).
+
+    Exposes ``status_vocabulary.LEGEND`` to calendar.html so a calendar visitor can read
+    what every calendar marker means directly off the page, without needing this module's
+    source. Deliberately a fixed vocabulary rather than data-driven — making it read from
+    the database would only let it drift out of sync with ``status_border_css()``'s own
+    prefix matching. As of Phase 37 (STATUS-01/02) this is the final wording, read from the
+    one shared module rather than a local copy.
+
+    Takes no arguments, reads nothing from the database, and never raises.
+
+    Returns:
+        list[dict]: one ``{'marker': ..., 'label': ..., 'filterable': bool}`` dict per
+        marker, in the fixed order ``[Q]``, ``[S]``, ``[O]``, ``[X]``, ``[C]``, ``[F]``,
+        ``[W]``, ``[?]``, ``[U]``. ``filterable`` is ``True`` only for the ``[U]`` entry
+        (WR-09, 37-REVIEW.md) -- the template branches on it instead of comparing
+        ``entry.marker`` to a bare ``'[U]'`` literal.
+    """
+    return [dict(entry) for entry in status_vocabulary.LEGEND]
+
+
+@register.simple_tag
+def campaign_decoration(event: CalendarEvent) -> dict | None:
+    """Read-only campaign attribution decoration for a CalendarEvent (ANNOT-02, D-10/D-11/D-13/D-14).
+
+    Renders the campaign an event is attributed to from ``CalendarEventMeta.run`` at
+    request time -- never from a value written into the event's own fields -- so a
+    base-layer re-projection of this event's title/description cannot erase the decoration.
+    Reads only: never calls ``.save()``, ``.update()``, ``.create()`` or ``get_or_create()``,
+    and never imports the views module or the SPICE-kernel-loading ephemeris module.
+
+    Never raises. Returns ``None`` for an event with no companion row (guards the reverse
+    one-to-one ``telescope_label_meta`` accessor against ``ObjectDoesNotExist``), for a
+    companion row whose ``run`` is unset, and for a run that is not publicly visible
+    (``CampaignRun.is_publicly_visible`` -- keeps a pending-review run's campaign name off
+    the public calendar).
+
+    Args:
+        event: the CalendarEvent to decorate.
+
+    Returns:
+        dict | None: exactly the keys ``campaign_name``, ``run_pk``, ``table_url``,
+        ``telescope_instrument``, ``window_start``, ``window_end`` and
+        ``run_status_display``, or ``None``. Never exposes any PII contact field or the
+        run's provenance-only ingest field -- those stay behind their existing
+        staff/PII gates.
+
+        Rendered consumers (Phase 33 Plan 06, IN-01): ``run_pk`` is consumed by
+        ``campaign_chip.html``'s no-campaign tooltip and accessible name -- the only
+        place this key is rendered. ``table_url`` doubles as the campaign-presence
+        signal that partial branches on (it is set only inside ``if run.campaign_id is
+        not None`` above, so ``table_url is None`` is equivalent to "no campaign").
+    """
+    if not isinstance(event, CalendarEvent):
+        # Rule 1 fix (33-11): the create-event form context has no `event` key at all --
+        # Django's template engine resolves the missing variable to the empty-string
+        # invalid-variable placeholder rather than raising, so this tag can be invoked
+        # with a non-CalendarEvent value. The docstring promises "never raises"; guard it
+        # here rather than requiring every template call site to wrap this tag in
+        # `{% if event %}`.
+        return None
+    try:
+        meta = event.telescope_label_meta
+    except ObjectDoesNotExist:
+        return None
+    run = meta.run
+    # observation_series_decoration() below applies this same is_publicly_visible gate to
+    # meta.run -- kept side by side so the two tags' visibility rules stay legible together.
+    # The two guards differ in what "no run" means: here it means "no campaign to
+    # attribute" (return None either way, gated on run existing at all); series identity is
+    # independent of attribution, so that tag additionally gates its own un-attributed case
+    # on the viewer's authentication rather than treating "no run" as always visible.
+    if run is None or not run.is_publicly_visible:
+        return None
+
+    table_url = None
+    if run.campaign_id is not None:
+        # Built with reverse() in Python, not {% url %} in the template (RESEARCH.md
+        # Pitfall 1): 'campaigns:table' resolves against path('<int:pk>/', ...), and a null
+        # campaign pk raises NoReverseMatch, which on the public calendar is a whole-page
+        # failure -- is_publicly_visible alone does not cover campaign nullness.
+        table_url = f"{reverse('campaigns:table', args=[run.campaign_id])}#run-{run.pk}"
+
+    return {
+        'campaign_name': run.campaign.name if run.campaign_id is not None else NO_CAMPAIGN_LABEL,
+        'run_pk': run.pk,
+        'table_url': table_url,
+        'telescope_instrument': run.telescope_instrument,
+        'window_start': run.window_start,
+        'window_end': run.window_end,
+        'run_status_display': run.get_run_status_display(),
+    }
+
+
+def _segment_summary_words(segment: dict) -> str:
+    """Render one ``campaign_tally.tally_segments()`` entry as a words-only phrase.
+
+    Used to build ``run_tally()``'s ``summary`` string, so a screen reader (or a plain
+    tooltip) has a channel that names the state in words even where the visible chip only
+    has room for the marker + count.
+    """
+    if not segment['known']:
+        return f'{segment["label"]} not yet known'
+    if segment['is_estimate']:
+        return f'about {segment["count"]} {segment["label"].lower()} (estimate)'
+    return f'{segment["count"]} {segment["label"].lower()}'
+
+
+@register.simple_tag
+def run_tally(event: CalendarEvent) -> dict | None:
+    """Read-only run-tally decoration for a CalendarEvent's attributed campaign run
+    (D-09, TALLY-01, Phase 37 Plan 06).
+
+    Renders the same tally ``campaign_tally`` computes for the campaign table's public
+    Progress column, read from ``CalendarEventMeta.run`` at request time -- never written
+    into the event's own fields -- so a base-layer re-projection of this event's title/
+    description cannot erase it. Mirrors ``campaign_decoration()``'s guard shape exactly:
+    same ``isinstance`` check, same ``ObjectDoesNotExist`` companion-row guard, same
+    ``run is None or not run.is_publicly_visible`` gate -- the pop-up applies that gate once,
+    reused here, rather than a template re-deriving it a second time.
+
+    This tag never raises, makes no write of any kind (no ``.save()``, ``.update()``,
+    ``.create()`` or ``get_or_create()``), and never imports ``solsys_code.views`` or the
+    SPICE-kernel-loading ephemeris module -- it reads the tally from the run link exactly as
+    ``campaign_decoration()`` reads the campaign name, the Phase 33 display-time-decoration
+    pattern.
+
+    Returns ``None`` for a value that is not a ``CalendarEvent``, for an event with no
+    companion row, for a companion row with no ``run``, and for a run that is not publicly
+    visible (``run.is_publicly_visible``).
+
+    Args:
+        event: the CalendarEvent to decorate.
+
+    Returns:
+        dict | None: ``{'groups': int, 'records': int, 'segments': list[dict], 'summary':
+        str}`` for an event attributed to a publicly visible run, or ``None``. ``segments``
+        is ``campaign_tally.tally_segments()``'s fixed ordered list (observed/scheduled/
+        expired-or-failed/unused) -- the same list the campaign table's Progress column
+        renders, so the two surfaces agree by construction (D-15). ``summary`` is a
+        words-only phrase (never letters-only) suitable for a tooltip or accessible name.
+    """
+    if not isinstance(event, CalendarEvent):
+        # Same reasoning as campaign_decoration(): the create-event form context has no
+        # `event` key at all, and Django resolves the missing variable to the invalid-
+        # variable placeholder rather than raising.
+        return None
+    try:
+        meta = event.telescope_label_meta
+    except ObjectDoesNotExist:
+        return None
+    run = meta.run
+    if run is None or not run.is_publicly_visible:
+        return None
+
+    tally = campaign_tally.get_or_compute_tally(run)
+    segments = campaign_tally.tally_segments(tally)
+    summary = f'{tally["groups"]} groups, {tally["records"]} records — ' + ', '.join(
+        _segment_summary_words(segment) for segment in segments
+    )
+    return {
+        'groups': tally['groups'],
+        'records': tally['records'],
+        'segments': segments,
+        'summary': summary,
+    }
+
+
+@register.simple_tag
+def unused_night_decoration(event: CalendarEvent) -> dict | None:
+    """Read-only "unused awarded night" decoration for a CalendarEvent (UNUSED-01,
+    D-12/D-13/D-14, Phase 37 Plan 06).
+
+    Classifies an ``ALLOC:`` allocation-night event as unused at render time, from
+    ``campaign_tally.is_unused_allocation_night()`` -- the single shared rule the campaign
+    table's Progress-column unused count already reads (D-15), so the two surfaces agree by
+    construction. The token this tag returns is added by the template at render time and
+    never written into ``CalendarEvent.title``; the allocation projector's no-churn contract
+    is untouched, and a run's nights never flip one by one across ticks.
+
+    Mirrors ``campaign_decoration()``'s guard shape: same ``isinstance`` check, same
+    ``ObjectDoesNotExist`` companion-row guard, same ``run is None or not
+    run.is_publicly_visible`` gate (WR-06, 37-REVIEW.md: every sibling tally surface gates
+    on public visibility, and a pending-review run's allocation night must not surface the
+    public ``[U]`` token/chip/tooltip either), plus a namespace guard specific to this tag --
+    an event whose ``url`` is not in the ``allocation_projector.ALLOC_URL_NAMESPACE``
+    namespace is never an allocation night and is not classified at all. Reads the run
+    through the companion row's ``run`` (never a bare attribute chain).
+
+    This tag never raises and makes no write of any kind (no ``.save()``, ``.update()``,
+    ``.create()`` or ``get_or_create()``); it never imports ``solsys_code.views`` or the
+    SPICE-kernel-loading ephemeris module.
+
+    Returns ``None`` for a value that is not a ``CalendarEvent``, for an event with no
+    companion row, for an event whose ``url`` is not in the ``ALLOC:`` namespace, for an
+    event with no linked run, for a run that is not publicly visible
+    (``run.is_publicly_visible``), and for a night that is not (yet) unused per
+    ``campaign_tally.is_unused_allocation_night()`` -- which includes a cancelled or
+    weather/technical-failure run's night, whatever the time (D-14: staff run status always
+    wins).
+
+    Args:
+        event: the CalendarEvent to decorate.
+
+    Returns:
+        dict | None: ``{'token': str, 'label': str, 'tooltip': str}`` for an elapsed,
+        still-standing allocation night on a run in any status other than cancelled/
+        weather-technical-failure, or ``None``. ``token`` is
+        ``status_vocabulary.MARKER[status_vocabulary.DisplayState.UNUSED]`` (``'[U]'``);
+        ``label`` is the matching ``status_vocabulary.LABEL`` entry.
+    """
+    if not isinstance(event, CalendarEvent):
+        return None
+    try:
+        meta = event.telescope_label_meta
+    except ObjectDoesNotExist:
+        return None
+    if not (event.url or '').startswith(ALLOC_URL_NAMESPACE):
+        return None
+    run = meta.run
+    # WR-06 (37-REVIEW.md): every sibling tally surface (run_tally(), campaign_rollup()'s
+    # queryset-level PENDING_REVIEW exclude) gates on public visibility -- this tag did not,
+    # so a pending-review run's allocation night got the public [U] token, chip and tooltip
+    # on the anonymous calendar, leaking the existence of an unreviewed run and making the
+    # calendar's [U] set a superset of what the table counts (a second D-15 divergence).
+    if run is None or not run.is_publicly_visible:
+        return None
+    if not campaign_tally.is_unused_allocation_night(event.end_time, run.run_status):
+        return None
+
+    return {
+        'token': status_vocabulary.MARKER[status_vocabulary.DisplayState.UNUSED],
+        'label': status_vocabulary.LABEL[status_vocabulary.DisplayState.UNUSED],
+        'tooltip': 'This awarded night passed with nothing scheduled or observed.',
+    }
+
+
+def _window_start_or_max(record) -> datetime:
+    """Return record_time_window(record)[0], or a UTC-attached datetime.max on failure.
+
+    Shared sort key for observation_series_decoration(): a sibling whose window cannot be
+    derived (half-set schedule mid-projection, malformed parameters) sorts last rather than
+    raising and taking the whole modal down with it -- the spike's own rule, reimplemented
+    here rather than imported across modules (RESEARCH.md, no cross-module private import).
+
+    Args:
+        record: the ObservationRecord being sorted.
+
+    Returns:
+        datetime: a timezone-aware UTC datetime, always comparable to every other member's.
+    """
+    try:
+        start, _ = record_time_window(record)
+    except Exception:  # noqa: BLE001 -- a request-time decoration must never 500 the modal
+        # WR-04: record_time_window() calls datetime.fromisoformat(record.parameters['start']),
+        # which raises TypeError (not ValueError) when the stored value is a JSON number,
+        # boolean or null rather than a string -- narrower than (KeyError, ValueError) missed
+        # that case and let it escape this helper (and observation_series_decoration()'s own
+        # "Never raises" promise) inside list.sort(), taking down the whole modal response.
+        # The observation projector's own event_fields_for() already catches this case via a
+        # bare `except Exception`; this mirrors that discipline.
+        return datetime.max.replace(tzinfo=dt_timezone.utc)
+    return start
+
+
+def _viewer_is_authenticated(context) -> bool:
+    """True only when the rendering request carries an authenticated user.
+
+    Reads ``context['user']`` -- populated by
+    ``django.contrib.auth.context_processors.auth`` (wired in
+    ``TEMPLATES[0]['OPTIONS']['context_processors']``) whenever the view renders with a
+    request. Fails closed: a missing ``'user'`` key, a ``None`` value, or any object with
+    no ``is_authenticated`` attribute is treated as an anonymous viewer, so a template
+    rendered outside the normal request/context-processor path never accidentally shows a
+    name that should be gated.
+
+    Args:
+        context: the template rendering context passed to a ``takes_context=True`` tag.
+
+    Returns:
+        bool: True only when ``context['user'].is_authenticated`` is truthy.
+    """
+    user = context.get('user')
+    return bool(user is not None and getattr(user, 'is_authenticated', False))
+
+
+@register.simple_tag(takes_context=True)
+def observation_series_decoration(context, event: CalendarEvent) -> dict | None:
+    """Read-only "night n of N" series decoration for a CalendarEvent (PROJ-04/PROJ-05, D-04).
+
+    Renders which night of how many an observation-projector-owned event's own record is,
+    within its ObservationGroup, from ``CalendarEventMeta.observation_group`` /
+    ``.observation_record`` at request time -- never from text written into the event's own
+    title or description -- so a base-layer re-projection of this event cannot erase the
+    decoration. Mirrors ``campaign_decoration()`` immediately above: same isinstance guard,
+    same ``ObjectDoesNotExist`` guard, same reverse()-in-Python rule, same fixed-key return
+    dict, same "never expose PII or provenance" discipline.
+
+    Reads only -- performs no database write of any kind (no save, no bulk update, no
+    row creation, no find-or-create call); never imports ``solsys_code.views`` or
+    ``solsys_code.ephem_utils``.
+
+    Never raises. Returns ``None`` for an event with no companion row, for a companion row
+    with no ``observation_group`` or no ``observation_record`` link, for a group with fewer
+    than two members (a series of one is not a series), for a value that is not a
+    CalendarEvent at all, and -- unconditionally, regardless of whether the row is
+    attributed to a run at all -- when the rendering request's viewer is not authenticated.
+    The value this tag renders (``group_name``) is always an internal portal RequestGroup
+    identifier, per ``backfill_lco_observations._group_name()``, so the viewer check is a
+    single rule with no exception for an attributed-and-approved run: an approved run makes
+    the *campaign* attribution public (``campaign_decoration()``'s own gate, immediately
+    above), it does not make the portal's own RequestGroup name public. On top of the
+    viewer check, an attributed companion row is additionally gated on
+    ``meta.run.is_publicly_visible`` -- the same ``CampaignRun.is_publicly_visible`` gate
+    ``campaign_decoration()`` applies -- so a pending-review run still hides the group name
+    even from an authenticated viewer who is not staff enough to see it another way. This is
+    why the tag takes ``context``: the viewer check reads ``context['user']`` (see
+    ``_viewer_is_authenticated()``), so the visibility rule stays inside this function --
+    the single place it lives, matching ``campaign_decoration()``'s own gate -- rather than
+    a second, template-side check a future edit could drift out of sync with it.
+
+    Args:
+        context: the template rendering context (``takes_context=True``); read only for the
+            anonymous-viewer gate above.
+        event: the CalendarEvent to decorate.
+
+    Returns:
+        dict | None: exactly the keys ``group_name``, ``group_pk``, ``index`` (1-based
+        position of this event's own record within the group, ordered by window start then
+        pk), ``size``, ``group_list_url`` and ``record_url``, or ``None``. Exposes no
+        campaign, contact, submitter or provenance field -- this tag renders observation-group
+        identity only.
+    """
+    if not isinstance(event, CalendarEvent):
+        # Same reasoning as campaign_decoration(): the create-event form context has no
+        # `event` key, and Django resolves the missing variable to the invalid-variable
+        # placeholder rather than raising, so this tag can be called with a non-event value.
+        return None
+    try:
+        meta = event.telescope_label_meta
+    except ObjectDoesNotExist:
+        return None
+    if meta.observation_group_id is None or meta.observation_record_id is None:
+        return None
+    # The group name is always an internal portal RequestGroup identifier (see the
+    # docstring), so the viewer check applies unconditionally -- it is not an alternative to
+    # the run-visibility gate below, and an approved/public run must not bypass it. Checking
+    # the viewer first (rather than only in the no-run branch) is what closes the leak: an
+    # attributed-but-approved event was previously falling through both branches and
+    # rendering to anonymous visitors.
+    if not _viewer_is_authenticated(context):
+        return None
+    # Mirrors campaign_decoration()'s own is_publicly_visible gate immediately above -- a
+    # pending-review run's attribution must not leak the observation-group's own identity
+    # (an internal portal RequestGroup id) onto the public, unauthenticated calendar either.
+    if meta.run is not None and not meta.run.is_publicly_visible:
+        return None
+
+    # IN-05: no select_related() here -- only member.pk and record_time_window(member) (which
+    # reads meta.parameters, not the target) are dereferenced below, so a target join would add
+    # a LEFT JOIN per member for data this tag never reads.
+    members = list(meta.observation_group.observation_records.all())
+    if len(members) < 2:
+        return None
+
+    members.sort(key=lambda member: (_window_start_or_max(member), member.pk))
+    index = None
+    for position, member in enumerate(members, start=1):
+        if member.pk == meta.observation_record_id:
+            index = position
+            break
+    if index is None:
+        # This event's own record fell out of the group between the meta read above and
+        # this loop (e.g. concurrent membership change) -- never raise on a request-time
+        # decoration; render nothing rather than a broken "n of N".
+        return None
+
+    return {
+        'group_name': meta.observation_group.name,
+        'group_pk': meta.observation_group_id,
+        'index': index,
+        'size': len(members),
+        'group_list_url': reverse('tom_observations:group-list'),
+        'record_url': reverse('tom_observations:detail', args=[meta.observation_record_id]),
+    }

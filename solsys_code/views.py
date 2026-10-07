@@ -20,8 +20,8 @@ from astropy.table import QTable
 from astropy.time import Time, TimeDelta
 from astropy.timeseries import TimeSeries
 from django.contrib import messages
-from django.db.models import Count, Q
-from django.http import HttpResponse
+from django.db.models import Count, Prefetch, ProtectedError, Q
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone as dj_timezone
@@ -33,8 +33,10 @@ from sorcha.ephemeris.simulation_geometry import (
 )
 from tom_calendar.models import CalendarEvent
 from tom_calendar.views import DAY_NAMES, MoonPhase
+from tom_common.views import UserDeleteView
 from tom_targets.models import Target, TargetList
 
+from solsys_code.models import CalendarEventMeta
 from solsys_code.solsys_code_observatory.models import Observatory
 
 from .ephem_utils import (
@@ -106,12 +108,30 @@ def fomo_render_calendar(request, month=None):
 
     # DISPLAY-09: prefetch telescope_label_meta to eliminate OneToOneField N+1;
     # annotate active_todo_count to eliminate active_todos.count() N+1.
+    # Phase 33 Plan 02 (ANNOT-02): the prefetched companion row also selects its run and
+    # the run's campaign, because the month cell's campaign marker
+    # (campaign_decoration()) dereferences run.campaign.name per event -- without the
+    # select_related here that dereference would N+1 once per attributed event.
+    #
+    # WR-05 (Phase 34 review): this view (fomo_render_calendar) never renders
+    # observation_series_decoration() -- that tag is only reachable from
+    # event_form.html, rendered by tom_calendar.views.update_event, a different view that
+    # fetches its one CalendarEvent by pk with no select_related of its own. Selecting
+    # observation_record__target/observation_group here (as Phase 34 Plan 03 originally
+    # did) therefore joined two relations this view's own template never dereferences --
+    # removed. If a future month-cell consumer of observation_group is added, select it
+    # here again at that point, not before.
     events = (
         CalendarEvent.objects.filter(
             start_time__date__lte=weeks[-1][-1],
             end_time__date__gte=weeks[0][0],
         )
-        .prefetch_related('telescope_label_meta')
+        .prefetch_related(
+            Prefetch(
+                'telescope_label_meta',
+                queryset=CalendarEventMeta.objects.select_related('run__campaign'),
+            )
+        )
         .annotate(active_todo_count=Count('todos', filter=Q(todos__is_completed=False)))
     )
 
@@ -736,3 +756,54 @@ class JPLSBDBQuery:
                 target.save()
                 new_targets.append(target)
         return new_targets
+
+
+class ProtectedUserDeleteView(UserDeleteView):
+    """TOM's user-delete view, made to survive a protected provenance link (WR-10, 37.1-REVIEW.md).
+
+    ``CampaignRunObservation.confirmed_by`` and ``CalendarEventMeta.confirmed_by`` are
+    ``on_delete=PROTECT`` because a blank ``confirmed_by`` is read as "machine, safe to undo"
+    (WR-03/WR-11). TOM's own ``UserDeleteView`` does not catch the resulting ``ProtectedError``,
+    so deleting an account that confirmed anything was an HTTP 500. This subclass keeps TOM's
+    behavior for every other account and, for a protected one, leaves the account in place and
+    sends the operator back to the user list with an explanation.
+    """
+
+    def delete(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Send an HTTP ``DELETE`` through ``form_valid()`` so the ``ProtectedError`` guard applies (WR-12).
+
+        Django's ``DeletionMixin.delete()`` calls ``self.object.delete()`` directly, bypassing the
+        overridden ``form_valid()``. ``BaseDeleteView.post()`` is not reused because it validates a form
+        bound to ``request.POST``, which a ``DELETE`` request does not populate.
+
+        Args:
+            request: the incoming ``DELETE`` request.
+            *args: positional URL arguments, unused.
+            **kwargs: keyword URL arguments, unused (``pk`` is read by ``get_object()``).
+
+        Returns:
+            The same redirect to the user list that ``form_valid()`` gives a POST.
+        """
+        self.object = self.get_object()
+        return self.form_valid(self.get_form())
+
+    def form_valid(self, form: Any) -> HttpResponse:
+        """Delete the user, or explain why the account has to be deactivated instead.
+
+        Args:
+            form: the (empty) confirmation form Django's ``DeleteView`` passes in.
+
+        Returns:
+            Django's usual redirect to the user list, whether or not the delete went through.
+        """
+        try:
+            return super().form_valid(form)
+        except ProtectedError as exc:
+            messages.error(
+                self.request,
+                f'{self.object.get_username()} cannot be deleted: the account confirmed '
+                f'{len(exc.protected_objects)} campaign link(s) or calendar event attribution(s), and deleting it '
+                'would make them read as machine-made. Deactivate the account instead (clear "Active" on its '
+                'admin page).',
+            )
+            return redirect(self.get_success_url())

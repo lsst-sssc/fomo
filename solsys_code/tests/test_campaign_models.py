@@ -1,3 +1,5 @@
+import datetime
+
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from tom_targets.models import TargetList
@@ -236,3 +238,50 @@ class TestCampaignRunWindowNeedsReviewFields(TestCase):
 
         self.assertEqual(reloaded.original_obs_date_raw, 'TBD pending Cycle 2')
         self.assertTrue(reloaded.window_needs_review)
+
+
+class TestCampaignRunSubNightWindowFields(TestCase):
+    """D-04 (35-CONTEXT.md): night_start_utc/night_end_utc round-trip and default to null."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.campaign = TargetList.objects.create(name='3I/ATLAS')
+
+    def test_both_fields_null_by_default(self):
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='NTT/EFOSC2',
+        )
+
+        reloaded = CampaignRun.objects.get(pk=run.pk)
+
+        self.assertIsNone(reloaded.night_start_utc)
+        self.assertIsNone(reloaded.night_end_utc)
+
+    def test_partial_night_start_null_end_round_trips(self):
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='NTT/EFOSC2',
+            night_end_utc=datetime.time(6, 26),
+        )
+
+        reloaded = CampaignRun.objects.get(pk=run.pk)
+
+        self.assertIsNone(reloaded.night_start_utc)
+        self.assertEqual(reloaded.night_end_utc, datetime.time(6, 26))
+        self.assertIsInstance(reloaded.night_end_utc, datetime.time)
+
+    def test_both_fields_set_round_trip_as_time_instances(self):
+        run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='NTT/EFOSC2',
+            night_start_utc=datetime.time(23, 30),
+            night_end_utc=datetime.time(6, 26),
+        )
+
+        reloaded = CampaignRun.objects.get(pk=run.pk)
+
+        self.assertIsInstance(reloaded.night_start_utc, datetime.time)
+        self.assertIsInstance(reloaded.night_end_utc, datetime.time)
+        self.assertEqual(reloaded.night_start_utc, datetime.time(23, 30))
+        self.assertEqual(reloaded.night_end_utc, datetime.time(6, 26))
