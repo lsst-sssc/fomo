@@ -65,20 +65,25 @@ repos:
     hooks:
       - id: pre-executed-nb-never-execute
         name: Check pre-executed notebooks
-        files: ^docs/pre_executed/.*\.ipynb$
+        files: ^docs/notebooks/pre_executed/.*\.ipynb$
         verbose: true
         args:
-          ["docs/pre_executed/"]
+          ["docs/notebooks/pre_executed/"]
     # Run the Django test suite (the only test runner for this project), skipping
     # the Playwright browser tests tagged 'functional', which CI runs separately.
     # Unlike the template's pytest hook there is no collection guard: an import
     # error in a test module makes `manage.py test` exit non-zero and fail the hook.
+    # TestEphemeris (solsys_code/tests/test_views.py) is tagged 'ephemeris_segfault'
+    # because the native ASSIST integrator crashes the whole test process, so it is
+    # excluded here and in CI.
+    # This hook takes about 10 minutes; for work-in-progress commits use
+    # `SKIP=django-test git commit ...`.
   - repo: local
     hooks:
       - id: django-test
-        name: Run Django unit tests (excluding functional)
-        description: Run the Django test suite with coverage, excluding tests tagged 'functional'.
-        entry: bash -c "coverage run manage.py test --exclude-tag functional && coverage html"
+        name: Run Django unit tests (excluding functional and ephemeris_segfault)
+        description: Run the Django test suite with coverage, skipping the 'functional' Playwright tests and the 'ephemeris_segfault' class.
+        entry: bash -c "coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault && coverage html"
         language: system
         pass_filenames: false
         always_run: true

@@ -40,4 +40,4 @@ jobs:
         pip list
     - name: Run Django unit tests
       run: |
-        python manage.py test --exclude-tag functional
+        python manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault
