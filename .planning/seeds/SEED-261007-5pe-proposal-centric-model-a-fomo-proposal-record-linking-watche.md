@@ -5,6 +5,10 @@ planted: 2026-10-07T02:59:35.000Z
 planted_during: v2.4 intent review walkthrough (before /gsd-complete-milestone)
 trigger_when: when the next milestone touches unattended discovery, proposal allocations, or campaign-run creation
 scope: medium
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
+  status: dormant
 ---
 
 # SEED-261007-5pe: Proposal-centric model: a FOMO Proposal record linking WatchedProposal, ProposalTimeAllocation and runs

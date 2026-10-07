@@ -5,6 +5,9 @@ area: tests
 severity: minor
 files:
   - solsys_code/tests/test_campaign_views.py
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

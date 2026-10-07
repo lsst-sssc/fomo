@@ -7,6 +7,9 @@ files:
   - solsys_code/campaign_reconciler.py:543
   - docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb
   - docs/runbooks/telescope_runs_calendar.rst
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

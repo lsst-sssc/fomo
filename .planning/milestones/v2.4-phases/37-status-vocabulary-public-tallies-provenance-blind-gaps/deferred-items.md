@@ -2,7 +2,7 @@
 
 - Flaky `test_observatory_create_form_submits_to_observatory_url` under the full
   `python manage.py test solsys_code --exclude-tag=ephemeris_segfault` run (37-08)
-  status: open
+  status: acknowledged
   **What:** Observed during 37-08 Task 3's full-suite verification gate. The full 1746-test
   run reported `FAILED (failures=1, skipped=1)` with a single failure in
   `solsys_code.tests.test_bootstrap5_rendering.TestBootstrap5Rendering.test_observatory_create_form_submits_to_observatory_url`

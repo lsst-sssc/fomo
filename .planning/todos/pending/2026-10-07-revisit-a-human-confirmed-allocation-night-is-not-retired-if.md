@@ -5,6 +5,9 @@ area: allocation-projector
 severity: minor
 files:
   - solsys_code/allocation_projector.py
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

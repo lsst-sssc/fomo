@@ -8,6 +8,9 @@ files:
   - solsys_code/campaign_reconciler.py:406
   - solsys_code/tests/test_campaign_reconciler.py
 resolves_phase: 35
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

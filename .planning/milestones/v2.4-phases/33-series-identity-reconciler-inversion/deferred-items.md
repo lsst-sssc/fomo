@@ -18,3 +18,4 @@ unrelated to the current plan's changes).
   `solsys_code.tests.test_admin` (the two modules plan 33-03 changed or added) both pass in
   isolation and combined. Out of scope for this plan per the deviation-rule scope boundary; not
   fixed here.
+  status: acknowledged

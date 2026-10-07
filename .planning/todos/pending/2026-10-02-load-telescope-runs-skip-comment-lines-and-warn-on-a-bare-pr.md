@@ -9,6 +9,9 @@ files:
   - solsys_code/telescope_runs.py:455
   - docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb
   - docs/runbooks/telescope_runs_calendar.rst
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

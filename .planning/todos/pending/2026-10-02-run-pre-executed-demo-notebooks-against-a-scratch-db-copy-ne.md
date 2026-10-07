@@ -9,6 +9,9 @@ files:
   - src/fomo/settings.py:126-134
   - docs/runbooks/telescope_runs_calendar.rst
   - CLAUDE.md (paired-docs map)
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

@@ -7,6 +7,9 @@ files:
   - solsys_code/management/commands/backfill_lco_observations.py
   - solsys_code/calendar_utils.py:293
   - solsys_code/management/commands/project_observation_calendar.py:43
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

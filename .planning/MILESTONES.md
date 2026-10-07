@@ -1,5 +1,35 @@
 # Milestones
 
+## v2.4 Observation-First Calendar (Shipped: 2026-10-06)
+
+**Delivered:** The calendar is now driven by what actually happened. Each LCO/SOAR `ObservationRecord` draws and keeps current its own calendar event with no operator action, allocations project intent nights until a real observation retires them, campaigns annotate rather than own, and the whole pipeline runs unattended on the real host.
+
+**Phases completed:** 6 phases (33, 34, 35, 36, 37, 37.1 inserted), 79 plans, 218 tasks
+
+**Stats:** 940 commits from `364ad47` (milestone start, 2026-09-03) to `f45e17e` (2026-10-06), 34 days; 112 non-planning files changed (+52,265 / -6,395), of which 90 Python files (+38,865 / -2,976); first feat `09a6612` (33-01), last feat `a8ac0cb` (37.1-15). Full suite at close: 2095 tests, OK.
+
+**Key accomplishments:**
+
+- **Reconciler inverted from owner to annotator (Phase 33).** `CalendarEventMeta` gained `observation_record`/`observation_group` links; the campaign reconciler skips attributed nights and touches only its own `RUN:` namespace; campaign attribution is a link rendered at display time (`campaign_decoration()`), so re-projecting an event can never erase it.
+- **Observation projector and trigger (Phase 34).** A FOMO-owned `post_save` receiver gives every LCO/SOAR observation record exactly one calendar event that narrows on every save, backstopped by the zero-argument `project_observation_calendar` sweep; `sync_lco_observation_calendar` is retired.
+- **Allocation layer and classical cutover (Phase 35).** New `allocation_projector.py` owns an `ALLOC:{run}:{night}` namespace of sunset-to-sunrise intent nights keyed by site-local observing night, retired and restored as observations link and unlink; `load_telescope_runs` now writes campaign-less `CampaignRun` allocations, and `cutover_classical_allocations` converted the legacy classical events (241 -> 233 on the real database, no duplicates or orphans).
+- **Unattended operation (Phase 36).** `run_unattended` runs status refresh, projector sweep, watched-proposal discovery and the reconciler in one locked cron tick with heartbeat pings and once-per-failure staff mail; `check_unattended` reports every prerequisite and prints the cron line; an admin-editable `WatchedProposal` list replaces the `--proposal` argument; no credential reaches a log, the console or an email.
+- **One status vocabulary, public tallies, provenance-blind gaps (Phase 37).** An ongoing public tally of what each run and campaign actually got (per observed site for class-wide runs), unused awarded nights that look unused, and coverage gaps that count every observation regardless of which layer drew it.
+- **Exact-identity system links on ingest (Phase 37.1, ALLOC-06).** A newly ingested record matching exactly one approved run by proposal, target or campaign and window is linked automatically, so its allocation night retires with no staff action; block selection follows the block the LCO scheduler actually placed. Proved live: the Didymos re-run took `ALLOC:1:*` events from 14 to 10.
+
+**Closeout type:** override_closeout
+
+**Known verification overrides:** 25 newly acknowledged, 8 carried forward from a prior close (see STATE.md Deferred Items). Before acknowledging, 7 quick tasks and 4 debug sessions the audit flagged were found complete and closed in `f45e17e` instead.
+
+### Known Gaps
+
+- **Stale verification reports (phases 34, 35, 36, 37, 37.1).** Each still reads `passed`, but files it covers changed after the verifier last ran. Accepted by the developer at close; compensating evidence is the audit's full-suite run at HEAD (2095 tests, OK) and its static re-check of every cross-phase seam (`milestones/v2.4-MILESTONE-AUDIT.md`).
+- **Deferred tech debt (from the audit):** seven warning-level 37.1 review findings still open (WR-05, WR-13 to WR-18, including Bootstrap 4 class names on the attribution page and three notebooks byte-copying the developer database); system-link outcomes not yet reported in the discovery step's tick summary; 19 todos and 4 seeds carried forward; the flaky `test_observatory_create_form_submits_to_observatory_url` Playwright test.
+
+**Archived:** `.planning/milestones/v2.4-ROADMAP.md`, `v2.4-REQUIREMENTS.md`, `v2.4-MILESTONE-AUDIT.md`, `v2.4-phases/`, `v2.4-quick/`.
+
+---
+
 ## v2.3 Automatic Run Sync & Outcome Propagation (Superseded: 2026-09-03 — not shipped)
 
 **Phases completed:** 1 of 5 (Phase 31, 6 plans, investigation-only); Phase 32 stopped after plan 32-01 Tasks 1–2 (commits `f03553a`, `18ecded`)

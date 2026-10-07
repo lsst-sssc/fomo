@@ -5,6 +5,10 @@ planted: 2026-10-07T02:59:35.000Z
 planted_during: v2.4 intent review walkthrough (before /gsd-complete-milestone)
 trigger_when: when attribution scoring, gap-analysis site resolution or allocation fetchability next changes
 scope: small
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
+  status: dormant
 ---
 
 # SEED-261007-j63: Per-site obscode sets for LCO site codes, with membership checks

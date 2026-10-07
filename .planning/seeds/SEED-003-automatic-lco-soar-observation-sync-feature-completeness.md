@@ -5,6 +5,10 @@ planted: 2026-09-01
 planted_during: v2.2 complete / awaiting next milestone (post-v2.2 branch review session)
 trigger_when: next milestone (/gsd-new-milestone) — this is the operator's stated scope for it
 scope: large
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
+  status: dormant
 ---
 
 # SEED-003: Automatic sync of robotically scheduled LCO/SOAR observations and their outcomes

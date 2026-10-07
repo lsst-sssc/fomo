@@ -7,6 +7,9 @@ files:
   - solsys_code/campaign_views.py:1275
   - solsys_code/campaign_attribution.py:798
   - solsys_code/tests/test_attribution_dismissals.py
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

@@ -6,6 +6,9 @@ severity: minor
 files:
   - solsys_code/management/commands/backfill_lco_observations.py:274
   - solsys_code/observation_projector.py:225
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

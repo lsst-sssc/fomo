@@ -11,6 +11,10 @@ trigger_when: >
   (see .planning/research/questions.md) — that decides whether the projector is contributed
   to tom_calendar, to tom_observations, or published as a standalone tom_* plugin.
 scope: medium
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
+  status: dormant
 ---
 
 # SEED-004: Upstream the observation -> calendar projector

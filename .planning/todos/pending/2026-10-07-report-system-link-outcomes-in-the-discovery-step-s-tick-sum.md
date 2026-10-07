@@ -6,6 +6,9 @@ severity: minor
 files:
   - solsys_code/unattended.py:427
   - solsys_code/campaign_system_links.py
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem

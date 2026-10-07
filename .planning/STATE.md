@@ -2,35 +2,36 @@
 gsd_state_version: "1.0"
 milestone: v2.4
 milestone_name: Observation-First Calendar
-current_phase: "37.1"
-status: completed
-stopped_at: Phase 37.1 complete — all phases complete
-last_updated: "2026-10-07T02:35:11.241Z"
-state_head: d7780ad359b6c7ee5cbbfc76eb488d943184e109
+status: Awaiting next milestone
+stopped_at: v2.4 milestone completed and archived
+last_updated: "2026-10-07T04:07:04.948Z"
+last_activity: 2026-10-06
+last_activity_desc: Milestone v2.4 completed and archived
+state_head: f45e17ee803ad93c736f5371c7fb4908091a5493
 progress:
   total_phases: 6
   completed_phases: 39
   total_plans: 79
   completed_plans: 79
   percent: 100
-last_activity: 2026-10-06
-last_activity_desc: Completed quick tasks 261006-lsf (F12) and 261006-nga (F13/F14 — class-wide runs count nights per record site; readable campaign table badges); v2.4 intent review walkthrough nearly signed off before /gsd-complete-milestone
+current_phase: "37.1"
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-06 — after Phase 37.1 complete)
+See: .planning/PROJECT.md (updated 2026-10-06 — after the v2.4 milestone)
 
 **Core value:** The calendar is driven by what actually happened — one event per `ObservationRecord`, narrowing on every save with no operator action; allocations project intent nights until a real observation retires them; campaigns annotate, never own.
-**Current focus:** Milestone v2.4 — all phases complete; next step is `/gsd-complete-milestone v2.4`
+**Current focus:** Planning the next milestone — v2.4 shipped 2026-10-06; next step is `/gsd-new-milestone`
 
 ## Current Position
 
-Phase: 37.1
-Plan: Not started
-Status: All phases complete
+Phase: Milestone v2.4 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-10-06 — Milestone v2.4 completed and archived
 
 ## Performance Metrics
 
@@ -46,33 +47,52 @@ Status: All phases complete
 
 ## Decisions
 
-- [Phase 37.1]: 37.1-11: WR-01 fixed (not accepted): a non-list /observations/ reply raises UnexpectedBlockPayloadError on FOMO's facility; select_schedule_block() stays tolerant; supersedes T-37.1-48/A-2 with T-37.1-50
-- [Phase 37.1]: 37.1-11: a failed --recheck-unscheduled lookup marks the record only when the ordinary gate would skip it (_failed_lookup_needs_marker); a dry run never marks
-- [Phase 37.1]: 37.1-12: WR-01 and IN-04 closed docs-only (developer decision 2026-10-05): runner retry of a failed-recheck record is stated only for an active watched proposal; an unwatched --proposal code is retried by a manual re-run (T-37.1-64 accepted); stderr hint declined
-- [Phase 37.1]: 37.1-13 A-17: time_completed counts only as an int or float (not a bool) above 0; numeric strings, None, missing, NaN, zero and negative read as no data
-- [Phase 37.1]: 37.1-13 A-18: an embedded FAILED block is judged by its own configuration_statuses; one with none gives no times and no live lookup
-- [Phase 37.1]: 37.1-13 A-19: WR-04 marked fixed alongside IN-08..IN-11 (open count 24 -> 19); G-37.1-6 and G-37.1-1-alloc stay failed until the developer's live re-run
-- [Phase 37.1]: 37.1-14: placed block wins -- select_schedule_block() returns the last PENDING block before the started tier (developer decision 2026-10-05, WR-19 option a); a record keeps carrying one block
-- [Phase 37.1]: 37.1-14 A-24: an IN_PROGRESS block yields to a PENDING block in either order (pinned by test)
-- [Phase 37.1]: select_schedule_block() takes keyword-only request_finished (default False); finished means the request state is one of the facility's terminal observing states, so a block that took data outranks a leftover PENDING block at the finishing tick (WR-20)
-- [Phase 37.1]: A finished request whose only timed block is a leftover PENDING block keeps that block's times (A-33), flagged for the developer
-- [Phase 37.1]: resolve_observed_site() passes is_request_finished(record.status, facility): a completed request is finished (A-35)
-- [Phase 37.1]: 37.1-16: WR-21 fixed by code (developer decision 2026-10-05): resolve_placement_block() returns the block whose start is the record's stored scheduled_start, falling back to the rule only when none matches; ties go to the rule among the tied blocks, else the last (A-43, A-44) — The telescope shown on the calendar must belong to the block the record's times came from, whichever rule stored them
-- [Phase 37.1]: 37.1-16: WR-22 stays wording only; the per-record correction is update_observation_status() then removing the three observed-site parameters (A-45); ALLOC-06 stays open until the developer's live-host re-run — The recheck flag never revisits a record holding both times; its behaviour is fenced by an AST probe against d6b105b
-- [Phase 37.1]: 37.1-17: WR-24 fixed by "Add fallback record" (developer decision 2026-10-06): backfill notebook cell d4a7c2e1 passes every record stored start and record 900664 shows the no-match fallback with executed output; WR-25 accepted as is (ledger skipped); IN-35 to IN-38 fixed as wording only; ALLOC-06 stays open pending the live-host re-run
-- [Phase 37.1]: UAT 2026-10-06: live Didymos re-run found 4 blocks and ALLOC:1:* events went 14 -> 10 (test 11), closing G-37.1-6 and G-37.1-1-alloc; ALLOC-06 Complete
-- [Phase 37.1]: UAT 2026-10-06: A-24 and A-33 acknowledged as they stand (test 14); projector cell 7e7bd66e's pointer amended to name the no-match record and the notebook re-executed by the developer (tests 15-16, a842a97, IN-44 fixed)
-- [Phase 37.1]: A resolved UAT gap names one plan file in resolved_by (e.g. 37.1-13-PLAN.md); the list form is not read by the completion check, other fix plans go in also_fixed_by
+Cleared at the v2.4 close; the full decision log is in `.planning/PROJECT.md` (Key Decisions) and the v2.4 phase records under `.planning/milestones/v2.4-phases/`.
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| 261006-lsf | Fix F12: write run.proposal_code onto RUN: container and ALLOC: night events, lead the container title with the target, and relabel the empty-proposal calendar legend entry (was "Classical schedule") | 2026-10-06 | 876a36f | [261006-lsf-fix-f12-write-run-proposal-code-onto-run](./quick/261006-lsf-fix-f12-write-run-proposal-code-onto-run/) |
-| 261006-nga | Fix F13 and F14: the public campaign tally counts nights per record by its observed site (class-wide runs no longer report zero nights), and the campaign table telescope-class badge is readable with a wider Progress column | 2026-10-06 | d7780ad | [261006-nga-fix-f13-and-f14-the-public-campaign-tall](./quick/261006-nga-fix-f13-and-f14-the-public-campaign-tall/) |
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone close, most recent first. (Before this close, 7 quick tasks
+and 4 debug sessions the audit flagged were found to be complete and closed in f45e17e rather than deferred.)
+
+| Category | Item | Status | Deferred At | Milestone |
+|----------|------|--------|-------------|-----------|
+| deferred_items | 33/deferred-items.md: flaky `test_observatory_create_form_submits_to_observatory_url` (live MPC call timed out) | acknowledged | 2026-10-06 | v2.4 |
+| deferred_items | 37/deferred-items.md: flaky `test_observatory_create_form_submits_to_observatory_url` (order-dependent Playwright failure in full run) | acknowledged | 2026-10-06 | v2.4 |
+| seeds | SEED-003 | dormant | 2026-10-06 | v2.4 |
+| seeds | SEED-004 | dormant | 2026-10-06 | v2.4 |
+| seeds | SEED-261007-5pe | dormant | 2026-10-06 | v2.4 |
+| seeds | SEED-261007-j63 | dormant | 2026-10-06 | v2.4 |
+| todos | 2026-09-01-add-ttl-cache-to-attribution-banner-count.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-09-01-guard-attribution-dismiss-action-with-is-offered-candidate.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-09-01-skip-sun-event-computation-for-already-existing-reconciler-n.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-09-30-fetch-lco-observation-blocks-in-bulk-per-proposal.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-02-load-telescope-runs-skip-comment-lines-and-warn-on-a-bare-pr.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-02-run-pre-executed-demo-notebooks-against-a-scratch-db-copy-ne.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-a-failed-or-aborted-record-keeps-its-last-scheduled-window-i.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-decide-whether-campaignrun-run-status-needs-an-awarded-and-i.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-delete-the-reconciler-s-own-stale-run-pk-container-on-a-cont.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-explain-campaignrun-telescope-class-setting-it-on-a-site-res.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-give-the-campaign-gap-analysis-a-start-end-date-control.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-isolate-the-campaign-table-query-count-test-from-the-shared.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-keep-a-request-s-site-restriction-and-show-it-in-the-event-t.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-link-each-campaign-table-row-to-its-run-or-give-the-target-i.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-mark-site-lookups-as-not-attempted-in-project-observation-ca.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-report-system-link-outcomes-in-the-discovery-step-s-tick-sum.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-revisit-a-human-confirmed-allocation-night-is-not-retired-if.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-say-in-watchedproposal-attributed-to-help-text-and-the-runbo.md | (presence-only) | 2026-10-06 | v2.4 |
+| todos | 2026-10-07-show-a-proposal-level-unused-nights-figure-once-per-proposal.md | (presence-only) | 2026-10-06 | v2.4 |
 
 ## Session
 
 **Last session:** 2026-10-06T18:28:23.000Z
-**Stopped at:** Phase 37.1 complete — all v2.4 phases complete, ready to complete the milestone
+**Stopped at:** v2.4 milestone completed and archived
 **Resume file:** None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

@@ -6,6 +6,9 @@ severity: minor
 files:
   - solsys_code/campaign_tally.py:406
   - solsys_code/campaign_tables.py
+audit_acknowledged:
+  milestone: v2.4
+  at: 2026-10-06
 ---
 
 ## Problem
