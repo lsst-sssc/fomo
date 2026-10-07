@@ -173,9 +173,7 @@ def _within_created_window(
         return False
     if created_after is not None and created < created_after:
         return False
-    if created_before is not None and created > created_before:
-        return False
-    return True
+    return not (created_before is not None and created > created_before)
 
 
 def _first_named_target(request: dict[str, Any]) -> dict[str, Any] | None:
