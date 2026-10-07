@@ -2708,13 +2708,23 @@ observation groups and records: how many distinct ``ObservationGroup``\ s
 and ``ObservationRecord``\ s are linked to the run, and four night counts
 -- observed, scheduled, expired-or-failed, and unused. **Anyone can see
 this, staff or not** -- it is not gated behind a login, exactly like the
-campaign table and the calendar itself.
+campaign table and the calendar itself. In a run row's Progress cell the
+group and record counts are on the first line and the four night counts on
+the second.
 
-Nights are counted on the site-local observing night (the same
+**Each record's night is taken at the site where it was observed.** A
+linked record's night is the site-local observing night (the
 noon-anchored rule ``telescope_runs.observing_night()`` uses everywhere
-else in FOMO), never the UTC calendar date, so a night that starts late in
-the evening and crosses midnight UTC is still counted once, on the night
-an observer at the site would call it.
+else in FOMO). It is taken in the timezone of the LCO site FOMO stored on
+the record when its observation completed (``coj``, ``cpt``, ``elp``,
+``lsc``, ``ogg``, ``sor``, ``tfn`` or ``tlv``), so a night that crosses
+midnight UTC is still counted once, on the night an observer at that site
+would call it. A record with no stored site, such as a scheduled block or
+an expired request, uses the run's own site. When the run has no site
+either (a class-wide allocation), its UTC calendar date is used. A night
+counts once, however many records or sites fall on it. Before quick task
+261006-nga (2026-10-06), a run with no site of its own (every class-wide
+queue allocation) showed zero nights however much it had observed.
 
 **None of this ever changes a run's own status.** The tally is a read-only
 aggregate over the run's linked records; ``CampaignRun.run_status`` stays
@@ -2771,7 +2781,10 @@ coming back observed -- shows **on the next page load**, with no waiting
 period: the cached tally's cache key is built from the run's own primary
 key plus the newest linked-record change timestamp, so any such change
 produces a fresh cache key and a fresh computation immediately, for the
-same reason as before. The unused figure is recomputed **on every page
+same reason as before. The cache key also carries a version that changes
+whenever the counting rule itself changes (it did with quick task
+261006-nga), so a figure cached under an older rule is never shown after an
+update. The unused figure is recomputed **on every page
 load**, on every surface that shows it -- the run row's Progress cell, the
 campaign roll-up strip above the runs table, the campaign-list badge, and
 the calendar pop-up's attributed-run block. All three of its drivers are
