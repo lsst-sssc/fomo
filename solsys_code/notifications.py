@@ -44,7 +44,7 @@ def absolute_url(path: str) -> str:
             notification link must never crash the notification itself over this.
     """
     base_url = settings.FOMO_BASE_URL or 'http://localhost:8000'
-    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+    return f'{base_url.rstrip("/")}/{path.lstrip("/")}'
 
 
 def notify_staff(subject: str, message: str, *, fail_silently: bool = False) -> bool:

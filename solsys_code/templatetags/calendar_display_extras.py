@@ -569,7 +569,7 @@ def campaign_decoration(event: CalendarEvent) -> dict | None:
         # Pitfall 1): 'campaigns:table' resolves against path('<int:pk>/', ...), and a null
         # campaign pk raises NoReverseMatch, which on the public calendar is a whole-page
         # failure -- is_publicly_visible alone does not cover campaign nullness.
-        table_url = f"{reverse('campaigns:table', args=[run.campaign_id])}#run-{run.pk}"
+        table_url = f'{reverse("campaigns:table", args=[run.campaign_id])}#run-{run.pk}'
 
     return {
         'campaign_name': run.campaign.name if run.campaign_id is not None else NO_CAMPAIGN_LABEL,

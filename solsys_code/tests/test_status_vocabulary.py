@@ -13,7 +13,6 @@ fixture -- never ``SiderealTargetFactory`` (CLAUDE.md: FOMO is exclusively for S
 System / non-sidereal targets).
 """
 
-
 from django.test import TestCase
 from tom_observations.models import ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
