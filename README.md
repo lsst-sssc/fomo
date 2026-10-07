@@ -1,3 +1,6 @@
+<p align="center">
+  <img src="src/static/fomo/img/fomo-logo.png" alt="FOMO logo" width="200">
+</p>
 
 # FOMO - Follow-up Observations of Moving Objects
 
