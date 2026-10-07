@@ -15,6 +15,7 @@
 - ✅ **v2.2 One Canonical Run Record** — Phases 26, 27, 27.1, 28-30 (shipped 2026-09-01) — see [milestones/v2.2-ROADMAP.md](milestones/v2.2-ROADMAP.md)
 - ⊘ **v2.3 Automatic Run Sync & Outcome Propagation** — Phases 31-32 (superseded 2026-09-03, not shipped) — see [milestones/v2.3-ROADMAP.md](milestones/v2.3-ROADMAP.md)
 - ✅ **v2.4 Observation-First Calendar** — Phases 33-37, 37.1 (shipped 2026-10-06) — see [milestones/v2.4-ROADMAP.md](milestones/v2.4-ROADMAP.md)
+- 🚧 **v2.5 Main Sync & Consolidation** — Phases 38-42 (in progress, started 2026-10-06)
 
 ## Phases
 
@@ -138,7 +139,157 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 </details>
 
+### 🚧 v2.5 Main Sync & Consolidation (Phases 38-42) — IN PROGRESS
+
+**Milestone Goal:** Bring the long-running `issue37-telescope-runs-calendar` branch back in step with `main` — same dependency floors, same tooling, same CI runner — and clear the debt v2.4 carried forward (or give it a written decision), so the next feature milestone starts from a current, clean base.
+
+- [ ] **Phase 38: Sync with main** - Merge `origin/main` into the branch and adopt exactly what `main` requires (tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9, LINCC template v2.2.0, the Django runner in CI), drop the dead pytest setup, get the full suite green, and rewrite draft PR #43's description for v2.4
+- [ ] **Phase 39: Calendar Write Access** - An anonymous visitor can no longer create, change or delete a calendar event, the month view stops offering them the controls, and the event pop-up template's header comment says truthfully how it differs from upstream
+- [ ] **Phase 40: Notebook Isolation & Attribution Page** - Every pre-executed demo notebook runs on its own scratch database with a guard that catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3, closing the last six Phase 37.1 review warnings
+- [ ] **Phase 41: Todo Triage & Seed Notes** - Every pending todo and backlog Phase 999.1 gets a fix-now / drop / park decision with a reason, fix-now items are set up as an inserted phase, and the Proposal-record seed records upstream's multi-proposal direction
+- [ ] **Phase 42: Re-verify the v2.4 Phases** - The five stale v2.4 verification reports are re-run against the final HEAD and refreshed in their archived directories, and the v2.4 milestone record states the real per-phase outcome instead of an override
+
+**An inserted phase follows Phase 41.** TRIAGE-02 turns each todo marked *fix now* into its own REQ-ID and a gap-closure phase inserted after Phase 41 with `/gsd-phase --insert` (expected number 41.1), discussed, planned and verified like any other phase and landing before Phase 42. Its contents are decided by Phase 41's triage note, not by this roadmap; if nothing is marked fix-now, no phase is inserted.
+
+**Locked constraints** (decided at milestone start — phase planning executes these, it does not re-open them):
+
+- **The `main` sync comes first.** Merging `origin/main` changes the same files the cleanup phases touch (`pyproject.toml`, `.pre-commit-config.yaml`, `CLAUDE.md`, CI, and the `tom_calendar` views and templates FOMO overrides), so no cleanup lands on the pre-merge tree.
+- **Merge, never rebase** (developer preference). `origin/main` arrives as one merge commit and the branch's own history is not rewritten. Run `git branch --show-current` before any branch-implicit git command (CLAUDE.md).
+- **Match `main`'s floors, nothing more.** `tomtoolkit>=3.1.0`, `tom_jpl>=0.3.0`, ruff 0.16.9. Django 5.2.18, astropy, sorcha and the other scientific dependencies wait for DEP-01 in a later milestone.
+- **Fix, don't skip.** A test broken by tomtoolkit 3.1.0 or by a `main` change is fixed in FOMO code; nothing is newly skipped or tagged out to make the suite pass.
+- **The calendar write fix comes before the other review warnings** (developer's ordering), which is why Phase 39 precedes Phase 40.
+- **Re-verification is the last phase**, so the refreshed v2.4 reports describe the tree this milestone actually ends with.
+- **PR #43 stays a draft.** Merging it to `main` is out of scope.
+- **Paired docs are part of the deliverable** (CLAUDE.md): a plan that changes the behavior of a module in CLAUDE.md's notebook map re-executes its paired notebook in that same plan, and a change to documented behavior updates `docs/runbooks/telescope_runs_calendar.rst`.
+
+## Phase Details
+
+### Phase 38: Sync with main
+
+**Goal**: The branch carries everything `main` already has — its dependency floors, ruff 0.16.9, LINCC python-project-template v2.2.0 and the Django test runner in CI — and the full suite passes on tomtoolkit 3.1.0, so every later v2.5 phase works on the merged tree.
+**Depends on**: Nothing new (first phase of v2.5; starts from v2.4's shipped HEAD)
+**Requirements**: SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-05, SYNC-06, SYNC-07, SYNC-08
+**Context** (orchestrator's checks, 2026-10-06):
+
+- Branch `issue37-telescope-runs-calendar`; merge base with `origin/main` is `756680f` (2026-08-03); `main` is 62 commits ahead (head `a910c17`, "Merge pull request #57 … update-lincc-template-2.2.0", at roadmap time).
+- `main` requires `tomtoolkit>=3.1.0`, `tom_jpl>=0.3.0`, `ruff>=0.16` (pre-commit `ruff-pre-commit` rev v0.16.9), LINCC template v2.2.0, and runs the Django test runner in CI with `coverage`. The branch has `tomtoolkit>=3.0.0`, pins `ruff==0.2.1` (pre-commit rev v0.2.1), and still carries `[tool.pytest.ini_options]`, the `pytest`/`pytest-cov` dev extras, a `pytest-check` pre-commit hook and the legacy `tests/` directory.
+- Installed now: tomtoolkit 3.0.1, Django 5.2.17. Latest: tomtoolkit 3.1.0, Django 5.2.18 — the Django bump is out of scope.
+- Baseline: 2095 tests OK at the v2.4 close (`python manage.py test solsys_code --exclude-tag=ephemeris_segfault`). `test_observatory_create_form_submits_to_observatory_url` is a known flaky Playwright test (STATE.md Deferred Items), so a failure there is not by itself a 3.1.0 regression.
+
+**Scope note**:
+
+- ruff 0.2.1 → 0.16.9 spans many releases of rule and formatter changes; expect new lint findings and a mechanical reformat across the tree. Fixing them is part of SYNC-03. A pure reformat is not a behavior change and does not trigger the paired-docs rule; a SYNC-07 fix that changes the behavior of a module in CLAUDE.md's notebook map does.
+- FOMO shadows upstream `tom_calendar` in three places: `solsys_code/calendar_urls.py` and the template overrides `src/templates/tom_calendar/partials/calendar.html` and `event_form.html`. After the bump, compare each against tomtoolkit 3.1.0's upstream copy. An upstream change an override now hides is a SYNC-07 item, and Phase 39 starts from that comparison.
+- The `pytest-check` hook in `.pre-commit-config.yaml` goes with SYNC-06 (follow `main`'s hook list); otherwise pre-commit keeps calling a runner that is no longer installed.
+- `CLAUDE.md` changes in three places: the lint/format commands and the D-07 note (SYNC-03), and the Testing section plus the Conventions line that says pre-commit "runs the pytest suite" (SYNC-06).
+- **Open question for discuss-phase:** PR #43's head is `issue37-code-only`, last pushed 2026-09-01 as "Sync code-only branch with issue37-telescope-runs-calendar through v2.2". Its diff therefore predates all of v2.4, so a v2.4 description (SYNC-08) matches what the PR shows only if that branch is refreshed from the merged branch (for example with `/gsd-pr-branch`) and pushed. Refreshing the PR's branch is not merging the PR; decide whether it is in scope.
+
+**Paired docs (CLAUDE.md rule)**: none by default — this phase changes tooling and dependency floors, not module behavior. If a SYNC-07 fix changes the behavior of a module in CLAUDE.md's notebook map, that plan re-executes the paired notebook and updates any affected runbook section.
+**Success Criteria** (what must be TRUE):
+
+  1. The branch history holds one merge commit whose parents are the pre-merge branch head and `origin/main`'s head at merge time; `git merge-base --is-ancestor origin/main HEAD` succeeds, so every `main` commit since `756680f` is on the branch, and no earlier branch commit was rewritten
+  2. A fresh install of the dev extras gives tomtoolkit 3.1.0 or later and tom_jpl 0.3.0 or later (`pip show` confirms), no version floor in `pyproject.toml` is higher than `main`'s, and `python manage.py test solsys_code --exclude-tag=ephemeris_segfault` passes there with no test newly skipped or tagged out
+  3. `pre-commit run ruff --all-files` and `pre-commit run ruff-format --all-files` run ruff 0.16.9 and come back clean, and the `ruff==0.2.1` pin, the v0.2.1 pre-commit rev and CLAUDE.md's 0.2.1 references are gone
+  4. A push to the branch runs the Django test runner with coverage in CI, as `main` does, and no pytest job; `[tool.pytest.ini_options]`, the pytest dev extras and `tests/` are gone, CLAUDE.md's Testing section describes only the Django runner, and the LINCC template v2.2.0 files are present with every FOMO-specific file from the branch still in place
+  5. Draft PR #43 is still a draft, and its description says what the branch delivers as of v2.4 — the observation projector, the allocation layer, unattended operation and the public tallies — and links `docs/runbooks/telescope_runs_calendar.rst`
+
+**Plans**: TBD
+
+### Phase 39: Calendar Write Access
+
+**Goal**: The public calendar is read-only to anyone not logged in — an anonymous visitor can neither create, change nor delete an event, and is not offered a control that would try — and FOMO's event pop-up override says truthfully how it differs from tomtoolkit 3.1.0's upstream template.
+**Depends on**: Phase 38 (the upstream `tom_calendar` views and templates this phase guards and shadows are tomtoolkit 3.1.0's, which arrive with the sync, together with Phase 38's comparison of FOMO's three overrides against them)
+**Requirements**: ACCESS-01, ACCESS-02, WARN-01
+**Scope note**:
+
+- Root of ACCESS-01: `solsys_code/calendar_urls.py:18-20` wires `tom_calendar.views.create_event`, `update_event` and `delete_event` with no login guard (Phase 33 review WR-05, never fixed). Lines 21-22 wire `create_todo` and `update_todo` the same way; ACCESS-01 names only the three event URLs, so whether the todo URLs are guarded too is a discuss-phase decision, not an assumption.
+- Check first whether tomtoolkit 3.1.0's `tom_calendar` views already require a login. Either way, the tests that prove ACCESS-01 run against FOMO's own URL conf, so they hold whichever layer does the guarding.
+- Who may still write (any logged-in user, or staff only) is a discuss-phase decision; the requirement fixes only that an anonymous request cannot.
+- Two different findings share the ID WR-05. ACCESS-01 is Phase 33's WR-05 (no login guard); WARN-01 is Phase 37.1's WR-05 (the `event_form.html` header comment). WARN-01 sits here because `event_form.html` is the event pop-up — the same write surface — and its header can only be made accurate against 3.1.0's upstream copy, which this phase compares anyway. The pop-up's own save and delete controls also "advertise a write it will refuse", so check them alongside ACCESS-02.
+- This is the milestone's security gate (`security_enforcement` is on): the threat model covers anonymous writes through every calendar URL.
+- When WARN-01 lands, mark the WR-05 row fixed in `.planning/milestones/v2.4-phases/37.1-close-gap-alloc-06-exact-identity-system-links-on-ingest-int/37.1-REVIEW-DISPOSITION.md`.
+
+**Paired docs (CLAUDE.md rule)**: no notebook pairs with `calendar_urls.py` or the calendar templates. `docs/runbooks/telescope_runs_calendar.rst`'s calendar pop-up section ("Clicking a calendar entry opens a pop-up …") is updated if what an anonymous visitor sees there changes.
+**Success Criteria** (what must be TRUE):
+
+  1. An anonymous `POST` to `calendar:create-event`, `calendar:update-event` or `calendar:delete-event` is redirected to login or refused, and a test for each of the three proves the `CalendarEvent` count and the targeted event's fields are unchanged
+  2. A logged-in user who is allowed to edit events can still create, update and delete one from the month view exactly as before
+  3. An anonymous visitor to `/calendar/` sees no create or update click target in the month view, yet can still open an event's pop-up and read it, including its attributed-run link; a logged-in editor still sees the click targets
+  4. The header comment of `src/templates/tom_calendar/partials/event_form.html` names the blocks that actually differ from tomtoolkit 3.1.0's upstream template, and a diff against that upstream file matches the list
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 40: Notebook Isolation & Attribution Page
+
+**Goal**: Every pre-executed demo notebook builds and uses its own scratch database, guarded by a check that catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3 — closing the remaining six Phase 37.1 review warnings (WR-13 to WR-18).
+**Depends on**: Phase 38 (the notebooks are re-executed on the merged tree and tomtoolkit 3.1.0); runs after Phase 39 by the developer's ordering
+**Requirements**: WARN-02, WARN-03, WARN-04, WARN-05, WARN-06, WARN-07
+**Scope note**:
+
+- **Order inside the phase:** isolate the notebooks first (WARN-05, then the guard WARN-02 and the `assert` replacement WARN-03), the attribution page second (WARN-04, WARN-07). `campaign_lifecycle_demo.ipynb` is both one of the three notebooks that byte-copy `src/fomo_db.sqlite3` today (with `load_telescope_runs_demo.ipynb` and `reconcile_campaign_runs_demo.ipynb`) and the paired notebook for the attribution surfaces (`campaign_views.py` in CLAUDE.md's notebook map). In this order it is rebuilt and re-executed once, on its own scratch database. That shared notebook is why WARN-04 and WARN-07 sit here rather than with Phase 39's calendar templates.
+- A source scan at roadmap time found `assert` and `migrate` in all eight pre-executed notebooks, not only the three the review named, so WARN-03's audit covers all eight.
+- The README the review refers to is `docs/notebooks/README.md`. There is no README under `docs/notebooks/pre_executed/`, the path WARN-05's wording names.
+- WR-15 noted that "the new guard cannot see" the missing High-band marker. Open info item IN-12 (the Bootstrap 4 class guard reads only on-disk templates in the first `DIRS` entry) is next to WARN-04's test but is not a v2.5 requirement.
+- WARN-07 changes documented behavior: the runbook's attribution-pass section says the Dismissed section is "folded away until you click".
+- WARN-05 also closes pending todo 2026-10-02 "Run pre-executed demo notebooks against a scratch DB copy"; Phase 41 records that.
+- Mark WR-13 to WR-18 fixed in `37.1-REVIEW-DISPOSITION.md` (same archived 37.1 directory as Phase 39) as each lands.
+
+**Paired docs (CLAUDE.md rule)**: the three rebuilt notebooks, `telescope_runs_demo.ipynb` (WARN-06) and any other notebook whose `assert` is replaced (WARN-03), each re-executed with `jupyter nbconvert --to notebook --execute --inplace` and committed with output; `campaign_lifecycle_demo.ipynb` for the attribution-page behavior; `docs/runbooks/telescope_runs_calendar.rst`'s attribution-pass section (WARN-07); `docs/notebooks/README.md` (WARN-05).
+**Success Criteria** (what must be TRUE):
+
+  1. No pre-executed notebook reads or copies `src/fomo_db.sqlite3`: the three that byte-copy it today build their own scratch database the way the compliant notebooks do, each is re-executed and committed with output, and `docs/notebooks/README.md` states the isolation rule the notebooks actually follow
+  2. The notebook guard test fails for a notebook whose current source routes Django to the developer database even when that notebook's committed output is stale, and every notebook's database-path check raises an ordinary exception that still fires under `python -O`
+  3. `telescope_runs_demo.ipynb`'s committed output reports the horizon dip in a single unit, not "arcmin deg"
+  4. On the attribution page, High-band rows show their marker again, a template test asserts the marker is present in the rendered HTML, and the page's templates use Bootstrap 5.3 class names only
+  5. A staff member working down the Dismissed list can press Undo on a row and land back on the same page with the Dismissed section still open, with no re-open or re-page between rows
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 41: Todo Triage & Seed Notes
+
+**Goal**: Every todo v2.4 carried forward, and backlog Phase 999.1, has a written decision — fix now, drop or park — the fix-now ones are set up as planned and verified work, and the Proposal-record seed starts from what TOM Toolkit upstream is actually doing.
+**Depends on**: Phase 40 (WARN-05 closes one of the 19 todos, and every decision is judged against the merged, cleaned-up code rather than the pre-sync branch)
+**Requirements**: TRIAGE-01, TRIAGE-02, TRIAGE-03
+**Scope note**:
+
+- 19 files under `.planning/todos/pending/` at milestone start (listed in STATE.md's Deferred Items), plus backlog Phase 999.1 (a marker for part-observed records whose window expired after some data was taken).
+- **An inserted gap-closure phase follows this one.** Each fix-now item gets its own REQ-ID in REQUIREMENTS.md and goes into a phase inserted after Phase 41 with `/gsd-phase --insert` (expected number 41.1), which is discussed, planned, executed and verified like any other phase and lands before Phase 42. Its contents are whatever this phase's triage note marks fix-now; nothing is decided here. If Phase 999.1 is marked fix-now it moves out of the Backlog section into that phase.
+- TRIAGE-03 needs the content of the TOM Toolkit Slack "multi proposal support" thread, which the developer supplies; this phase cannot read Slack itself. No code change.
+
+**Success Criteria** (what must be TRUE):
+
+  1. One triage note under `.planning/` gives every pending todo and backlog Phase 999.1 a decision — fix now, drop or park — with a one-line reason; dropped todos are closed, and parked todos stay pending with the reason written into the file
+  2. Each fix-now item has its own REQ-ID in `REQUIREMENTS.md`, mapped to a gap-closure phase inserted after Phase 41, so it is planned and verified rather than done ad hoc; if nothing is marked fix-now, the note says so and no phase is inserted
+  3. `SEED-261007-5pe` records who is driving TOM Toolkit's multi-proposal support, what model or API is proposed, and when it is expected to ship, with no code changed
+
+**Plans**: TBD
+
+### Phase 42: Re-verify the v2.4 Phases
+
+**Goal**: The v2.4 close no longer rests on an override — each of the five stale verification reports has been re-run against the final v2.5 HEAD and says honestly what still holds, and the v2.4 milestone record states the outcome per phase.
+**Depends on**: Phases 38-41 and any phase inserted after Phase 41 — re-verification runs only after every change to files the v2.4 reports cover has landed
+**Requirements**: REVERIFY-01, REVERIFY-02, REVERIFY-03
+**Scope note**:
+
+- **The five target phase directories are archived, not active.** They live under `.planning/milestones/v2.4-phases/`, not `.planning/phases/` (which does not exist at roadmap time): `34-the-observation-projector-trigger`, `35-allocation-layer-classical-cutover`, `36-unattended-operation`, `37-status-vocabulary-public-tallies-provenance-blind-gaps` and `37.1-close-gap-alloc-06-exact-identity-system-links-on-ingest-int`. Point the verifier at each archived directory explicitly — a lookup by phase number under `.planning/phases/` will not find them — and write each refreshed `*-VERIFICATION.md` back into the same archived directory.
+- Phase 33's report is not stale and is not re-run.
+- Each re-run is goal-backward against that phase's own must-haves (its plans' `must_haves` and its success criteria in `.planning/milestones/v2.4-ROADMAP.md`), not against v2.5's requirements.
+- Because this is the last phase, a gap the developer chooses to fix this milestone cannot go into the Phase 41 gap-closure phase, which has already run. It goes into a further phase inserted after Phase 42 by the same TRIAGE-02 mechanism, the affected report is re-run once that lands, and `MILESTONES.md` is updated last. A gap that is not fixed is recorded with a reason in the report and in `MILESTONES.md`'s v2.4 Known Gaps.
+- The compensating evidence at the v2.4 close was the audit's full-suite run (2095 tests, OK) and its static check of every cross-phase seam (`.planning/milestones/v2.4-MILESTONE-AUDIT.md`).
+
+**Success Criteria** (what must be TRUE):
+
+  1. Each of the five reports has been re-run against HEAD and reads `passed`, `gaps_found` or `human_needed` with the re-run date; `verification.status` reads none of them as `stale`
+  2. Every gap a re-run finds is either fixed in this milestone under its own REQ-ID or listed with a reason in that report's gaps section and in `.planning/MILESTONES.md`'s v2.4 Known Gaps
+  3. `.planning/MILESTONES.md`'s v2.4 entry no longer lists "stale verification reports" as a known gap, and records the re-verification date and outcome for each of the five phases
+
+**Plans**: TBD
+
 ## Progress
+
+**Execution Order:** 38 → 39 → 40 → 41 → (inserted 41.1, if triage marks anything fix-now) → 42
 
 | Phase             | Milestone | Plans Complete | Status      | Completed  |
 | ----------------- | --------- | -------------- | ----------- | ---------- |
@@ -182,12 +333,19 @@ Superseded after five spikes showed that routing observation-precision narrowing
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
 | 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 17/17 | Complete    | 2026-10-06 |
+| 38. Sync with main | v2.5 | 0/TBD | Not started | - |
+| 39. Calendar Write Access | v2.5 | 0/TBD | Not started | - |
+| 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
+| 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
+| 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
 
 Full phase detail for all shipped milestones lives in their respective `milestones/*-ROADMAP.md` archive files linked above.
 
 ## Current Milestone
 
-None — v2.4 shipped 2026-10-06. Next: `/gsd-new-milestone` (fresh requirements; phase numbering continues from 38).
+🚧 **v2.5 Main Sync & Consolidation** — Phases 38-42, started 2026-10-06.
+
+Coverage: 23/23 v1 requirements mapped (SYNC-01..08 → 38; ACCESS-01..02 and WARN-01 → 39; WARN-02..07 → 40; TRIAGE-01..03 → 41; REVERIFY-01..03 → 42), no orphans, no duplicates. A gap-closure phase (expected 41.1) is inserted after Phase 41 if the triage marks any item fix-now. Next: `/gsd-discuss-phase 38`.
 
 ## Backlog
 

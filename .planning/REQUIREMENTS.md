@@ -20,7 +20,7 @@ Requirements for this milestone. Each maps to a roadmap phase.
 
 ### Calendar write access (ACCESS)
 
-- [ ] **ACCESS-01**: An anonymous `POST` to `calendar:create-event`, `calendar:update-event` or `calendar:delete-event` (wired in `solsys_code/calendar_urls.py`) does not create, change or delete a `CalendarEvent`; the request is redirected to login (or refused), and a test asserts the `CalendarEvent` count is unchanged. (Phase 33 review WR-05, never fixed.)
+- [ ] **ACCESS-01**: An anonymous `POST` to any write endpoint wired in `solsys_code/calendar_urls.py` — `create-event`, `update-event`, `delete-event`, `create-todo`, `update-todo` — does not create, change or delete a row; the request is redirected to login (or refused), and a test per endpoint asserts the row count and the targeted row are unchanged. Which signed-in users may still write (any, or staff only) is decided in discuss-phase. (Phase 33 review WR-05, never fixed.)
 - [ ] **ACCESS-02**: The month-view template's create/update click targets (`src/templates/tom_calendar/partials/calendar.html`) are hidden from anonymous users, so the public calendar does not advertise a write it will refuse.
 
 ### Review warnings (WARN) — Phase 37.1 ledger, all still `open`
@@ -29,21 +29,21 @@ Requirements for this milestone. Each maps to a roadmap phase.
 - [ ] **WARN-02** (WR-13): The pre-executed-notebook guard fails a notebook whose *current source* routes Django to the developer database, regardless of whether its committed output is stale.
 - [ ] **WARN-03** (WR-14): No pre-executed notebook relies on `assert` to protect the resolved database path before running `migrate`; the check raises an ordinary exception that survives `python -O`.
 - [ ] **WARN-04** (WR-15): The attribution page (`src/templates/campaigns/attribution_queue.html` and partials) uses Bootstrap 5.3 class names only; the High-band row marker renders again, and a template test asserts it is present in the rendered HTML.
-- [ ] **WARN-05** (WR-16): Every notebook under `docs/notebooks/pre_executed/` is audited for live developer-database access; every one that reads or copies `src/fomo_db.sqlite3` is changed to build its own scratch database the way the compliant notebooks already do, and `docs/notebooks/pre_executed/README` states the isolation rule the notebooks actually follow. (Also closes pending todo 2026-10-02 "Run pre-executed demo notebooks against a scratch DB copy".)
+- [ ] **WARN-05** (WR-16): Every notebook under `docs/notebooks/pre_executed/` is audited for live developer-database access; every one that reads or copies `src/fomo_db.sqlite3` is changed to build its own scratch database the way the compliant notebooks already do, and `docs/notebooks/README.md` states the isolation rule the notebooks actually follow. (Also closes pending todo 2026-10-02 "Run pre-executed demo notebooks against a scratch DB copy".)
 - [ ] **WARN-06** (WR-17): `telescope_runs_demo.ipynb`'s committed output reports the horizon dip in a single unit (degrees or arcminutes), not "arcmin deg"; the notebook is re-executed and committed.
 - [ ] **WARN-07** (WR-18): Pressing Undo on a Dismissed row in the attribution queue leaves the Dismissed section open and on the same page, so working down the list needs no re-open or re-page per row.
 
 ### Re-verify the stale v2.4 reports (REVERIFY)
 
 - [ ] **REVERIFY-01**: After the `main` sync (SYNC-07) and the cleanup phases have landed, each v2.4 verification report that `verification.status` reads as `stale` (phases 34, 35, 36, 37 and 37.1, under `.planning/milestones/v2.4-phases/`) is re-run by the verifier against HEAD, goal-backward against that phase's own must-haves, and the refreshed report is written back into the archived phase directory with a status of `passed`, `gaps_found` or `human_needed` — never left `stale`.
-- [ ] **REVERIFY-02**: Any gap a re-verification finds is either fixed in this milestone (as a REQ-ID in the TRIAGE-02 gap-closure phase) or recorded with a reason in the report's gaps section and in `.planning/MILESTONES.md`'s v2.4 "Known Gaps" entry, so the v2.4 override close is replaced by an honest statement of what still holds.
+- [ ] **REVERIFY-02**: Any gap a re-verification finds is either fixed in this milestone — as a REQ-ID in a gap-closure phase inserted after Phase 42, followed by a re-run of that phase's report — or recorded with a reason in the report's gaps section and in `.planning/MILESTONES.md`'s v2.4 "Known Gaps" entry, so the v2.4 override close is replaced by an honest statement of what still holds.
 - [ ] **REVERIFY-03**: `.planning/MILESTONES.md`'s v2.4 entry no longer lists "stale verification reports" as a known gap; it records the re-verification date and outcome per phase.
 
 ### Todo triage (TRIAGE)
 
 - [ ] **TRIAGE-01**: Every file under `.planning/todos/pending/` (19 at milestone start) and backlog Phase 999.1 has a written disposition — *fix now*, *drop* or *park* — with a one-line reason, recorded in a single triage note under `.planning/`; dropped todos are closed, parked ones stay pending with the reason added to the file.
 - [ ] **TRIAGE-02**: Each *fix now* item is turned into a requirement with its own REQ-ID and inserted as a gap-closure phase (`/gsd-phase --insert`) after the triage phase, so the fixes are planned and verified like any other work rather than done ad hoc.
-- [ ] **TRIAGE-03**: `SEED-261007-5pe` records the gist of the TOM Toolkit Slack "multi proposal support" thread (who is driving it, what model or API is proposed, expected release) so the Proposal-record design in a later milestone starts from it. No code change.
+- [ ] **TRIAGE-03**: `SEED-261007-5pe` records (done early, 2026-10-06, commit be11549 — the triage phase confirms the entry reads correctly) the gist of the TOM Toolkit Slack "multi proposal support" thread (who is driving it, what model or API is proposed, expected release) so the Proposal-record design in a later milestone starts from it. No code change.
 
 ## v2 Requirements
 
@@ -79,35 +79,37 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SYNC-01 | — | Pending |
-| SYNC-02 | — | Pending |
-| SYNC-03 | — | Pending |
-| SYNC-04 | — | Pending |
-| SYNC-05 | — | Pending |
-| SYNC-06 | — | Pending |
-| SYNC-07 | — | Pending |
-| SYNC-08 | — | Pending |
-| ACCESS-01 | — | Pending |
-| ACCESS-02 | — | Pending |
-| WARN-01 | — | Pending |
-| WARN-02 | — | Pending |
-| WARN-03 | — | Pending |
-| WARN-04 | — | Pending |
-| WARN-05 | — | Pending |
-| WARN-06 | — | Pending |
-| WARN-07 | — | Pending |
-| REVERIFY-01 | — | Pending |
-| REVERIFY-02 | — | Pending |
-| REVERIFY-03 | — | Pending |
-| TRIAGE-01 | — | Pending |
-| TRIAGE-02 | — | Pending |
-| TRIAGE-03 | — | Pending |
+| SYNC-01 | Phase 38 | Pending |
+| SYNC-02 | Phase 38 | Pending |
+| SYNC-03 | Phase 38 | Pending |
+| SYNC-04 | Phase 38 | Pending |
+| SYNC-05 | Phase 38 | Pending |
+| SYNC-06 | Phase 38 | Pending |
+| SYNC-07 | Phase 38 | Pending |
+| SYNC-08 | Phase 38 | Pending |
+| ACCESS-01 | Phase 39 | Pending |
+| ACCESS-02 | Phase 39 | Pending |
+| WARN-01 | Phase 39 | Pending |
+| WARN-02 | Phase 40 | Pending |
+| WARN-03 | Phase 40 | Pending |
+| WARN-04 | Phase 40 | Pending |
+| WARN-05 | Phase 40 | Pending |
+| WARN-06 | Phase 40 | Pending |
+| WARN-07 | Phase 40 | Pending |
+| TRIAGE-01 | Phase 41 | Pending |
+| TRIAGE-02 | Phase 41 | Pending |
+| TRIAGE-03 | Phase 41 | Pending |
+| REVERIFY-01 | Phase 42 | Pending |
+| REVERIFY-02 | Phase 42 | Pending |
+| REVERIFY-03 | Phase 42 | Pending |
 
 **Coverage:**
 - v1 requirements: 23 total
-- Mapped to phases: 0
-- Unmapped: 23 ⚠️ (filled by roadmap)
+- Mapped to phases: 23 (Phase 38: 8, Phase 39: 3, Phase 40: 6, Phase 41: 3, Phase 42: 3)
+- Unmapped: 0 ✓
+
+TRIAGE-02 is delivered by Phase 41 (the triage produces the fix-now REQ-IDs and inserts the gap-closure phase, expected 41.1); the fix-now REQ-IDs themselves are added to this file and mapped to that inserted phase when it is created.
 
 ---
 *Requirements defined: 2026-10-06*
-*Last updated: 2026-10-06 after initial definition*
+*Last updated: 2026-10-06 after roadmap creation (v2.5 Phases 38-42)*
