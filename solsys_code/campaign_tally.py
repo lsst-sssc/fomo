@@ -15,6 +15,7 @@ import.
 
 import logging
 from datetime import datetime
+from datetime import timezone as dt_timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -52,6 +53,13 @@ TALLY_CACHE_TTL_SECONDS = 3600
 # key stays stable across processes.
 _NO_RECORDS_VERSION_TOKEN = 'none'
 
+# The counting-rule version carried in BOTH cache keys (build_tally_cache_key(),
+# build_rollup_cache_key()). F13 (quick task 261006-nga, 2026-10-06) bumped it from the
+# unversioned form: a class-wide run's night counts changed from zero to real values, and the
+# shared file-based cache would otherwise keep serving the old zeros for up to
+# TALLY_CACHE_TTL_SECONDS. Bump it again whenever the cached counting rule changes.
+TALLY_CACHE_KEY_VERSION = 'v2'
+
 # D-11: the three per-run night-state buckets a linked record's classification maps onto.
 # OBSERVED/SCHEDULED each get their own set; the three failure-family states share one
 # "failed" set. QUEUED and INCONSISTENT are deliberately absent -- they contribute to no
@@ -65,6 +73,28 @@ _NIGHT_CLAIMING_STATES = frozenset(
         DisplayState.FAILED,
     }
 )
+
+# Maps an LCO portal site code -- the value the observation projector stores in
+# ObservationRecord.parameters['observed_site'] -- to the IANA timezone that site's observing
+# nights run on. It is used ONLY by night_counts_for_run() to key a linked record's night
+# (F13, quick task 261006-nga, developer decision 2026-10-06).
+#
+# It is NOT a site or obscode mapping and says nothing about which telescope or Observatory a
+# record used. It must never be imported by attribution, gap analysis or proposal allocation,
+# which keep using campaign_attribution.LCO_SITE_CODE_TO_OBSCODE, unchanged. A site's timezone
+# is the same for every telescope there, which is why one entry per site is safe here although
+# it is not safe for that obscode table. TestTallyNightSiteTimezones pins the coverage and the
+# scope.
+_NIGHT_SITE_TIMEZONES: dict[str, str] = {
+    'coj': 'Australia/Sydney',
+    'cpt': 'Africa/Johannesburg',
+    'elp': 'America/Chicago',
+    'lsc': 'America/Santiago',
+    'ogg': 'Pacific/Honolulu',
+    'sor': 'America/Santiago',
+    'tfn': 'Atlantic/Canary',
+    'tlv': 'Asia/Jerusalem',
+}
 
 
 def build_tally_cache_key(
@@ -104,10 +134,12 @@ def build_tally_cache_key(
     Returns:
         str: a stable key; two calls with the same ``(run_pk, records_version,
             records_count, link_version)`` tuple produce identical keys, and any change to
-            any of the three freshness inputs produces a different one.
+            any of the three freshness inputs produces a different one. The key also carries
+            ``TALLY_CACHE_KEY_VERSION``, so a tally cached under an older counting rule is
+            never served after the rule changes.
     """
     version_segment = records_version.isoformat() if records_version is not None else _NO_RECORDS_VERSION_TOKEN
-    return f'campaign_tally:{run_pk}:{version_segment}:{records_count}:{link_version or 0}'
+    return f'campaign_tally:{TALLY_CACHE_KEY_VERSION}:{run_pk}:{version_segment}:{records_count}:{link_version or 0}'
 
 
 def link_counts_for_runs(run_pks: list[int]) -> dict[int, dict[str, Any]]:
@@ -162,27 +194,76 @@ def link_counts_for_runs(run_pks: list[int]) -> dict[int, dict[str, Any]]:
     return result
 
 
+def _usable_zone(tz_name: str | None) -> ZoneInfo | None:
+    """Return ``ZoneInfo(tz_name)`` for a non-blank, known IANA name, otherwise ``None``.
+
+    Args:
+        tz_name: an IANA timezone name, or ``None``/blank.
+
+    Returns:
+        ZoneInfo | None: the zone, or ``None`` for a blank name or one ``ZoneInfo`` rejects
+            (``ZoneInfoNotFoundError``, ``TypeError`` or ``ValueError``). Never raises.
+    """
+    if not tz_name:
+        return None
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        return None
+
+
+def _record_site_zone(record: ObservationRecord) -> ZoneInfo | None:
+    """The timezone of the site a record was observed at, from the tally-only site map.
+
+    Reads ``record.parameters['observed_site']`` (the LCO site code the observation
+    projector stores once an observation completes). The value is used only when it is a
+    ``str``; it is normalised with ``.strip().lower()`` and looked up in
+    ``_NIGHT_SITE_TIMEZONES``. Record data is only ever a lookup key: it never reaches
+    ``ZoneInfo`` -- only the map's own values do.
+
+    Args:
+        record: a linked ObservationRecord (``parameters`` must be loaded).
+
+    Returns:
+        ZoneInfo | None: the site's zone, or ``None`` when the record carries no observed
+            site, the value is not a string, or the site is not in the map. Never raises.
+    """
+    parameters = record.parameters
+    if not isinstance(parameters, dict):
+        return None
+    site_code = parameters.get('observed_site')
+    if not isinstance(site_code, str):
+        return None
+    return _usable_zone(_NIGHT_SITE_TIMEZONES.get(site_code.strip().lower()))
+
+
 def night_counts_for_run(run: CampaignRun) -> dict[str, int]:
     """The Python half of the tally: per-run night counts by state, de-duplicated per
-    site-local observing night (D-11).
+    observing night (D-11).
+
+    Each linked record's night is keyed by, in order: (1) the site-local observing night in
+    the timezone of the site the record was observed at (``parameters['observed_site']``
+    through ``_NIGHT_SITE_TIMEZONES``); (2) the same rule in the run's own site timezone;
+    (3) the UTC calendar date of the record's start. Records with no observed site -- a
+    placed block that has not been observed yet, or an expired, cancelled or failed
+    request -- therefore fall back to the run's site, then the UTC date.
+
+    A night is keyed by its DATE alone: a date counts once in its state's set however many
+    records, or sites, fall on it (D-11), so a night that straddles midnight UTC at cpt, lsc
+    or tfn is still one night. The query cost is unchanged: one records query per run, and
+    no Observatory lookup for record sites.
+
+    A run with no site no longer reports zero (F13, quick task 261006-nga): a class-wide
+    queue allocation now counts the nights its linked records actually got.
 
     Args:
         run: the CampaignRun being counted.
 
     Returns:
         dict[str, int]: ``{'nights_observed': int, 'nights_scheduled': int, 'nights_failed':
-            int}``. A run with ``site`` unset, or a site with a blank/unusable timezone,
-            returns three zeros with a debug log line naming the run pk -- never raises.
+            int}``. Never raises.
     """
-    zero_counts = {'nights_observed': 0, 'nights_scheduled': 0, 'nights_failed': 0}
-    if run.site_id is None or not run.site.timezone:
-        logger.debug('night_counts_for_run: run pk=%s has no resolvable site timezone; reporting zero.', run.pk)
-        return zero_counts
-    try:
-        site_zone = ZoneInfo(run.site.timezone)
-    except (ZoneInfoNotFoundError, TypeError, ValueError):
-        logger.debug('night_counts_for_run: run pk=%s site timezone is unusable; reporting zero.', run.pk)
-        return zero_counts
+    run_zone = _usable_zone(run.site.timezone) if run.site_id is not None else None
 
     # Restrict the fetched columns explicitly -- pk/status/facility/scheduled_start/
     # scheduled_end/parameters, exactly what classify_record()/record_time_window() read.
@@ -191,6 +272,8 @@ def night_counts_for_run(run: CampaignRun) -> dict[str, int]:
     # (calendar_utils.py), which is reachable for a failure-state or completed-no-block
     # record that survives the _NIGHT_CLAIMING_STATES filter below (WR-02, 37-REVIEW.md) --
     # omitting it triggered a deferred-field refresh (one extra SELECT per record).
+    # 'parameters' is also where _record_site_zone() reads the record's observed site, so no
+    # column is added for the per-record night keying.
     records = ObservationRecord.objects.filter(
         pk__in=run.observation_links.values_list('observation_record_id', flat=True)
     ).only('pk', 'status', 'facility', 'scheduled_start', 'scheduled_end', 'parameters')
@@ -198,6 +281,7 @@ def night_counts_for_run(run: CampaignRun) -> dict[str, int]:
     observed_nights: set = set()
     scheduled_nights: set = set()
     failed_nights: set = set()
+    keyed_by_record_site = keyed_by_run_site = keyed_by_utc_date = 0
     for record in records:
         # CR-03 (37-REVIEW.md): facility_for_or_none() never raises for a stale/unconfigured
         # facility name -- this function's own docstring promises "never raises", and a
@@ -215,7 +299,17 @@ def night_counts_for_run(run: CampaignRun) -> dict[str, int]:
         except (KeyError, ValueError):
             logger.debug('night_counts_for_run: record_time_window() raised for pk=%s; skipping.', record.pk)
             continue
-        night = observing_night(start_time, site_zone)
+        record_zone = _record_site_zone(record)
+        zone = record_zone or run_zone
+        if zone is not None:
+            night = observing_night(start_time, zone)
+            if record_zone is not None:
+                keyed_by_record_site += 1
+            else:
+                keyed_by_run_site += 1
+        else:
+            night = start_time.astimezone(dt_timezone.utc).date()
+            keyed_by_utc_date += 1
         if state == DisplayState.OBSERVED:
             observed_nights.add(night)
         elif state == DisplayState.SCHEDULED:
@@ -223,6 +317,13 @@ def night_counts_for_run(run: CampaignRun) -> dict[str, int]:
         else:
             failed_nights.add(night)
 
+    logger.debug(
+        'night_counts_for_run: run pk=%s keyed %s record(s) by observed site, %s by run site, %s by UTC date.',
+        run.pk,
+        keyed_by_record_site,
+        keyed_by_run_site,
+        keyed_by_utc_date,
+    )
     return {
         'nights_observed': len(observed_nights),
         'nights_scheduled': len(scheduled_nights),
@@ -737,10 +838,11 @@ def build_rollup_cache_key(campaign_pk: int, records_version: datetime | None) -
     Returns:
         str: a stable key; two calls with the same ``(campaign_pk, records_version)`` pair
             produce identical keys, and any change to ``records_version`` produces a
-            different one.
+            different one. The key also carries ``TALLY_CACHE_KEY_VERSION``, so a roll-up
+            cached under an older counting rule is never served after the rule changes.
     """
     version_segment = records_version.isoformat() if records_version is not None else _NO_RECORDS_VERSION_TOKEN
-    return f'campaign_rollup:{campaign_pk}:{version_segment}'
+    return f'campaign_rollup:{TALLY_CACHE_KEY_VERSION}:{campaign_pk}:{version_segment}'
 
 
 def get_or_compute_rollup(campaign, records_version: datetime | None = None) -> dict[str, Any]:

@@ -4,7 +4,9 @@
 (``observing_night()``), ``calendar_utils`` (``record_time_window()``), ``observation_projector``
 (``facility_for()``), ``allocation_projector`` (``allocation_events()``) and
 ``proposal_allocation`` (``estimated_unused_nights()``) -- never ``solsys_code.views`` or
-``solsys_code.ephem_utils``. This module's own static import-guard test mirrors the grep this
+``solsys_code.ephem_utils``. It also owns the tally-only site timezone map
+(``_NIGHT_SITE_TIMEZONES``, F13, quick task 261006-nga), which is pinned here to stay out of
+attribution, gap analysis and proposal allocation. This module's own static import-guard test mirrors the grep this
 plan's verify step also runs, so the two stay in agreement.
 
 Always uses ``tom_targets.tests.factories.NonSiderealTargetFactory`` for any Target fixture --
@@ -29,8 +31,9 @@ from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
-from solsys_code import campaign_gap, campaign_tally, proposal_allocation, status_vocabulary
+from solsys_code import campaign_attribution, campaign_gap, campaign_tally, proposal_allocation, status_vocabulary
 from solsys_code.allocation_projector import allocation_night_url
+from solsys_code.calendar_utils import SITE_TELESCOPE_MAP
 from solsys_code.campaign_tally import (
     TALLY_CACHE_TTL_SECONDS,
     build_rollup_cache_key,
@@ -161,6 +164,12 @@ class TestBuildTallyCacheKey(TestCase):
     def test_none_stamp_is_stable_across_calls(self):
         self.assertEqual(build_tally_cache_key(1, None), build_tally_cache_key(1, None))
 
+    def test_keys_carry_the_counting_rule_version(self):
+        """F13 (quick task 261006-nga): both keys carry a counting-rule version so a zero
+        tally cached under the old rule is never served after the update."""
+        self.assertEqual(build_tally_cache_key(7, None), 'campaign_tally:v2:7:none:0:0')
+        self.assertEqual(build_rollup_cache_key(7, None), 'campaign_rollup:v2:7:none')
+
 
 class TestLinkCountsForRuns(CampaignTallyTestBase):
     def test_run_with_no_links_reports_zero_and_none_version(self):
@@ -218,7 +227,7 @@ class TestNightCountsForRun(CampaignTallyTestBase):
             {'nights_observed': 0, 'nights_scheduled': 0, 'nights_failed': 0},
         )
 
-    def test_site_unset_returns_all_zero_no_exception(self):
+    def test_site_unset_counts_the_utc_date_and_never_raises(self):
         run = self._make_run(site=None, site_raw='')
         self._link_record(
             run,
@@ -228,7 +237,7 @@ class TestNightCountsForRun(CampaignTallyTestBase):
         )
         self.assertEqual(
             night_counts_for_run(run),
-            {'nights_observed': 0, 'nights_scheduled': 0, 'nights_failed': 0},
+            {'nights_observed': 1, 'nights_scheduled': 0, 'nights_failed': 0},
         )
 
     def test_two_observed_records_same_site_local_night_count_once(self):
@@ -343,6 +352,200 @@ class TestNightCountsForRun(CampaignTallyTestBase):
             night_counts_for_run(run),
             {'nights_observed': 0, 'nights_scheduled': 0, 'nights_failed': 0},
         )
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestNightCountsPerRecordSite(CampaignTallyTestBase):
+    """F13 (quick task 261006-nga): each linked record's night is keyed in the timezone of
+    the site it was observed at (``parameters['observed_site']`` through the tally-only
+    ``_NIGHT_SITE_TIMEZONES`` map), then the run's own site, then the UTC date. In July 2026
+    Sydney is UTC+10, Honolulu UTC-10, Johannesburg UTC+2, Santiago UTC-4 and the Canaries
+    UTC+1; ``observing_night()`` subtracts 12 h from local time."""
+
+    COJ_1M = {'observed_site': 'coj', 'observed_telescope': '1m0a', 'observed_enclosure': 'doma'}
+    OGG_2M = {'observed_site': 'ogg', 'observed_telescope': '2m0a', 'observed_enclosure': 'clma'}
+    CPT_1M = {'observed_site': 'cpt', 'observed_telescope': '1m0a', 'observed_enclosure': 'domc'}
+    LSC_1M = {'observed_site': 'lsc', 'observed_telescope': '1m0a', 'observed_enclosure': 'domb'}
+    TFN_1M = {'observed_site': 'tfn', 'observed_telescope': '1m0a', 'observed_enclosure': 'doma'}
+    # A site code the map does not name.
+    UNMAPPED = {'observed_site': 'xxx', 'observed_telescope': '1m0a', 'observed_enclosure': 'doma'}
+
+    def setUp(self):
+        cache.clear()
+
+    def _class_wide_run(self, **overrides) -> CampaignRun:
+        kwargs = {
+            'site': None,
+            'site_raw': '',
+            'source': CampaignRun.Source.LCO_QUEUE,
+            'telescope_class': CampaignRun.TelescopeClass.ONE_M0,
+            'telescope_instrument': 'LCO 1m0 / Sinistro',
+        }
+        kwargs.update(overrides)
+        return self._make_run(**kwargs)
+
+    def _observed(self, run, start, site_parameters, minutes=30):
+        return self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=start,
+            scheduled_end=start + timedelta(minutes=minutes),
+            parameters=dict(site_parameters),
+        )
+
+    def test_class_wide_run_counts_observed_nights_by_each_records_own_site(self):
+        run = self._class_wide_run()
+        # coj 07-10 10:00 UTC is 20:00 Sydney -> night 07-10; ogg 07-10 12:00 UTC is 02:00
+        # Honolulu on 07-10 -> night 07-09. UTC keying would call both 07-10.
+        self._observed(run, datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc), self.COJ_1M)
+        self._observed(run, datetime(2026, 7, 10, 12, 0, tzinfo=dt_timezone.utc), self.OGG_2M)
+        self.assertEqual(
+            night_counts_for_run(run),
+            {'nights_observed': 2, 'nights_scheduled': 0, 'nights_failed': 0},
+        )
+
+    def test_two_records_on_one_site_local_night_count_once(self):
+        run = self._class_wide_run()
+        # 10:00 and 16:00 UTC are 20:00 and 02:00 (next day) Sydney: both night 07-10.
+        self._observed(run, datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc), self.COJ_1M)
+        self._observed(run, datetime(2026, 7, 10, 16, 0, tzinfo=dt_timezone.utc), self.COJ_1M)
+        self.assertEqual(night_counts_for_run(run)['nights_observed'], 1)
+
+    def test_one_night_date_at_two_sites_counts_once(self):
+        run = self._class_wide_run()
+        # coj 07-10 10:00 UTC -> night 07-10; ogg 07-11 08:00 UTC is 22:00 Honolulu on
+        # 07-10 -> also night 07-10. The key is the date alone, not (site, date).
+        self._observed(run, datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc), self.COJ_1M)
+        self._observed(run, datetime(2026, 7, 11, 8, 0, tzinfo=dt_timezone.utc), self.OGG_2M)
+        self.assertEqual(night_counts_for_run(run)['nights_observed'], 1)
+
+    def test_class_wide_run_counts_a_placed_block_as_scheduled_and_an_expired_request_as_failed(self):
+        run = self._class_wide_run()
+        self._observed(run, datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc), self.COJ_1M)
+        self._link_record(
+            run,
+            status='PENDING',
+            scheduled_start=datetime(2026, 7, 20, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 20, 10, 30, tzinfo=dt_timezone.utc),
+            parameters={},
+        )
+        self._link_record(
+            run,
+            status='WINDOW_EXPIRED',
+            scheduled_start=None,
+            scheduled_end=None,
+            parameters={'start': '2026-07-21T00:00:00', 'end': '2026-07-23T00:00:00'},
+        )
+        self.assertEqual(
+            night_counts_for_run(run),
+            {'nights_observed': 1, 'nights_scheduled': 1, 'nights_failed': 1},
+        )
+
+    def test_record_without_observed_site_on_a_site_less_run_uses_the_utc_date(self):
+        run = self._class_wide_run()
+        # Two UTC calendar dates; a noon anchor would call both the same night.
+        self._observed(run, datetime(2026, 7, 10, 23, 30, tzinfo=dt_timezone.utc), {})
+        self._observed(run, datetime(2026, 7, 11, 0, 30, tzinfo=dt_timezone.utc), {})
+        self.assertEqual(night_counts_for_run(run)['nights_observed'], 2)
+
+    def test_unmapped_observed_site_falls_back_to_the_runs_site(self):
+        """Invariant for the promote decision: a record's mapped site comes first, the run's
+        site is the first fallback."""
+        run = self._class_wide_run(site=self.site, site_raw='F65')
+        # coj 07-10 10:00 UTC uses its own site: Sydney night 07-10 (run-site-first would
+        # make it Honolulu night 07-09).
+        self._observed(run, datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc), self.COJ_1M)
+        # The unmapped record falls back to the run's site: 07-11 08:00 UTC is 22:00
+        # Honolulu on 07-10 -> night 07-10 (a UTC fallback would make it 07-11).
+        self._observed(run, datetime(2026, 7, 11, 8, 0, tzinfo=dt_timezone.utc), self.UNMAPPED)
+        self.assertEqual(night_counts_for_run(run)['nights_observed'], 1)
+
+    def test_unusable_run_timezone_and_messy_observed_site_fall_back_to_the_utc_date(self):
+        bad_site = Observatory.objects.create(
+            obscode='Z99',
+            name='Bad Zone Site',
+            short_name='BAD',
+            lat=0.0,
+            lon=0.0,
+            altitude=10,
+            timezone='Not/A_Zone',
+            observations_type=Observatory.OPTICAL_OBSTYPE,
+        )
+        run = self._class_wide_run(site=bad_site, site_raw='Z99')
+        self._observed(run, datetime(2026, 7, 10, 23, 30, tzinfo=dt_timezone.utc), {'observed_site': None})
+        self._observed(run, datetime(2026, 7, 11, 0, 30, tzinfo=dt_timezone.utc), {'observed_site': 42})
+        self.assertEqual(night_counts_for_run(run)['nights_observed'], 2)
+
+    def test_single_site_run_result_is_unchanged_when_records_were_observed_there(self):
+        run = self._make_run()
+        # Honolulu nights: 07-10 12:00 UTC -> 07-09; 07-10 06:00 UTC -> 07-09; 07-11 12:00 -> 07-10.
+        self._observed(run, datetime(2026, 7, 10, 12, 0, tzinfo=dt_timezone.utc), self.OGG_2M)
+        self._observed(run, datetime(2026, 7, 10, 6, 0, tzinfo=dt_timezone.utc), {})
+        self._observed(run, datetime(2026, 7, 11, 12, 0, tzinfo=dt_timezone.utc), self.OGG_2M)
+        self.assertEqual(night_counts_for_run(run)['nights_observed'], 2)
+
+    def test_night_counts_issue_one_query_for_the_whole_run(self):
+        run = self._class_wide_run()
+        self._observed(run, datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc), self.COJ_1M)
+        self._observed(run, datetime(2026, 7, 11, 10, 0, tzinfo=dt_timezone.utc), self.COJ_1M)
+        self._observed(run, datetime(2026, 7, 10, 12, 0, tzinfo=dt_timezone.utc), self.OGG_2M)
+        self._observed(run, datetime(2026, 7, 10, 23, 30, tzinfo=dt_timezone.utc), self.LSC_1M)
+        with self.assertNumQueries(1):
+            night_counts_for_run(run)
+
+    def test_records_straddling_midnight_utc_at_cpt_lsc_or_tfn_count_one_night(self):
+        for site_parameters in (self.CPT_1M, self.LSC_1M, self.TFN_1M):
+            with self.subTest(site=site_parameters['observed_site']):
+                run = self._class_wide_run()
+                self._observed(run, datetime(2026, 7, 10, 23, 30, tzinfo=dt_timezone.utc), site_parameters)
+                # 30 minutes from 23:50 UTC: the exposure itself crosses 00:00 UTC.
+                self._observed(run, datetime(2026, 7, 10, 23, 50, tzinfo=dt_timezone.utc), site_parameters)
+                self._observed(run, datetime(2026, 7, 11, 1, 30, tzinfo=dt_timezone.utc), site_parameters)
+                self.assertEqual(night_counts_for_run(run)['nights_observed'], 1)
+
+    def test_rollup_of_class_wide_runs_is_the_sum_of_their_tallies(self):
+        run_a = self._class_wide_run(campaign=self.campaign, telescope_instrument='LCO 1m0 / Sinistro A')
+        run_b = self._class_wide_run(campaign=self.campaign, telescope_instrument='LCO 1m0 / Sinistro B')
+        self._observed(run_a, datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc), self.COJ_1M)
+        self._observed(run_b, datetime(2026, 7, 10, 12, 0, tzinfo=dt_timezone.utc), self.OGG_2M)
+        self._observed(run_b, datetime(2026, 7, 11, 12, 0, tzinfo=dt_timezone.utc), self.OGG_2M)
+
+        rollup = campaign_rollup(self.campaign)
+        self.assertEqual(rollup['nights_observed'], 3)
+        per_run = tallies_for_runs([run_a, run_b])
+        self.assertEqual(rollup['nights_observed'], sum(t['nights_observed'] for t in per_run.values()))
+        cache.clear()
+        self.assertEqual(get_or_compute_rollup(self.campaign)['nights_observed'], 3)
+        self.assertEqual(get_or_compute_rollup(self.campaign)['nights_observed'], 3)
+
+
+class TestTallyNightSiteTimezones(TestCase):
+    """The tally-only site timezone map: coverage, validity and scope (F13)."""
+
+    def test_map_covers_every_lco_site_code_with_a_valid_zone(self):
+        mapping = getattr(campaign_tally, '_NIGHT_SITE_TIMEZONES', {})
+        self.assertTrue(set(mapping) >= {'coj', 'cpt', 'elp', 'lsc', 'tfn', 'ogg', 'tlv'}, sorted(mapping))
+        self.assertTrue(set(mapping) >= {site for site, _ in SITE_TELESCOPE_MAP}, sorted(mapping))
+        for site_code, zone_name in mapping.items():
+            self.assertEqual(site_code, site_code.lower())
+            ZoneInfo(zone_name)
+        expected = {
+            'coj': 'Australia/Sydney',
+            'cpt': 'Africa/Johannesburg',
+            'elp': 'America/Chicago',
+            'lsc': 'America/Santiago',
+            'tfn': 'Atlantic/Canary',
+            'ogg': 'Pacific/Honolulu',
+            'tlv': 'Asia/Jerusalem',
+        }
+        for site_code, zone_name in expected.items():
+            self.assertEqual(mapping.get(site_code), zone_name)
+
+    def test_map_is_used_only_by_the_tally(self):
+        self.assertIn('_NIGHT_SITE_TIMEZONES', inspect.getsource(campaign_tally))
+        for module in (campaign_attribution, campaign_gap, proposal_allocation):
+            self.assertNotIn('_NIGHT_SITE_TIMEZONES', inspect.getsource(module), module.__name__)
+        self.assertEqual(campaign_attribution.LCO_SITE_CODE_TO_OBSCODE, {'coj': 'E10'})
 
 
 class TestTallyForRun(CampaignTallyTestBase):

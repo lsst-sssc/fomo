@@ -19,7 +19,7 @@ from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import connection
 from django.db.models.signals import post_save
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -36,6 +36,9 @@ from solsys_code.campaign_views import CampaignListView
 from solsys_code.models import CampaignRun, CampaignRunObservation, ProposalTimeAllocation
 from solsys_code.observation_projector import receiver_on_record_save
 from solsys_code.solsys_code_observatory.models import Observatory
+
+# A locmem cache for the tests that must not touch (or clear) the real shared FileBasedCache.
+TEST_CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
 
 # Cycle of run_status values for the "filler" rows -- deliberately excludes PLANNED/OBSERVED/
 # CANCELLED, which are pinned to specific rows below so the multi-select filter test (VIEW-04)
@@ -1578,3 +1581,64 @@ class TestCampaignRollup(CampaignTallyViewTestBase):
         # strip in either state.
         body = ' '.join(response.content.decode().split())
         self.assertIn('[U] at least &approx;3 (1 run not yet known)', body)
+
+
+@override_settings(CACHES=TEST_CACHES)
+class TestProgressColumnOnClassWideRun(CampaignTallyViewTestBase):
+    """F13 (quick task 261006-nga), the end-to-end leg: a class-wide run (no site) shows its
+    nights on the public row and in the roll-up instead of ``[O] 0 [S] 0 [X/F] 0``."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_class_wide_run_row_and_rollup_show_its_nights(self):
+        run = self._make_run(
+            site=None,
+            site_raw='',
+            source=CampaignRun.Source.LCO_QUEUE,
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
+        coj = {'observed_site': 'coj', 'observed_telescope': '1m0a', 'observed_enclosure': 'doma'}
+        ogg = {'observed_site': 'ogg', 'observed_telescope': '2m0a', 'observed_enclosure': 'clma'}
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 10, 30, tzinfo=dt_timezone.utc),
+            parameters=coj,
+        )
+        self._link_record(
+            run,
+            status='COMPLETED',
+            scheduled_start=datetime(2026, 7, 10, 12, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 10, 12, 30, tzinfo=dt_timezone.utc),
+            parameters=ogg,
+        )
+        self._link_record(
+            run,
+            status='PENDING',
+            scheduled_start=datetime(2026, 7, 20, 10, 0, tzinfo=dt_timezone.utc),
+            scheduled_end=datetime(2026, 7, 20, 10, 30, tzinfo=dt_timezone.utc),
+            parameters={},
+        )
+        self._link_record(
+            run,
+            status='WINDOW_EXPIRED',
+            scheduled_start=None,
+            scheduled_end=None,
+            parameters={'start': '2026-07-21T00:00:00', 'end': '2026-07-23T00:00:00'},
+        )
+
+        response = self.client.get(reverse('campaigns:table', kwargs={'pk': self.campaign.pk}))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        start = content.index(f'id="run-{run.pk}"')
+        row = ' '.join(content[start : content.index('</tr>', start)].split())
+        self.assertIn('[O] 2', row)
+        self.assertIn('[S] 1', row)
+        self.assertIn('[X/F] 1', row)
+
+        rollup = response.context['rollup']
+        self.assertEqual(rollup['nights_observed'], 2)
+        self.assertEqual(rollup['nights_scheduled'], 1)
+        self.assertEqual(rollup['nights_failed'], 1)
