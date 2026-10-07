@@ -21,7 +21,7 @@ created: "2026-10-07"
 |----------|-------|
 | **Framework** | Django test runner (`django.test.TestCase`) |
 | **Config file** | `manage.py` (sets `DJANGO_SETTINGS_MODULE=src.fomo.settings`); no pytest config after the merge |
-| **Quick run command** | `python manage.py test solsys_code.tests.test_views` |
+| **Quick run command** | `python manage.py test solsys_code.tests.test_views --exclude-tag=ephemeris_segfault` |
 | **Full suite command** | `python manage.py test solsys_code --exclude-tag=ephemeris_segfault` |
 | **Estimated runtime** | ~600 seconds (full suite, 2178 tests on the merged tree) |
 
@@ -29,7 +29,7 @@ created: "2026-10-07"
 
 ## Sampling Rate
 
-- **After every task commit:** Run `python manage.py test solsys_code.tests.test_views`
+- **After every task commit:** Run `python manage.py test solsys_code.tests.test_views --exclude-tag=ephemeris_segfault`
 - **After every plan wave:** Run `python manage.py test solsys_code --exclude-tag=ephemeris_segfault`
 - **Before `/gsd-verify-work`:** Full suite must be green
 - **Max feedback latency:** 600 seconds

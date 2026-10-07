@@ -196,9 +196,16 @@ Superseded after five spikes showed that routing observation-precision narrowing
 **Plans**: 4 plans
 
 Plans:
+**Wave 1**
 - [ ] 38-01-PLAN.md — Merge origin/main (tracer): resolve the nine conflicts keeping both sides, developer approves the staged diff and the packages, install main's floors, commit the merge, full suite green (SYNC-01, SYNC-02, SYNC-04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 38-02-PLAN.md — ruff 0.16.9 style and SIM103 commits; CI and the django-test hook exclude ephemeris_segfault; notebook hook repointed; CLAUDE.md, installation page and codebase maps brought in step (SYNC-03, SYNC-05, SYNC-06)
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 38-03-PLAN.md — Fresh-install proof of the floors, full suite and the CI/hook form green, developer database migrated behind a backup, cron restored, tom_calendar override comparison for Phase 39 (SYNC-02, SYNC-05, SYNC-07)
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 38-04-PLAN.md — Refresh PR #43's head branch in a separate worktree, developer approves publishing, normal pushes, D-12 body, CI on the PR push proves the Django runner with coverage; PR stays a draft (SYNC-08, SYNC-05)
 
 ### Phase 39: Calendar Write Access
