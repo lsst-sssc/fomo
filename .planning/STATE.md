@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 38
-current_phase_name: sync-with-main
-status: verification gaps found
-stopped_at: "Phase 38 verified: gaps_found (CR-01 alerts/ route) — next /gsd-plan-phase 38 --gaps"
-last_updated: "2026-10-07T21:07:25.832Z"
+current_phase_name: Sync with main
+status: executing
+stopped_at: Completed 38-05-PLAN.md
+last_updated: "2026-10-07T22:14:40.224Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 38 execution started
-state_head: 53fbf4d09534c6174c224040ee1d276a9e662548
+state_head: db3ae7c14676c94eae5a3ef0e4af1d55d18e3ae5
 progress:
   total_phases: 5
   completed_phases: 39
   total_plans: 6
-  completed_plans: 4
-  percent: 67
+  completed_plans: 5
+  percent: 83
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-06 — v2.5 milestone started)
 
 ## Current Position
 
-Phase: 38 (sync-with-main) — READY TO EXECUTE
-Plan: 4 of 4
-Status: verification gaps found
+Phase: 38 (Sync with main) — EXECUTING
+Plan: 5 of 6 complete (38-06 remaining)
+Status: Ready to execute
 Last activity: 2026-10-07 — Phase 38 execution started
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -45,6 +45,7 @@ Progress: [███████░░░] 67%
 | Phase 38 P02 | 8 min | 3 tasks | 31 files |
 | Phase 38 P03 | 21 min | 3 tasks | 1 files |
 | Phase 38 P04 | 32 min | 3 tasks | 1 files |
+| Phase 38 P05 | 21 min | 2 tasks | 6 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -63,6 +64,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 38]: 38-03: no upstream file FOMO shadows changed between tomtoolkit 3.0.1 and 3.1.0; no SYNC-07 fix from the override comparison
 - [Phase 38]: 38-03: fresh venv $HOME/venv/fomo_phase38_fresh kept for /gsd-verify-work (tomtoolkit 3.1.0, tom_jpl 0.3.0, full suite 2178 OK); dev DB migrated, backup src/fomo_db_20261007_pre_phase38.sqlite3; cron restored 18:29Z
 - [Phase 38]: 38-04: PR #43 refreshed by publishing 372d02c, a merge -s ours of origin/main and a tree snapshot on issue37-code-only (plain fast-forward pushes); developer answered publish; CI (Django runner, pre-commit, docs) green on the snapshot
+- [Phase 38]: 38-05: took main's side for the alerts/ include (deleted the four lines, ada2000) instead of re-adding tom_alerts to INSTALLED_APPS; D-03 not reopened
 
 ### Pending Todos
 
@@ -110,8 +112,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-07T19:04:33.538Z
-**Stopped at:** Phase 38 verified: gaps_found (CR-01 alerts/ route) — next /gsd-plan-phase 38 --gaps
+**Last session:** 2026-10-07T22:14:40.200Z
+**Stopped at:** Completed 38-05-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
