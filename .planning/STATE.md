@@ -5,8 +5,8 @@ milestone_name: Observation-First Calendar
 current_phase: "37.1"
 status: completed
 stopped_at: Phase 37.1 complete — all phases complete
-last_updated: "2026-10-06T23:07:03.133Z"
-state_head: 876a36f0879998815783fbdd5f1a6cf32d460b3c
+last_updated: "2026-10-07T02:35:11.241Z"
+state_head: d7780ad359b6c7ee5cbbfc76eb488d943184e109
 progress:
   total_phases: 6
   completed_phases: 39
@@ -14,7 +14,7 @@ progress:
   completed_plans: 79
   percent: 100
 last_activity: 2026-10-06
-last_activity_desc: Completed quick task 261006-lsf (F12 — RUN:/ALLOC: events carry their run's proposal code, target-first container titles, legend entry "No proposal recorded"); v2.4 intent review walkthrough in progress before /gsd-complete-milestone
+last_activity_desc: Completed quick tasks 261006-lsf (F12) and 261006-nga (F13/F14 — class-wide runs count nights per record site; readable campaign table badges); v2.4 intent review walkthrough nearly signed off before /gsd-complete-milestone
 ---
 
 # Project State
@@ -69,6 +69,7 @@ Status: All phases complete
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 261006-lsf | Fix F12: write run.proposal_code onto RUN: container and ALLOC: night events, lead the container title with the target, and relabel the empty-proposal calendar legend entry (was "Classical schedule") | 2026-10-06 | 876a36f | [261006-lsf-fix-f12-write-run-proposal-code-onto-run](./quick/261006-lsf-fix-f12-write-run-proposal-code-onto-run/) |
+| 261006-nga | Fix F13 and F14: the public campaign tally counts nights per record by its observed site (class-wide runs no longer report zero nights), and the campaign table telescope-class badge is readable with a wider Progress column | 2026-10-06 | d7780ad | [261006-nga-fix-f13-and-f14-the-public-campaign-tall](./quick/261006-nga-fix-f13-and-f14-the-public-campaign-tall/) |
 
 ## Session
 
