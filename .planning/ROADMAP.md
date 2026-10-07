@@ -193,7 +193,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. A push to the branch runs the Django test runner with coverage in CI, as `main` does, and no pytest job; `[tool.pytest.ini_options]`, the pytest dev extras and `tests/` are gone, CLAUDE.md's Testing section describes only the Django runner, and the LINCC template v2.2.0 files are present with every FOMO-specific file from the branch still in place
   5. Draft PR #43 is still a draft, and its description says what the branch delivers as of v2.4 — the observation projector, the allocation layer, unattended operation and the public tallies — and links `docs/runbooks/telescope_runs_calendar.rst`
 
-**Plans**: 4/4 plans executed
+**Plans**: 4/6 plans executed (38-05 and 38-06 close the CR-01 verification gap)
 
 Plans:
 **Wave 1**
@@ -207,6 +207,12 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [x] 38-04-PLAN.md — Refresh PR #43's head branch in a separate worktree, developer approves publishing, normal pushes, D-12 body, CI on the PR push proves the Django runner with coverage; PR stays a draft (SYNC-08, SYNC-05)
+
+**Wave 5** *(gap closure, blocked on Wave 4 completion)*
+- [ ] 38-05-PLAN.md — Gap closure (CR-01, tracer): regression test that /alerts/query/list/ is a 404 (RED first), then take main's side and drop the alerts/ include from src/fomo/urls.py; full suite green; correct the 38-01, RESEARCH and PATTERNS wording that called alerts/ a branch route (SYNC-04, SYNC-07)
+
+**Wave 6** *(gap closure, blocked on Wave 5 completion)*
+- [ ] 38-06-PLAN.md — Gap closure: re-snapshot issue37-code-only from the corrected branch (D-11, separate worktree), developer approves publishing, plain pushes, PR #43 stays a draft with its body unchanged, CI green on the PR push (SYNC-04, SYNC-05, SYNC-08)
 
 ### Phase 39: Calendar Write Access
 
