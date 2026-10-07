@@ -166,7 +166,7 @@
     {
       "number": "31",
       "name": "Foundation Spikes — Run Identity & Unattended Invocation",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "32",
@@ -197,6 +197,11 @@
       "number": "37",
       "name": "Status Vocabulary, Public Tallies & Provenance-Blind Gaps",
       "status": "complete"
+    },
+    {
+      "number": "37.1",
+      "name": "Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED)",
+      "status": "complete"
     }
   ],
   "next": {
@@ -204,5 +209,5 @@
     "label": "Show progress",
     "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-09-21T18:43:17.342Z"
+  "updated_at": "2026-10-07T04:07:04.963Z"
 }
