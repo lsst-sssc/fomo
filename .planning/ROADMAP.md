@@ -193,7 +193,13 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. A push to the branch runs the Django test runner with coverage in CI, as `main` does, and no pytest job; `[tool.pytest.ini_options]`, the pytest dev extras and `tests/` are gone, CLAUDE.md's Testing section describes only the Django runner, and the LINCC template v2.2.0 files are present with every FOMO-specific file from the branch still in place
   5. Draft PR #43 is still a draft, and its description says what the branch delivers as of v2.4 — the observation projector, the allocation layer, unattended operation and the public tallies — and links `docs/runbooks/telescope_runs_calendar.rst`
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 38-01-PLAN.md — Merge origin/main (tracer): resolve the nine conflicts keeping both sides, developer approves the staged diff and the packages, install main's floors, commit the merge, full suite green (SYNC-01, SYNC-02, SYNC-04)
+- [ ] 38-02-PLAN.md — ruff 0.16.9 style and SIM103 commits; CI and the django-test hook exclude ephemeris_segfault; notebook hook repointed; CLAUDE.md, installation page and codebase maps brought in step (SYNC-03, SYNC-05, SYNC-06)
+- [ ] 38-03-PLAN.md — Fresh-install proof of the floors, full suite and the CI/hook form green, developer database migrated behind a backup, cron restored, tom_calendar override comparison for Phase 39 (SYNC-02, SYNC-05, SYNC-07)
+- [ ] 38-04-PLAN.md — Refresh PR #43's head branch in a separate worktree, developer approves publishing, normal pushes, D-12 body, CI on the PR push proves the Django runner with coverage; PR stays a draft (SYNC-08, SYNC-05)
 
 ### Phase 39: Calendar Write Access
 
