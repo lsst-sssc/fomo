@@ -1,10 +1,10 @@
 # Changes here will be overwritten by Copier
-_commit: v2.1.0
+_commit: v2.2.0
 _src_path: gh:lincc-frameworks/python-project-template
 author_email: fomo@lco.global
 author_name: SSSC FOMO Software Developers
 create_example_module: false
-custom_install: true
+custom_install: custom
 enforce_style:
 - ruff_lint
 - ruff_format
@@ -14,11 +14,11 @@ include_docs: true
 include_notebooks: true
 mypy_type_checking: none
 package_name: fomo
+project_description: Follow-up Observations of Moving Objects
 project_license: MIT
 project_name: fomo
 project_organization: lsst-sssc
 python_versions:
-- '3.9'
 - '3.10'
 - '3.11'
 - '3.12'

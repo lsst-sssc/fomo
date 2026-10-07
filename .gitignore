@@ -63,6 +63,8 @@ db.sqlite3
 db.sqlite3-journal
 fomo_db.sqlite3
 fomo_db.sqlite3-journal
+fomo_db_20*.sqlite3
+fomo_db.sqlite3.bak-*
 rubin.sqlite
 
 # Flask stuff:
@@ -170,3 +172,6 @@ src/data/
 # graphify skill — generated knowledge-graph cache/build output
 .planning/graphs/
 graphify-out/
+
+# Django STATIC_ROOT — `collectstatic` output (src/fomo/settings.py)
+src/_static/

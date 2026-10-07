@@ -67,10 +67,22 @@ autoapi_dirs = ['../src']
 # _readthedocs/html/ and docs/_build/html/ on every sphinx-build. ReadTheDocs itself
 # builds from a checkout with no local_settings.py, so its published site was never
 # affected -- but a build run and served from a configured host was.
-autoapi_ignore = ['*/__main__.py', '*/_version.py', '*/local_settings.py']
+autoapi_ignore = ['*/__main__.py', '*/local_settings.py']
 autoapi_add_toc_tree_entry = False
 autoapi_member_order = 'bysource'
 
 html_theme = 'sphinx_rtd_theme'
 # Add following to allow notebook execution errors (e.g. interactive cells)
 nbsphinx_allow_errors = True
+
+
+def _skip_version_module(app, what, name, obj, skip, options):
+    # fomo._version must stay parsed (not in autoapi_ignore) so that
+    # `from ._version import __version__` in fomo/__init__.py resolves, but the
+    # setuptools_scm-generated module doesn't merit its own API page.
+    return True if name == 'fomo._version' else None
+
+
+def setup(app):
+    """Register the Sphinx event handlers."""
+    app.connect('autoapi-skip-member', _skip_version_module)

@@ -280,6 +280,8 @@ def calculate_rates_and_geometry(pointing: pd.DataFrame, ephem_geom_params: Ephe
     obs_sun = r_obs - r_sun
     dobs_sundt = v_obs - v_sun
 
+    rad2deg = 180 / np.pi
+
     return (
         ephem_geom_params.obj_id,
         pointing['epoch_UTC'],  # replaces FieldID
@@ -290,9 +292,9 @@ def calculate_rates_and_geometry(pointing: pd.DataFrame, ephem_geom_params: Ephe
         helio_r,  # Helio_LTC_au
         helio_v,  # HelioRate_LTC_au
         ra0,
-        dradt * 180 / np.pi,
+        dradt * rad2deg,
         dec0,
-        ddecdt * 180 / np.pi,
+        ddecdt * rad2deg,
         r_ast_sun[0],
         r_ast_sun[1],
         r_ast_sun[2],
@@ -305,7 +307,7 @@ def calculate_rates_and_geometry(pointing: pd.DataFrame, ephem_geom_params: Ephe
         dobs_sundt[0],
         dobs_sundt[1],
         dobs_sundt[2],
-        phase_angle * 180 / np.pi,
+        phase_angle * rad2deg,
     )
 
 

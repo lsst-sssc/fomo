@@ -98,7 +98,8 @@ class SolsysCodeConfig(AppConfig):
                 'partial': f'{self.name}/partials/campaigns_nav_link.html',
                 'context': 'src.templatetags.solsys_code_extras.campaigns_nav_link',
                 'position': 'left',
-            }
+            },
+            {'partial': f'{self.name}/partials/navbar_list.html'},  # Rubin ToO menu (from main)
         ]
 
     def data_services(self):
@@ -106,4 +107,4 @@ class SolsysCodeConfig(AppConfig):
         integration point for including data services in the TOM
         This method should return a list of dictionaries containing dot separated DataService classes
         """
-        return [{'class': 'tom_fink.fink.FinkDataService'}]
+        return [{'class': 'tom_fink.fink.FinkDataService'}, {'class': 'tom_jpl.jpl.ScoutDataService'}]

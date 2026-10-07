@@ -46,4 +46,7 @@ Design Notes
    uncertain_scheduling_spike
    canonical_record_spike
    run_identity_and_unattended_invocation_spike
+   target_origin_tracking
+   scout_element_history
    fink_sso_support
+   target_search_limitations
