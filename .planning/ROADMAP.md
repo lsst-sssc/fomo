@@ -193,7 +193,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. A push to the branch runs the Django test runner with coverage in CI, as `main` does, and no pytest job; `[tool.pytest.ini_options]`, the pytest dev extras and `tests/` are gone, CLAUDE.md's Testing section describes only the Django runner, and the LINCC template v2.2.0 files are present with every FOMO-specific file from the branch still in place
   5. Draft PR #43 is still a draft, and its description says what the branch delivers as of v2.4 — the observation projector, the allocation layer, unattended operation and the public tallies — and links `docs/runbooks/telescope_runs_calendar.rst`
 
-**Plans**: 5/6 plans executed (38-05 and 38-06 close the CR-01 verification gap)
+**Plans**: 6/6 plans executed (38-05 and 38-06 close the CR-01 verification gap)
 
 Plans:
 **Wave 1**
@@ -212,7 +212,7 @@ Plans:
 - [x] 38-05-PLAN.md — Gap closure (CR-01, tracer): regression test that /alerts/query/list/ is a 404 (RED first), then take main's side and drop the alerts/ include from src/fomo/urls.py; full suite green; correct the 38-01, RESEARCH and PATTERNS wording that called alerts/ a branch route (SYNC-04, SYNC-07)
 
 **Wave 6** *(gap closure, blocked on Wave 5 completion)*
-- [ ] 38-06-PLAN.md — Gap closure: re-snapshot issue37-code-only from the corrected branch (D-11, separate worktree), developer approves publishing, plain pushes, PR #43 stays a draft with its body unchanged, CI green on the PR push (SYNC-04, SYNC-05, SYNC-08)
+- [x] 38-06-PLAN.md — Gap closure: re-snapshot issue37-code-only from the corrected branch (D-11, separate worktree), developer approves publishing, plain pushes, PR #43 stays a draft with its body unchanged, CI green on the PR push (SYNC-04, SYNC-05, SYNC-08)
 
 ### Phase 39: Calendar Write Access
 
@@ -352,7 +352,7 @@ Plans:
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
 | 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 17/17 | Complete    | 2026-10-06 |
-| 38. Sync with main | v2.5 | 5/6 | In Progress | - |
+| 38. Sync with main | v2.5 | 6/6 | In Progress | - |
 | 39. Calendar Write Access | v2.5 | 0/TBD | Not started | - |
 | 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |

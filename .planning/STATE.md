@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 38
 current_phase_name: Sync with main
 status: executing
-stopped_at: Completed 38-05-PLAN.md
-last_updated: "2026-10-07T22:14:40.224Z"
+stopped_at: Completed 38-06-PLAN.md
+last_updated: "2026-10-07T23:32:53.742Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 38 execution started
-state_head: db3ae7c14676c94eae5a3ef0e4af1d55d18e3ae5
+state_head: d27ccf4dd8793c5d8e98c3eda5c1ae2070a5724c
 progress:
   total_phases: 5
   completed_phases: 39
   total_plans: 6
-  completed_plans: 5
-  percent: 83
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-06 — v2.5 milestone started)
 ## Current Position
 
 Phase: 38 (Sync with main) — EXECUTING
-Plan: 5 of 6 complete (38-06 remaining)
-Status: Ready to execute
+Plan: 6 of 6 complete
+Status: Phase 38 execution complete, ready for verification
 Last activity: 2026-10-07 — Phase 38 execution started
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -46,6 +46,7 @@ Progress: [████████░░] 83%
 | Phase 38 P03 | 21 min | 3 tasks | 1 files |
 | Phase 38 P04 | 32 min | 3 tasks | 1 files |
 | Phase 38 P05 | 21 min | 2 tasks | 6 files |
+| Phase 38 P06 | 55 min | 3 tasks | 0 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -65,6 +66,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 38]: 38-03: fresh venv $HOME/venv/fomo_phase38_fresh kept for /gsd-verify-work (tomtoolkit 3.1.0, tom_jpl 0.3.0, full suite 2178 OK); dev DB migrated, backup src/fomo_db_20261007_pre_phase38.sqlite3; cron restored 18:29Z
 - [Phase 38]: 38-04: PR #43 refreshed by publishing 372d02c, a merge -s ours of origin/main and a tree snapshot on issue37-code-only (plain fast-forward pushes); developer answered publish; CI (Django runner, pre-commit, docs) green on the snapshot
 - [Phase 38]: 38-05: took main's side for the alerts/ include (deleted the four lines, ada2000) instead of re-adding tom_alerts to INSTALLED_APPS; D-03 not reopened
+- [Phase 38]: 38-06: developer approved publish; issue37-code-only re-snapshotted (846be34) without the alerts/ route, plain fast-forward pushes, PR #43 still a draft, CI green on 3.10-3.12
 
 ### Pending Todos
 
@@ -112,8 +114,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-07T22:14:40.200Z
-**Stopped at:** Completed 38-05-PLAN.md
+**Last session:** 2026-10-07T23:32:53.719Z
+**Stopped at:** Completed 38-06-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
