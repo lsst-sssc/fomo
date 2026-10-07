@@ -29,10 +29,6 @@ urlpatterns = [
     # one is fully shadowed. See solsys_code/calendar_urls.py's module docstring.
     path('calendar/', include('solsys_code.calendar_urls', namespace='calendar')),
     path('campaigns/', include('solsys_code.campaign_urls', namespace='campaigns')),  # VIEW-01 — before tom_common
-    # tomtoolkit 3.0.0 final dropped the 'alerts/' include from tom_common.urls (previously
-    # registered there in 2.x/3.0.0a9) -- tom_alerts is still an installed app, so its urls
-    # must now be wired up at the project level to keep the 'alerts' namespace resolvable.
-    path('alerts/', include('tom_alerts.urls', namespace='alerts')),
     # WR-10 (37.1-REVIEW.md): must precede tom_common.urls -- TOM's own 'user-delete' view 500s on an
     # account that confirmed a campaign link or calendar event attribution (their confirmed_by is PROTECT).
     path('users/<int:pk>/delete/', ProtectedUserDeleteView.as_view(), name='user-delete'),
