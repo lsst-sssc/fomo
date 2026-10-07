@@ -1,0 +1,1501 @@
+# Phase 38 plan 01 merge resolution. Pre-merge head: 088f73b9fd437ecb3fe9ed16ffc821821cad2ac5  MERGE_HEAD (origin/main): a910c178be2e6e8063f8a262b51934ca05cdbb01
+# View 1: git diff --cached -- <nine paths>   (branch head -> resolution; what D-01 names)
+diff --git a/.gitignore b/.gitignore
+index 8ab2d46..b451c73 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -63,6 +63,8 @@ db.sqlite3
+ db.sqlite3-journal
+ fomo_db.sqlite3
+ fomo_db.sqlite3-journal
++fomo_db_20*.sqlite3
++fomo_db.sqlite3.bak-*
+ rubin.sqlite
+ 
+ # Flask stuff:
+@@ -170,3 +172,6 @@ src/data/
+ # graphify skill — generated knowledge-graph cache/build output
+ .planning/graphs/
+ graphify-out/
++
++# Django STATIC_ROOT — `collectstatic` output (src/fomo/settings.py)
++src/_static/
+diff --git a/docs/conf.py b/docs/conf.py
+index 2941471..a471bf4 100644
+--- a/docs/conf.py
++++ b/docs/conf.py
+@@ -67,10 +67,22 @@ autoapi_dirs = ['../src']
+ # _readthedocs/html/ and docs/_build/html/ on every sphinx-build. ReadTheDocs itself
+ # builds from a checkout with no local_settings.py, so its published site was never
+ # affected -- but a build run and served from a configured host was.
+-autoapi_ignore = ['*/__main__.py', '*/_version.py', '*/local_settings.py']
++autoapi_ignore = ['*/__main__.py', '*/local_settings.py']
+ autoapi_add_toc_tree_entry = False
+ autoapi_member_order = 'bysource'
+ 
+ html_theme = 'sphinx_rtd_theme'
+ # Add following to allow notebook execution errors (e.g. interactive cells)
+ nbsphinx_allow_errors = True
++
++
++def _skip_version_module(app, what, name, obj, skip, options):
++    # fomo._version must stay parsed (not in autoapi_ignore) so that
++    # `from ._version import __version__` in fomo/__init__.py resolves, but the
++    # setuptools_scm-generated module doesn't merit its own API page.
++    return True if name == 'fomo._version' else None
++
++
++def setup(app):
++    """Register the Sphinx event handlers."""
++    app.connect('autoapi-skip-member', _skip_version_module)
+diff --git a/docs/design/design.rst b/docs/design/design.rst
+index 6937af6..cee2a2c 100644
+--- a/docs/design/design.rst
++++ b/docs/design/design.rst
+@@ -46,4 +46,7 @@ Design Notes
+    uncertain_scheduling_spike
+    canonical_record_spike
+    run_identity_and_unattended_invocation_spike
++   target_origin_tracking
++   scout_element_history
+    fink_sso_support
++   target_search_limitations
+diff --git a/docs/notebooks.rst b/docs/notebooks.rst
+index e37de2a..4df2353 100644
+--- a/docs/notebooks.rst
++++ b/docs/notebooks.rst
+@@ -4,6 +4,7 @@ Notebooks
+ .. toctree::
+ 
+     Introducing Jupyter Notebooks <notebooks/intro_notebook>
++    Scout candidate lifecycle <notebooks/scout_lifecycle_exploration>
+ 
+ Demonstration Notebooks
+ ------------------------
+diff --git a/pyproject.toml b/pyproject.toml
+index 04472e8..8eb9154 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -6,6 +6,7 @@ readme = "README.md"
+ authors = [
+     { name = "SSSC FOMO Software Developers", email = "fomo@lco.global" }
+ ]
++description = "Follow-up Observations of Moving Objects"
+ classifiers = [
+     "Development Status :: 4 - Beta",
+     "Intended Audience :: Developers",
+@@ -16,11 +17,11 @@ classifiers = [
+ dynamic = ["version"]
+ requires-python = ">=3.10"
+ dependencies = [
+-    "tomtoolkit>=3.0.0",
++    "tomtoolkit>=3.1.0",
+     "tom_alertstreams>=1.3.0",
+     "tom_fink>=2.0.1",
+-    "tom-registration>=2.0.1",
+     "tom_eso>=0.3.1",
++    "tom_jpl>=0.3.0",
+     "numpy>1.24",
+     "sbpy>=0.6.0",  # We don't use sbpy directly, but sorcha does and sbpy 0.6.0 is needed for astropy 7.2.0+
+     "sorcha",
+@@ -33,14 +34,13 @@ dependencies = [
+ # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
+ [project.optional-dependencies]
+ dev = [
+-    "factory_boy >3.2.1,<3.4", # Provides tom_targets.tests.factories used by test_bootstrap5_rendering.py
++    "factory_boy >3.2.1,<3.4", # Provides  Test fixtures for tom_jpl model factories (and tom_targets factories)
+     "ipython",
+     "jupyter", # Clears output from Jupyter notebooks
+     "playwright", # Headless-browser functional tests (solsys_code/tests/test_bootstrap5_rendering.py)
++    "coverage", # Used to report total code coverage of the Django test suite
+     "pre-commit", # Used to run checks before finalizing a git commit
+-    "pytest",
+-    "pytest-cov", # Used to report total code coverage
+-    "ruff==0.2.1", # Pinned to match .pre-commit-config.yaml's astral-sh/ruff-pre-commit rev (D-06)
++    "ruff>=0.16", # Static linting/formatting; keep the floor in step with the ruff-pre-commit rev in .pre-commit-config.yaml
+     "graphifyy", # (not a typo) queryable knowledge graph builder for AI tools
+ ]
+ 
+@@ -54,22 +54,6 @@ build-backend = "setuptools.build_meta"
+ [tool.setuptools_scm]
+ write_to = "src/fomo/_version.py"
+ 
+-[tool.pytest.ini_options]
+-testpaths = [
+-    "tests",
+-    "src",
+-    "docs",
+-]
+-
+-[tool.black]
+-line-length = 120
+-target-version = ["py310"]
+-
+-[tool.isort]
+-profile = "black"
+-line_length = 120
+-addopts = "--doctest-modules --doctest-glob=*.rst"
+-
+ [tool.ruff]
+ line-length = 120
+ target-version = "py310"
+@@ -135,4 +119,5 @@ ignore = [
+ "**/tests/*" = ["D101", "D102"]
+ 
+ [tool.coverage.run]
+-omit=["src/fomo/_version.py"]
++source = ["solsys_code", "src/fomo", "src/templatetags"]
++omit = ["src/fomo/_version.py", "*/migrations/*", "*/tests/*"]
+diff --git a/solsys_code/admin.py b/solsys_code/admin.py
+index 4f7903c..79ead4a 100644
+--- a/solsys_code/admin.py
++++ b/solsys_code/admin.py
+@@ -2,7 +2,8 @@ from django.contrib import admin
+ from django.db import transaction
+ from django.forms.models import BaseInlineFormSet
+ from django.utils import timezone
+-from tom_targets.models import Target
++from tom_targets.admin import TargetAdmin
++from tom_targets.models import Target, TargetName
+ 
+ from solsys_code.models import (
+     CalendarEventMeta,
+@@ -580,10 +581,39 @@ class ProposalTimeAllocationAdmin(admin.ModelAdmin):  # noqa: D101
+         return False
+ 
+ 
+-class TargetAdmin(admin.ModelAdmin):  # noqa: D101
+-    list_display = ['name', 'type', 'ra', 'dec']
+-    list_filter = ['type']
+-    search_fields = ['name']
++class TargetNameInline(admin.TabularInline):
++    """Edit a Target's aliases alongside the Target itself."""
++
++    model = TargetName
++    extra = 0
++
++
++class SolsysTargetAdmin(TargetAdmin):
++    """TOM Toolkit's TargetAdmin with the search, filters and columns it omits.
++
++    The default columns suit the non-sidereal catalogue, where H and the orbit
++    scheme carry what coordinates carry for a sidereal target; see
++    get_list_display for the sidereal case.
++    """
++
++    search_fields = ('name', 'aliases__name')
++    list_display = ('name', 'type', 'scheme', 'abs_mag', 'created')
++    list_filter = ('type', 'scheme', 'created')
++    ordering = ('-created',)
++    inlines = TargetAdmin.inlines + [TargetNameInline]
++
++    def get_list_display(self, request):
++        """Swap in coordinates while the changelist is filtered to sidereal targets.
++
++        The two target types have disjoint useful fields -- ra/dec are null on every
++        non-sidereal row, scheme/abs_mag on every sidereal one -- so any single fixed
++        column set is half empty. Columns cannot vary per row (list_display is one
++        header row for the table), but they can follow the `type` filter, which is
++        already in list_filter.
++        """
++        if request.GET.get('type__exact') == Target.SIDEREAL:
++            return ('name', 'type', 'ra', 'dec', 'created')
++        return self.list_display
+ 
+ 
+ admin.site.register(CampaignRun, CampaignRunAdmin)
+@@ -591,4 +621,4 @@ admin.site.register(CalendarEventMeta, CalendarEventMetaAdmin)
+ admin.site.register(WatchedProposal, WatchedProposalAdmin)
+ admin.site.register(ProposalTimeAllocation, ProposalTimeAllocationAdmin)
+ admin.site.unregister(Target)
+-admin.site.register(Target, TargetAdmin)
++admin.site.register(Target, SolsysTargetAdmin)
+diff --git a/solsys_code/apps.py b/solsys_code/apps.py
+index 4504870..f97bc8f 100644
+--- a/solsys_code/apps.py
++++ b/solsys_code/apps.py
+@@ -98,7 +98,8 @@ class SolsysCodeConfig(AppConfig):
+                 'partial': f'{self.name}/partials/campaigns_nav_link.html',
+                 'context': 'src.templatetags.solsys_code_extras.campaigns_nav_link',
+                 'position': 'left',
+-            }
++            },
++            {'partial': f'{self.name}/partials/navbar_list.html'},  # Rubin ToO menu (from main)
+         ]
+ 
+     def data_services(self):
+@@ -106,4 +107,4 @@ class SolsysCodeConfig(AppConfig):
+         integration point for including data services in the TOM
+         This method should return a list of dictionaries containing dot separated DataService classes
+         """
+-        return [{'class': 'tom_fink.fink.FinkDataService'}]
++        return [{'class': 'tom_fink.fink.FinkDataService'}, {'class': 'tom_jpl.jpl.ScoutDataService'}]
+diff --git a/solsys_code/tests/test_bootstrap5_rendering.py b/solsys_code/tests/test_bootstrap5_rendering.py
+index 0d4db5a..bfc741c 100644
+--- a/solsys_code/tests/test_bootstrap5_rendering.py
++++ b/solsys_code/tests/test_bootstrap5_rendering.py
+@@ -23,7 +23,7 @@ from pathlib import Path
+ from django.conf import settings
+ from django.contrib.auth import get_user_model
+ from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+-from django.test import SimpleTestCase
++from django.test import SimpleTestCase, tag
+ from django.urls import reverse
+ from django.utils import timezone
+ from playwright.sync_api import sync_playwright
+@@ -41,6 +41,7 @@ from solsys_code.models import (
+ from solsys_code.solsys_code_observatory.models import Observatory
+ 
+ 
++@tag('functional')
+ class TestBootstrap5Rendering(StaticLiveServerTestCase):
+     """Functional suite proving BS5 JS behavior and crispy BS5 layout markup render correctly."""
+ 
+diff --git a/src/fomo/urls.py b/src/fomo/urls.py
+index 0a01318..4baa356 100644
+--- a/src/fomo/urls.py
++++ b/src/fomo/urls.py
+@@ -1,27 +1,27 @@
+-"""django URL Configuration
+-
+-The `urlpatterns` list routes URLs to views. For more information please see:
+-    https://docs.djangoproject.com/en/2.2/topics/http/urls/
+-Examples:
+-Function views
+-    1. Add an import:  from my_app import views
+-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+-Class-based views
+-    1. Add an import:  from other_app.views import Home
+-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+-Including another URLconf
+-    1. Import the include() function: from django.urls import include, path
+-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+-"""
++"""URL configuration for the FOMO project."""
+ 
+ from django.urls import include, path
+ 
++from solsys_code.scout_views import (
++    RubinTooScoutListView,
++    RubinTooScoutStatsView,
++    ScoutTargetExportView,
++    ScoutTargetListView,
++)
+ from solsys_code.views import Ephemeris, MakeEphemerisView, ProtectedUserDeleteView
+ 
+ urlpatterns = [
++    # Shadow the 'targets/' list and export routes inside tom_common.urls (included below).
++    # The stock target_list template still reverses `tom_targets:list` / `targets:export` to
++    # these same paths, and the earlier pattern wins on resolution, so the HTMX table
++    # refreshes and the "Export Filtered Targets" button both reach the Scout-aware views.
++    path('targets/', ScoutTargetListView.as_view(), name='scout_target_list'),
++    path('targets/export/', ScoutTargetExportView.as_view(), name='scout_target_export'),
+     path('observatory/', include('solsys_code.solsys_code_observatory.urls', namespace='solsys_code_observatory')),
+     path('ephem/<int:pk>/', Ephemeris.as_view(), name='ephem'),
+     path('targets/<int:pk>/makeephem/', MakeEphemerisView.as_view(), name='makeephem'),
++    path('scout/rubin-too/', RubinTooScoutListView.as_view(), name='scout_rubin_too'),
++    path('scout/rubin-too/stats/', RubinTooScoutStatsView.as_view(), name='scout_rubin_too_stats'),
+     # DISPLAY-09 — must precede tom_common.urls: tomtoolkit 3.0 now also registers a 'calendar'
+     # namespace there (tom_calendar.urls) with identical URL names, which triggers Django's
+     # urls.W005 "namespace isn't unique" check warning. That's expected and benign — this entry,
+
+# View 2: git diff --cached MERGE_HEAD -- <nine paths>   (origin/main -> resolution; shows exactly what the branch keeps)
+diff --git a/.gitignore b/.gitignore
+index c7108e6..b451c73 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -156,13 +156,22 @@ _html/
+ # Project initialization script
+ .initialize_new_project.sh
+ 
++docs/notebooks/data/**
++docs/notebooks/eso_programmatic.py
++Didymos_runs
++
+ # Serena MCP
+ .serena/
+ 
+-docs/notebooks/data/**
+-
+ # Django MEDIA_ROOT — downloaded DataProduct files (src/fomo/settings.py)
+ src/data/
+ 
++# Claude Code / GSD tooling (local install + machine-specific config)
++.claude/
++
++# graphify skill — generated knowledge-graph cache/build output
++.planning/graphs/
++graphify-out/
++
+ # Django STATIC_ROOT — `collectstatic` output (src/fomo/settings.py)
+ src/_static/
+diff --git a/docs/conf.py b/docs/conf.py
+index b7565ef..a471bf4 100644
+--- a/docs/conf.py
++++ b/docs/conf.py
+@@ -42,6 +42,15 @@ copybutton_selector = 'div:not(.no-copybutton) > div.highlight > pre'
+ templates_path = []
+ exclude_patterns = ['_build', '**.ipynb_checkpoints']
+ 
++# The pre-commit sphinx-build hook overrides exclude_patterns to skip
++# notebooks/* for speed (avoids executing/rendering .ipynb files on every
++# commit). That intentionally leaves docs/notebooks.rst's toctree entry
++# pointing at an excluded document during local pre-commit builds, which
++# would otherwise emit a 'toctree contains reference to excluded document'
++# warning on every commit. Full builds (ReadTheDocs, CI) don't apply that
++# override, so this only ever suppresses the pre-commit-local false positive.
++suppress_warnings = ['toc.excluded']
++
+ # This assumes that sphinx-build is called from the root directory
+ master_doc = 'index'
+ # Remove 'view source code' from top of page (for html, not python)
+@@ -51,11 +60,20 @@ add_module_names = False
+ 
+ autoapi_type = 'python'
+ autoapi_dirs = ['../src']
+-autoapi_ignore = ['*/__main__.py']
++# CR-03 (36-REVIEW.md): 'local_settings.py' is the documented home of every credential
++# this project's unattended path needs (LCO/SOAR api_key, EMAIL_HOST_PASSWORD,
++# FOMO_HEARTBEAT_URL) -- autoapi (and viewcode) render source verbatim into generated
++# HTML, so without this exclusion every configured host's real secrets end up in
++# _readthedocs/html/ and docs/_build/html/ on every sphinx-build. ReadTheDocs itself
++# builds from a checkout with no local_settings.py, so its published site was never
++# affected -- but a build run and served from a configured host was.
++autoapi_ignore = ['*/__main__.py', '*/local_settings.py']
+ autoapi_add_toc_tree_entry = False
+ autoapi_member_order = 'bysource'
+ 
+ html_theme = 'sphinx_rtd_theme'
++# Add following to allow notebook execution errors (e.g. interactive cells)
++nbsphinx_allow_errors = True
+ 
+ 
+ def _skip_version_module(app, what, name, obj, skip, options):
+diff --git a/docs/design/design.rst b/docs/design/design.rst
+index 9c6635f..cee2a2c 100644
+--- a/docs/design/design.rst
++++ b/docs/design/design.rst
+@@ -39,6 +39,13 @@ Design Notes
+ .. toctree::
+    :maxdepth: 1
+ 
++   telescope_runs_calendar
++   tom_calendar_vs_yse_pz_calendar
++   gsd_experiment
++   eso_feasibility_spike
++   uncertain_scheduling_spike
++   canonical_record_spike
++   run_identity_and_unattended_invocation_spike
+    target_origin_tracking
+    scout_element_history
+    fink_sso_support
+diff --git a/docs/notebooks.rst b/docs/notebooks.rst
+index 6a8ae00..4df2353 100644
+--- a/docs/notebooks.rst
++++ b/docs/notebooks.rst
+@@ -5,3 +5,17 @@ Notebooks
+ 
+     Introducing Jupyter Notebooks <notebooks/intro_notebook>
+     Scout candidate lifecycle <notebooks/scout_lifecycle_exploration>
++
++Demonstration Notebooks
++------------------------
++
++.. toctree::
++
++    Telescope Runs (site / ephemeris helper) <notebooks/pre_executed/telescope_runs_demo>
++    Loading Telescope Runs <notebooks/pre_executed/load_telescope_runs_demo>
++    Projecting Observation Records onto the Calendar <notebooks/pre_executed/project_observation_calendar_demo>
++    Backfilling LCO Observations (watched proposals) <notebooks/pre_executed/backfill_lco_observations_demo>
++    Syncing the Gemini Observation Calendar <notebooks/pre_executed/sync_gemini_observation_calendar_demo>
++    Importing a Campaign CSV <notebooks/pre_executed/import_campaign_csv_demo>
++    Reconciling Campaign Runs onto the Calendar <notebooks/pre_executed/reconcile_campaign_runs_demo>
++    The Full Campaign Lifecycle (submission to calendar) <notebooks/pre_executed/campaign_lifecycle_demo>
+diff --git a/pyproject.toml b/pyproject.toml
+index d17ae07..8eb9154 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,4 +1,3 @@
+-
+ [project]
+ name = "fomo"
+ license = "MIT"
+@@ -26,6 +25,7 @@ dependencies = [
+     "numpy>1.24",
+     "sbpy>=0.6.0",  # We don't use sbpy directly, but sorcha does and sbpy 0.6.0 is needed for astropy 7.2.0+
+     "sorcha",
++    "timezonefinder>=6.0",
+ ]
+ 
+ [project.urls]
+@@ -41,6 +41,7 @@ dev = [
+     "coverage", # Used to report total code coverage of the Django test suite
+     "pre-commit", # Used to run checks before finalizing a git commit
+     "ruff>=0.16", # Static linting/formatting; keep the floor in step with the ruff-pre-commit rev in .pre-commit-config.yaml
++    "graphifyy", # (not a typo) queryable knowledge graph builder for AI tools
+ ]
+ 
+ [build-system]
+@@ -56,7 +57,12 @@ write_to = "src/fomo/_version.py"
+ [tool.ruff]
+ line-length = 120
+ target-version = "py310"
+-exclude = ["solsys_code/**/migrations/*.py", ]
++exclude = [
++    ".planning",
++    ".planning/**",
++    "solsys_code/**/migrations/*.py",
++    "docs/notebooks/ESO_How_to_download_data.ipynb",
++]
+ 
+ [tool.ruff.format]
+ quote-style = "single"
+diff --git a/solsys_code/admin.py b/solsys_code/admin.py
+index 94dc4a7..79ead4a 100644
+--- a/solsys_code/admin.py
++++ b/solsys_code/admin.py
+@@ -1,7 +1,585 @@
+ from django.contrib import admin
++from django.db import transaction
++from django.forms.models import BaseInlineFormSet
++from django.utils import timezone
+ from tom_targets.admin import TargetAdmin
+ from tom_targets.models import Target, TargetName
+ 
++from solsys_code.models import (
++    CalendarEventMeta,
++    CampaignRun,
++    CampaignRunObservation,
++    ObservationRecordDismissal,
++    ProposalTimeAllocation,
++    WatchedProposal,
++)
++
++
++class CalendarEventMetaInlineFormSet(BaseInlineFormSet):
++    """WR-08: freeze `event` on rows that already exist, so it can never be re-pointed.
++
++    `CalendarEventMeta.event` is an explicitly declared ``OneToOneField(primary_key=True)``.
++    Django's ``BaseModelFormSet.add_fields()`` only injects a hidden ``id`` field when
++    ``pk_is_not_editable(pk)``; such a field IS editable and IS present in ``form.fields``,
++    so no hidden pk is added and `event` renders as a live ``<select>`` on every existing
++    inline row. Changing it would make ``instance.pk`` a value absent from the table, so
++    ``instance.save()`` would issue an UPDATE matching 0 rows and fall back to an INSERT --
++    leaving the original row behind as a duplicate with an orphaned is_verified/run history,
++    which is exactly what migration 0008's header comment was written to protect.
++
++    ``disabled=True`` (not ``readonly_fields``) is used deliberately: readonly_fields on the
++    inline would be keyed on the PARENT ``CampaignRun`` object and would therefore also strip
++    the widget from the blank "Add another" row, making it impossible to link a new event from
++    an existing run's change page. Per-form ``disabled`` leaves add and delete working.
++
++    Disabling the widget is necessary but not sufficient, because
++    ``BaseModelFormSet._construct_form()`` resolves each initial form's instance from the
++    *submitted* pk (``_existing_object(pk)``) before any field ever sees it -- a submitted pk
++    outside the queryset yields ``instance=None`` and therefore a brand-new object. So the
++    submitted pk is first normalised back to the pk of the row this form slot actually
++    belongs to; after that the widget's disabled state is what stops a staff user reaching
++    the tampering path by accident in the first place.
++    """
++
++    def __init__(self, *args, **kwargs):
++        """Normalise every initial form's submitted `event` pk back to its own row's pk."""
++        super().__init__(*args, **kwargs)
++        if self.is_bound:
++            self._freeze_submitted_event_pks()
++
++    def _freeze_submitted_event_pks(self):
++        """Rewrite the POSTed pk of each existing-row slot to that row's real pk.
++
++        Mirrors the data-rewriting precedent in Django's own
++        ``BaseInlineFormSet._construct_form()`` ``save_as_new`` branch. Runs before any form
++        is constructed, so ``_construct_form()`` resolves the intended instance rather than
++        falling through to a fresh, unsaved one.
++        """
++        pk_name = self.model._meta.pk.name
++        queryset = self.get_queryset()
++        for index in range(self.initial_form_count()):
++            try:
++                frozen_pk = str(queryset[index].pk)
++            except IndexError:
++                # More initial forms declared in the management form than rows exist --
++                # tampered or stale POST. Leave it alone; Django's own validation reports it.
++                break
++            pk_key = f'{self.add_prefix(index)}-{pk_name}'
++            if self.data.get(pk_key) != frozen_pk:
++                # QueryDict is immutable; .copy() yields a mutable one (and works for the
++                # plain-dict form data used in tests too).
++                self.data = self.data.copy()
++                self.data[pk_key] = frozen_pk
++        # No return statement -- this is an in-place normalisation
++
++    def add_fields(self, form, index):
++        """Disable the identity field on any form bound to an already-saved row."""
++        super().add_fields(form, index)
++        if form.instance.pk is not None and 'event' in form.fields:
++            form.fields['event'].disabled = True
++        # No return statement -- BaseInlineFormSet.add_fields() returns None
++
++
++class CalendarEventMetaInline(admin.TabularInline):
++    """D-06/D-17: a row appearing here means the calendar event is attributed to this run.
++
++    33-REVIEW.md WR-06: this inline declares `fk_name = 'run'`, so Django's
++    `BaseInlineFormSet.add_fields()` binds `run` back onto the child form only as a hidden
++    `InlineForeignKeyField` -- the internal parent-linkage Django needs to validate the row
++    belongs to this run on POST -- never as a visible, editable widget. There is no `run`
++    value a staff member can see or clear here. The two operations that actually exist on
++    this surface are:
++
++    - Deleting the row un-attributes the event without deleting the row's own
++      identity/history: CalendarEventMeta.run is SET_NULL, not CASCADE, so the companion
++      row -- and its is_verified history and audit fields -- survive and are simply
++      re-populated by any later attribution.
++    - Clearing the value (which also nulls confirmed_by/confirmed_at) lives on the
++      standalone *Calendar event metas* change page, handled by
++      `CalendarEventMetaAdmin.save_model()` -- not on this inline.
++
++    See `docs/runbooks/telescope_runs_calendar.rst` for the operator-facing wording of this
++    same distinction (corrected by plan 33-08).
++
++    WR-08: `event` is this model's primary key, so it is frozen on existing rows via
++    CalendarEventMetaInlineFormSet -- add and delete are the only operations on the link
++    itself; re-pointing it would duplicate the row rather than move it.
++
++    T-28-02 (28-CONTEXT.md threat model): confirmed_by/confirmed_at (D-12) are read-only
++    here for the same reason CampaignRunObservationInline's are -- CampaignRunAdmin.
++    save_formset is the only place that sets them, so a staff member can never hand-type
++    either value through this form; a submitted value is simply not bound.
++
++    PROJ-04/D-09 (33-CONTEXT.md): observation_record/observation_group are also read-only
++    here -- only the observation projector (Phase 34) writes them, never a staff form.
++
++    CR-01 (35-REVIEW.md iteration 7, plan 35-19): minted_sub_night_window is also read-only
++    here -- only the allocation projector writes it, and the re-mint decision it feeds must
++    not be typeable by a staff member the way observation_details can be.
++    """
++
++    model = CalendarEventMeta
++    formset = CalendarEventMetaInlineFormSet
++    fk_name = 'run'
++    extra = 0
++    # D-09/CR-01 (35-19): only the observation/allocation projectors write
++    # observation_record/observation_group/minted_sub_night_window, so no staff surface may
++    # bind them -- the same mechanism already protecting confirmed_by/confirmed_at.
++    readonly_fields = [
++        'confirmed_by',
++        'confirmed_at',
++        'observation_record',
++        'observation_group',
++        'minted_sub_night_window',
++    ]
++
++
++class CampaignRunObservationInlineFormSet(BaseInlineFormSet):
++    """WR-04 (37.1-REVIEW.md): freeze `observation_record` on links that already exist.
++
++    ``confirmed_by`` is stamped only when a row is created, and ``confirmed_by IS NULL`` is the
++    system-link provenance (37.1 D-05). Re-pointing an existing link at another record would
++    therefore keep the old confirmer -- for a system link, fabricating machine provenance for
++    a pair a person chose. With the field disabled on saved rows, re-pointing takes a delete
++    plus an add, and the add stamps the acting staff user. ``disabled`` (not ``readonly_fields``)
++    is used so the blank "Add another" row keeps its editable record picker.
++    """
++
++    def add_fields(self, form, index):
++        """Disable the record field on any form bound to an already-saved link."""
++        super().add_fields(form, index)
++        if form.instance.pk is not None and 'observation_record' in form.fields:
++            form.fields['observation_record'].disabled = True
++
++
++class CampaignRunObservationInline(admin.TabularInline):
++    """D-06/CANON-05: confirmed observation-record attributions for this run.
++
++    confirmed_by/confirmed_at are never editable here -- CampaignRunAdmin.save_formset is the
++    only admin place that sets them (D-07), so they can never be hand-typed, which is what
++    keeps D-03's audit trail trustworthy. ``confirmed_by`` is excluded from the form and
++    shown through ``confirmed_by_display``, which reads "System (exact match)" for a link an
++    ingest command wrote (confirmed_by None, 37.1 D-05) and the staff user otherwise -- the
++    same label the attribution page's Confirmed table shows.
++    """
++
++    model = CampaignRunObservation
++    formset = CampaignRunObservationInlineFormSet
++    fk_name = 'run'
++    extra = 0
++    # confirmed_by was kept out of the form by being read-only; it is replaced in
++    # readonly_fields by confirmed_by_display, so it must be excluded explicitly or it would
++    # become an editable field (37.1 T-37.1-10).
++    exclude = ['confirmed_by']
++    readonly_fields = ['confirmed_by_display', 'confirmed_at']
++
++    @admin.display(description='Confirmed by')
++    def confirmed_by_display(self, obj):
++        """The link's confirmer as staff should read it: the user, or the system-link label."""
++        if obj is None or obj.pk is None:
++            # An unsaved extra row is neither a staff link nor a system link.
++            return self.get_empty_value_display()
++        return obj.confirmed_by_label()
++
++
++class CampaignRunAdmin(admin.ModelAdmin):  # noqa: D101
++    """D-06: `inlines` below satisfies CANON-05 (staff see/edit a run's linked events and
++    observation records) without a new view/URL/template -- no run-detail view exists today
++    (campaign_urls.py: list/table/submit/approval-queue/decide/gaps/site-search). The real
++    staff-facing run-detail page is deferred to Phase 28.
++    """
++
++    list_display = [
++        'pk',
++        'campaign',
++        'telescope_instrument',
++        'approval_status',
++        'run_status',
++        'site',
++        'window_start',
++        'window_end',
++        'source',
++        'telescope_class',
++        'proposal_code',
++    ]
++    # D-19: filtering by source is how staff audit "which runs came from the CSV import";
++    # by telescope_class, how they find class-wide runs.
++    list_filter = ['approval_status', 'run_status', 'campaign', 'source', 'telescope_class']
++    search_fields = ['telescope_instrument', 'site_raw', 'contact_person']
++    inlines = [CalendarEventMetaInline, CampaignRunObservationInline]
++    # approval_status must stay read-only here: its transition triggers the calendar-
++    # projection side effect and the D-06 clobber guard that live in
++    # CampaignRunDecisionView.post(), not on the model. source stays editable by default
++    # here (D-19) -- it has no such side-effecting transition, so the class-level omission
++    # is a decision, not an oversight. get_readonly_fields below narrows this further:
++    # source is withheld on every web-sourced row, at any approval status (27.1-05, closing
++    # criterion 6) -- see that method's docstring for the cost and the residual left open.
++    # Django excludes readonly fields from the generated ModelForm entirely, so a POSTed
++    # source value on such a row cannot bind -- it is not merely ignored on render.
++    readonly_fields = ['approval_status']
++    ordering = ['-pk']
++
++    def get_readonly_fields(self, request, obj=None):
++        """Withhold `source` on every web-sourced run, at any approval status (27.1-05).
++
++        **The rule.** `source` is withheld whenever the run's source is web, regardless of
++        approval status. The add-form gate is unchanged -- a run can still be created with
++        any source. This closes `27.1-REVIEW.md` WR-03 and Phase 27.1 success criterion 6.
++
++        **What it closes.** The narrower lock this replaced only withheld `source` once a
++        WEB run was already APPROVED, so a legal two-step sequence reached the identical
++        outcome without ever touching a protected row: edit `source` while the run is still
++        PENDING_REVIEW (editable by design, D-19), then approve it through
++        `CampaignRunDecisionView`, which only requires `approval_status ==
++        PENDING_REVIEW` and does not itself inspect `source`. The row would land on APPROVED
++        + non-web, which under `CampaignRun.Source`'s own derivation rule reads as "no
++        approval was required" -- the same provenance loss the narrower lock existed to
++        prevent, reached by a longer route.
++
++        **Why widening costs nothing real.** `source = web` is written by exactly one code
++        path in the repository, the public submission view (`campaign_views.py`), so a web
++        label can never be a mislabel -- D-19's correction use case, which is about
++        correcting a mislabelled *ingest* source, never applied to a web row in the first
++        place. Every non-web row of every approval status keeps `source` editable, so D-19
++        survives for `legacy` (a pre-v2.2 bulk backfill guess), `csv_import`, and the queue
++        sources.
++
++        **Parity.** `import_campaign_csv.py` already refuses to rewrite `source` on a row
++        whose existing `source` is web, with no approval-status condition at all. This
++        change makes the admin write path enforce that same single rule instead of a
++        weaker variant of it.
++
++        **The accepted cost.** A genuinely mis-recorded `source` on a web row can no longer
++        be corrected through the admin change form at all -- it needs a shell or a data migration.
++        That is the intended friction, and it matches the friction the CSV path already
++        imposes.
++
++        **The residual, left open deliberately.** The check keys on the row's *current*
++        `source`, so it is a one-way ratchet: a non-web row can still be relabelled *to*
++        web, after which it locks. That direction fabricates provenance rather than
++        destroying it, requires a deliberate staff act, and is recorded by Django's admin
++        `LogEntry` with actor and timestamp -- the destructive direction left nothing
++        behind. Locking it too would re-open D-19 for the sources D-19 legitimately covers,
++        so it is accepted rather than mitigated.
++
++        **WR-10: what "accepted" actually costs, stated plainly.** Two consequences follow
++        from that ratchet and are neither hypothetical nor recoverable in the UI:
++
++        1. It is a trapdoor with no admin-side exit. The instant the relabel saves,
++           `obj.source == WEB` makes `source` readonly, so the staff user cannot undo their
++           own mis-click here at all -- and the most likely way to land on a wrongly-web row
++           is exactly that: an accidental selection in a `legacy`/`csv_import` row's `source`
++           dropdown, not a genuinely-web row that was mis-recorded.
++        2. The CSV path cannot repair it either. `import_campaign_csv` pops both `source`
++           and `approval_status` for any row whose *existing* source is web, so re-importing
++           the sheet that originally produced the row will not restore `csv_import`. The
++           parity noted above therefore also removes the second repair route.
++
++        A mis-clicked APPROVED row consequently reads permanently as "a human approved this
++        public submission" -- a fact that never happened -- and `LogEntry.change_message`
++        records only that `source` changed, not what it changed *from*. Both directions of
++        the ratchet are pinned by
++        `test_relabel_to_web_locks_the_row_and_cannot_be_undone` so a refactor cannot move
++        them silently. If this edge ever proves too sharp in practice, the alternative is to
++        withhold `source` whenever `approval_status == APPROVED` regardless of source, which
++        costs D-19 only the ability to relabel already-approved backfill.
++        """
++        readonly = list(super().get_readonly_fields(request, obj))
++        if obj is not None and obj.source == CampaignRun.Source.WEB:
++            readonly.append('source')
++        return readonly
++
++    def get_queryset(self, request):
++        """select_related the FKs `CampaignRun.__str__` now dereferences (Task 1).
++
++        Not cosmetic: Django's `AutocompleteJsonView` calls the target ModelAdmin's
++        `get_queryset()` and then `str()` on each result, so without this every
++        autocomplete keystroke costs two extra queries per result row. `list_select_related`
++        would not cover this -- the autocomplete endpoint does not read it.
++        """
++        return super().get_queryset(request).select_related('campaign', 'site')
++
++    def save_formset(self, request, form, formset, change):
++        """D-07/D-12: stamp attribution audit fields for both inline formsets this admin
++        renders -- newly created CampaignRunObservation rows, and a CalendarEventMeta row's
++        genuine run-link transition.
++
++        A CampaignRunObservation row's existence is the confirmation and ``confirmed_by``
++        records who made it -- a staff user, or None for an exact-identity system link written
++        by an ingest command (Phase 37.1). A row created HERE without confirmed_by would
++        therefore read as a system link although a person made it, which is the hole D-07
++        closes (and Phase 28's ATTRIB-03 depends on it being closed). Follows Django's own
++        save_formset idiom (formset.save(commit=False) + manual instance.save() +
++        formset.deleted_objects cleanup + formset.save_m2m()) rather than the base
++        implementation's bare formset.save(), since request.user is only available here.
++        """
++        instances = formset.save(commit=False)
++        for instance in instances:
++            # isinstance gate: save_formset is called once per inline formset -- both
++            # CalendarEventMetaInline's and CampaignRunObservationInline's formsets flow
++            # through this same method. The two branches below use DIFFERENT conditions on
++            # purpose (28-RESEARCH.md Pattern 4/Pitfall 4): a CampaignRunObservation row's
++            # existence IS the confirmation (Phase 27 D-01), so "just created" is the right
++            # test. A CalendarEventMeta row exists long before any attribution (it is
++            # created at telescope-label-resolution time, with `event` as its primary key,
++            # so a freshly-created-row check is never true for it) -- only its `run` field
++            # becoming non-null marks the confirmation (D-12).
++            if isinstance(instance, CampaignRunObservation) and instance.pk is None:
++                # The pk-is-unset check above is the gate: a NEWLY CREATED row gets
++                # stamped; an EXISTING row edited through the admin keeps its original
++                # confirmed_by/confirmed_at, so editing a link never silently
++                # re-attributes someone else's confirmation.
++                instance.confirmed_by = request.user
++                instance.confirmed_at = timezone.now()
++            elif isinstance(instance, CalendarEventMeta):
++                # Read the prior database value before formset.save(commit=False)'s mutated
++                # in-memory instance hides it -- instance.run_id above is already the
++                # POSTed value by this point.
++                prior_run_id = CalendarEventMeta.objects.filter(pk=instance.pk).values_list('run_id', flat=True).first()
++                if prior_run_id is None and instance.run_id is not None:
++                    # A genuine None-to-not-None transition: this is a confirmation. A row
++                    # whose run is being cleared, re-pointed from one run to another, or
++                    # left unchanged must NOT be re-stamped -- mirrors the
++                    # CampaignRunObservation branch's "never silently re-attribute someone
++                    # else's confirmation" rule above.
++                    instance.confirmed_by = request.user
++                    instance.confirmed_at = timezone.now()
++            instance.save()
++        # Stock idiom: formset.save(commit=False) does not itself delete rows marked for
++        # deletion -- it only populates formset.deleted_objects. Deleting them here
++        # preserves the base ModelAdmin.save_formset() behaviour this override replaces.
++        for obj in formset.deleted_objects:
++            if isinstance(obj, CampaignRunObservation):
++                # WR-01/WR-08 (37.1-REVIEW.md): removing ANY link here -- a system link or a
++                # staff confirmation -- is a human decision, and the next discovery tick would
++                # otherwise re-create it (as a "System (exact match)" link, overriding the
++                # staff member's "this pair is wrong"). The exact-identity matcher's only veto
++                # once the link is gone is a dismissal row. Write the same dismissal the
++                # attribution page's Undo writes for both kinds of link, in the same atomic
++                # block as the delete.
++                with transaction.atomic():
++                    ObservationRecordDismissal.objects.get_or_create(
++                        observation_record_id=obj.observation_record_id,
++                        run_id=obj.run_id,
++                        defaults={
++                            'dismissed_by': request.user,
++                            'dismissed_at': timezone.now(),
++                            'reason': 'Removed in admin.',
++                        },
++                    )
++                    obj.delete()
++            else:
++                obj.delete()
++        formset.save_m2m()
++
++
++class CalendarEventMetaAdmin(admin.ModelAdmin):  # noqa: D101
++    list_display = ['event', 'event_start', 'is_verified', 'run']
++    list_filter = ['is_verified']
++    search_fields = ['event__title']
++    # 27.1-02 criterion 4: a search box instead of a 44-option flat <select> for the run
++    # picker -- safe because CampaignRunAdmin.search_fields already exists, which is what
++    # Django's admin.E040 check requires.
++    autocomplete_fields = ['run']
++    # Covers the new event_start column and CampaignRun.__str__'s campaign/site
++    # dereferences (Task 1), so an 11-row changelist does not turn into 30+ queries.
++    list_select_related = ['event', 'run', 'run__campaign', 'run__site']
++    # CR-02/D-12: mirrors CalendarEventMetaInline's identical line. Django's ModelAdmin
++    # renders every non-readonly, non-excluded model field as an editable widget, so without
++    # this a staff user could submit an arbitrary confirmed_by (any User through the FK
++    # widget) and an arbitrary confirmed_at, fabricating attribution to someone who never
++    # made the decision. Applies on add as well as change -- save_model() below is the only
++    # writer of either field on this surface.
++    # PROJ-04/D-09 (33-CONTEXT.md): observation_record/observation_group join the same list
++    # for the same reason -- only the observation projector (Phase 34) writes these links,
++    # so no staff surface may bind them. CR-01 (35-REVIEW.md iteration 7, plan 35-19) adds
++    # minted_sub_night_window for the identical reason: only the allocation projector writes
++    # it, and it feeds an automated re-mint decision a staff member must not be able to
++    # forge -- the same trust hole the cutover's admin-writable observation_details marker
++    # named.
++    readonly_fields = [
++        'confirmed_by',
++        'confirmed_at',
++        'observation_record',
++        'observation_group',
++        'minted_sub_night_window',
++    ]
++
++    def get_readonly_fields(self, request, obj=None):
++        """CR-02: extend the WR-08 primary-key freeze to the standalone change form.
++
++        ``CalendarEventMetaInlineFormSet`` froze `event` only on the inline. This ModelAdmin
++        is a second, independent write path onto the same row, and 27.1-02 made it the
++        primary staff surface for hand-linking a run to an event. Because
++        ``CalendarEventMeta.event`` is an explicitly declared
++        ``OneToOneField(primary_key=True)``, Django treats it as editable and renders it as a
++        live ``<select>`` here too -- so re-pointing it made ``instance.pk`` a value absent
++        from the table, turning ``save()``'s 0-row UPDATE into an INSERT and leaving the
++        original row behind as a duplicate with orphaned is_verified/run history (the exact
++        failure migration 0008's header comment exists to prevent).
++
++        Returning it as readonly on change (``obj is not None``) drops the field from the
++        form entirely, so a submitted `event` value is never bound; the instance keeps
++        resolving from the URL pk. Add stays editable so a new link can still be created,
++        which keeps re-pointing available as delete + re-add -- matching the inline's
++        add-and-delete-only contract rather than being stricter than it.
++
++        The audit fields (``confirmed_by``/``confirmed_at``) are frozen separately, at class
++        level via ``readonly_fields`` above, for the CR-02 reason documented there -- this
++        method's own job remains solely the `event` primary-key freeze; it composes with the
++        class attribute automatically because it starts from
++        ``list(super().get_readonly_fields(request, obj))``, which already returns
++        ``readonly_fields``.
++        """
++        readonly = list(super().get_readonly_fields(request, obj))
++        if obj is not None and 'event' not in readonly:
++            readonly.append('event')
++        return readonly
++
++    def save_model(self, request, obj, form, change):
++        """CR-02/D-12: stamp confirmed_by/confirmed_at on a genuine run-link transition,
++        mirroring ``CampaignRunAdmin.save_formset``'s ``CalendarEventMeta`` branch -- but for
++        the STANDALONE admin page, which is a second, independent write path onto the same
++        row (27.1-02's own docstring calls it "the primary staff surface for hand-linking a
++        run to an event").
++
++        Reads the prior database value before delegating to ``super()``, exactly as
++        ``save_formset`` does, because by the time ``obj`` reaches this method
++        ``obj.run_id`` already holds the POSTed value -- the in-memory instance has already
++        been mutated by form binding. Guarded on ``obj.pk is not None`` because `event` is
++        this model's primary key: on the add form the pk is populated from the submitted
++        `event`, and a row with that pk cannot exist yet, so ``prior_run_id`` is correctly
++        ``None`` either way. `save_formset`'s own comment already records that "no row exists
++        yet" and "row exists with run=None" both mean "not attributed to any run", so the
++        transition condition fires identically here.
++
++        Three branches, in order, before delegating to ``super().save_model()``:
++
++        1. A genuine re-point (``run`` A -> ``run`` B) re-stamps to the acting user. This is
++           a DELIBERATE, REASONED DIVERGENCE from the inline mirror, not drift: inside
++           ``CampaignRunAdmin`` every inline row belongs to the parent run, so a re-point is
++           mechanically unreachable there, and `save_formset`'s comment about not re-stamping
++           a re-pointed row describes a case that surface cannot produce. On THIS page a
++           re-point IS reachable through the `run` autocomplete, and leaving the prior stamp
++           would attribute run B's confirmation to whoever confirmed run A -- precisely the
++           fabricated-attribution failure CR-02 names. Do not "correct" this back to match
++           the inline's silence on re-pointing; the inline is silent because it cannot reach
++           this case, not because re-stamping would be wrong.
++        2. Clearing the run (not None -> None) nulls both audit fields. This ALSO diverges
++           deliberately from the inline, which has no clear-and-keep-editing path at all
++           (WR-08 permits only add/delete on the inline). Because 2a above makes the audit
++           fields unwritable by hand, without this branch a cleared link would leave a row
++           permanently displaying "confirmed by X at T" for an association that no longer
++           exists, with no way for staff to correct it -- matches
++           ``campaign_views._undo_confirmation()``'s established
++           ``run=None, confirmed_by=None, confirmed_at=None`` semantics on the event side.
++        3. Otherwise (`run` unchanged, including staying None) touches neither field, so an
++           unrelated edit such as toggling `is_verified` never re-attributes someone else's
++           confirmation -- identical discipline to `save_formset`'s two branches.
++        """
++        prior_run_id = (
++            CalendarEventMeta.objects.filter(pk=obj.pk).values_list('run_id', flat=True).first()
++            if obj.pk is not None
++            else None
++        )
++        if obj.run_id is not None and obj.run_id != prior_run_id:
++            # Branch 1: a new confirmation of this pair, including a re-point -- re-stamp to
++            # the acting user. See the docstring above for why a re-point must re-stamp here
++            # even though the inline mirror cannot reach this case at all.
++            obj.confirmed_by = request.user
++            obj.confirmed_at = timezone.now()
++        elif obj.run_id is None and prior_run_id is not None:
++            # Branch 2: the link was cleared -- null every field the helper declares so no
++            # row can display a confirmation for an association that no longer exists. This
++            # loop IS the in-memory half of the same clear
++            # solsys_code.campaign_utils.unlink_event_from_run() (D-16, plan 33-04) performs
++            # in the database -- that helper's UNLINK_CLEARED_FIELDS is the shared, single
++            # definition of what clearing an attribution means (WR-02), and this branch now
++            # derives its field set from it instead of keeping its own hand-written copy, so
++            # a fourth key added to the helper reaches this branch with no edit here. Kept as
++            # a plain in-memory mutation here rather than also calling the helper:
++            # super().save_model() below delegates to obj.save(), which writes every field of
++            # this instance back to the row -- calling the helper first (a separate bulk
++            # .update()) would not touch this in-memory obj, so obj.save() would immediately
++            # re-persist whatever confirmed_by/confirmed_at obj still held over the row the
++            # helper just cleared, making the clear appear to silently fail (33-REVIEWS.md
++            # Agreed Concern 3). DO NOT remove this loop -- removing it re-persists stale
++            # audit values through obj.save() even though the run link itself still clears
++            # correctly.
++            #
++            # Imported here, not at module level: campaign_utils imports campaign_reconciler
++            # at its own top level, which in turn pulls telescope_runs and its astropy
++            # dependency into every Django admin autodiscover -- the same reason
++            # campaign_reconciler._detach_stale_family_events() imports campaign_utils
++            # locally rather than at its own module level.
++            from solsys_code.campaign_utils import UNLINK_CLEARED_FIELDS
++
++            for field, value in UNLINK_CLEARED_FIELDS.items():
++                setattr(obj, field, value)
++        # Branch 3 (implicit): run unchanged -- touch neither field.
++        super().save_model(request, obj, form, change)
++
++    @admin.display(description='Event start', ordering='event__start_time')
++    def event_start(self, obj):
++        """Return the owning CalendarEvent's start time for the changelist column."""
++        return obj.event.start_time
++
++
++class WatchedProposalAdmin(admin.ModelAdmin):  # noqa: D101
++    """D-06: `is_active` is both listed and editable directly from the changelist -- an
++    operator toggling discovery on/off for a proposal is the whole point of this model, and
++    should not require opening the change form. `last_run_at`/`last_run_summary` are
++    read-only here because they are sweep-written bookkeeping (D-09), never hand-typed.
++    """
++
++    list_display = ['proposal_code', 'is_active', 'last_run_at', 'last_run_summary']
++    list_filter = ['is_active']
++    list_editable = ['is_active']
++    readonly_fields = ['last_run_at', 'last_run_summary']
++    search_fields = ['proposal_code']
++    ordering = ['proposal_code']
++
++
++class ProposalTimeAllocationAdmin(admin.ModelAdmin):  # noqa: D101
++    """Phase 37 D-07: every field is read-only -- this row is written only by the
++    unattended runner's proposal-allocation fetch step; a staff user cannot hand-edit a
++    figure the public tallies present as portal-sourced (T-37-07).
++
++    WR-10 (37-REVIEW.md): per-field read-only alone left add and delete unguarded -- a
++    staff user could still delete a row (silently changing the public unused-nights
++    estimate, or flipping it from a number to "not yet known"), and the "Add" button
++    rendered a form that could never satisfy the non-null fetched_at since every field is
++    read-only. has_add_permission()/has_delete_permission() close both.
++    """
++
++    list_display = [
++        'proposal_code',
++        'semester',
++        'instrument_type',
++        'allocation_type',
++        'allocated_hours',
++        'used_hours',
++        'fetched_at',
++    ]
++    list_filter = ['allocation_type', 'semester']
++    search_fields = ['proposal_code']
++    readonly_fields = [
++        'proposal_code',
++        'semester',
++        'instrument_type',
++        'allocation_type',
++        'allocated_hours',
++        'used_hours',
++        'fetched_at',
++    ]
++    ordering = ['proposal_code', 'semester']
++
++    def has_add_permission(self, request):  # noqa: D102
++        return False
++
++    def has_delete_permission(self, request, obj=None):  # noqa: D102
++        return False
++
+ 
+ class TargetNameInline(admin.TabularInline):
+     """Edit a Target's aliases alongside the Target itself."""
+@@ -38,5 +616,9 @@ class SolsysTargetAdmin(TargetAdmin):
+         return self.list_display
+ 
+ 
++admin.site.register(CampaignRun, CampaignRunAdmin)
++admin.site.register(CalendarEventMeta, CalendarEventMetaAdmin)
++admin.site.register(WatchedProposal, WatchedProposalAdmin)
++admin.site.register(ProposalTimeAllocation, ProposalTimeAllocationAdmin)
+ admin.site.unregister(Target)
+ admin.site.register(Target, SolsysTargetAdmin)
+diff --git a/solsys_code/apps.py b/solsys_code/apps.py
+index ab66fcb..f97bc8f 100644
+--- a/solsys_code/apps.py
++++ b/solsys_code/apps.py
+@@ -5,14 +5,74 @@ class SolsysCodeConfig(AppConfig):
+     default_auto_field = 'django.db.models.BigAutoField'
+     name = 'solsys_code'
+ 
+-    def nav_items(self):
+-        """
+-        Integration point for adding items to the navbar. Returns a list of dictionaries with a
+-        `partial` key pointing to the html template to be included in the navbar.
++    def ready(self):
++        """Wire the observation and allocation projectors' signal receivers (TRIG-01, D-11).
++
++        Five receivers now, none of them ``settings.HOOKS['observation_change_state']`` (that
++        hook is silent for a schedule-only placement save -- exactly the narrowing step that
++        matters for this project's calendar, since ``ObservationRecord.save()`` only runs the
++        hook when ``status`` changes or on creation). Three are the observation projector's,
++        unchanged since Phase 34: a ``post_save`` receiver that projects a record's own event
++        on every save; an ``m2m_changed`` receiver that closes the group-membership-after-save
++        gap (D-15); and a ``pre_delete`` receiver that removes a deleted record's own event
++        before its companion link is cleared (D-14).
++
++        The two new ones are the allocation projector's (D-11): a ``post_save`` and a
++        ``post_delete`` receiver on ``CampaignRunObservation`` re-project the linked run, so an
++        allocation night retires or returns the moment a staff member confirms or undoes an
++        attribution -- no operator command, no sweep. ``CampaignRun`` itself deliberately gets
++        no receiver here: its own saves already reach ``reconcile_run()`` through the three
++        staff-action call sites in ``campaign_views.py`` and the ``reconcile_campaign_runs``
++        sweep, and a sixth receiver here would give the calendar two writers for the same edit.
++
++        Imports are function-local to match the lazy-import convention the existing
++        ``pre_delete`` receiver in ``models.py`` already uses to dodge app-loading circular
++        imports.
+         """
+-        return [
+-            {'partial': f'{self.name}/partials/navbar_list.html'},
+-        ]
++        from django.db.models.signals import m2m_changed, post_delete, post_save, pre_delete
++        from tom_observations.models import ObservationGroup, ObservationRecord
++
++        from solsys_code.allocation_projector import (
++            receiver_on_run_observation_delete,
++            receiver_on_run_observation_save,
++        )
++        from solsys_code.models import CampaignRunObservation
++        from solsys_code.observation_projector import (
++            receiver_on_group_membership_changed,
++            receiver_on_record_delete,
++            receiver_on_record_save,
++        )
++
++        post_save.connect(
++            receiver_on_record_save,
++            sender=ObservationRecord,
++            weak=False,
++            dispatch_uid='solsys_code.observation_projector.post_save',
++        )
++        m2m_changed.connect(
++            receiver_on_group_membership_changed,
++            sender=ObservationGroup.observation_records.through,
++            weak=False,
++            dispatch_uid='solsys_code.observation_projector.m2m_changed',
++        )
++        pre_delete.connect(
++            receiver_on_record_delete,
++            sender=ObservationRecord,
++            weak=False,
++            dispatch_uid='solsys_code.observation_projector.pre_delete',
++        )
++        post_save.connect(
++            receiver_on_run_observation_save,
++            sender=CampaignRunObservation,
++            weak=False,
++            dispatch_uid='solsys_code.allocation_projector.campaign_run_observation.post_save',
++        )
++        post_delete.connect(
++            receiver_on_run_observation_delete,
++            sender=CampaignRunObservation,
++            weak=False,
++            dispatch_uid='solsys_code.allocation_projector.campaign_run_observation.post_delete',
++        )
+ 
+     def target_detail_buttons(self):
+         """
+@@ -22,7 +82,24 @@ class SolsysCodeConfig(AppConfig):
+             {
+                 'partial': f'{self.name}/partials/ephem_button.html',
+                 'context': 'src.templatetags.solsys_code_extras.ephem_button',
+-            }
++            },
++            {
++                'partial': f'{self.name}/partials/campaign_links.html',
++                'context': 'src.templatetags.solsys_code_extras.campaign_links',
++            },
++        ]
++
++    def nav_items(self):
++        """
++        Integration point for adding entries to the navbar (VIEW-02/D-03).
++        """
++        return [
++            {
++                'partial': f'{self.name}/partials/campaigns_nav_link.html',
++                'context': 'src.templatetags.solsys_code_extras.campaigns_nav_link',
++                'position': 'left',
++            },
++            {'partial': f'{self.name}/partials/navbar_list.html'},  # Rubin ToO menu (from main)
+         ]
+ 
+     def data_services(self):
+diff --git a/solsys_code/tests/test_bootstrap5_rendering.py b/solsys_code/tests/test_bootstrap5_rendering.py
+index 2e6b21e..bfc741c 100644
+--- a/solsys_code/tests/test_bootstrap5_rendering.py
++++ b/solsys_code/tests/test_bootstrap5_rendering.py
+@@ -6,16 +6,38 @@ navbar dropdown toggling) or that django-crispy-forms emits BS5-flavoured layout
+ real headless Chromium browser against a live Django test server with Playwright's
+ synchronous API to close that gap, as a follow-up to the tomtoolkit 3.0 / Bootstrap 5
+ upgrade (GitHub issue #45).
++
++Also covers the calendar's Bootstrap 5 modal open path (UAT G-33-2): FOMO's override of
++tom_calendar's month partial used to open `#cal-modal` with a jQuery call the tomtoolkit
++3.x base page never loads, so every click on the calendar threw silently. The tests below
++click a real rendered calendar page and assert the Bootstrap 5 modal actually opens, with
++no page error.
+ """
+ 
+ import os
++import re
++from datetime import date, datetime
++from datetime import timezone as dt_timezone
++from pathlib import Path
+ 
++from django.conf import settings
++from django.contrib.auth import get_user_model
+ from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+-from django.test import tag
++from django.test import SimpleTestCase, tag
+ from django.urls import reverse
++from django.utils import timezone
+ from playwright.sync_api import sync_playwright
++from tom_calendar.models import CalendarEvent
++from tom_observations.models import ObservationRecord
++from tom_targets.models import TargetList
+ from tom_targets.tests.factories import NonSiderealTargetFactory
+ 
++from solsys_code.models import (
++    CalendarEventMeta,
++    CampaignRun,
++    CampaignRunObservation,
++    ObservationRecordDismissal,
++)
+ from solsys_code.solsys_code_observatory.models import Observatory
+ 
+ 
+@@ -49,14 +71,123 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
+             os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = cls._prev_async_unsafe
+         super().tearDownClass()
+ 
++    CAL_YEAR = 2026
++    CAL_MONTH = 8
++
+     def setUp(self):
+         super().setUp()
+         self.page = self.browser.new_page()
+ 
++        # Fixture for the calendar modal-open tests below, built in the shape of
++        # MonthCellCampaignMarkerTest (test_calendar_template.py). Built here in setUp(),
++        # not setUpTestData -- StaticLiveServerTestCase is a TransactionTestCase subclass,
++        # which does not support setUpTestData's class-scoped fixture semantics (only
++        # django.test.TestCase wraps setUpTestData in a rolled-back transaction); each
++        # TransactionTestCase test flushes the database in its own teardown, so per-class
++        # data would only survive for whichever test happened to run first.
++        self.campaign = TargetList.objects.create(name='BS5 Modal Fixture Campaign')
++        self.approved_run = CampaignRun.objects.create(
++            campaign=self.campaign,
++            telescope_instrument='FTN/MuSCAT3',
++            window_start=date(self.CAL_YEAR, self.CAL_MONTH, 4),
++            window_end=date(self.CAL_YEAR, self.CAL_MONTH, 4),
++            approval_status=CampaignRun.ApprovalStatus.APPROVED,
++        )
++        self.attributed_event = CalendarEvent.objects.create(
++            title='BS5 Modal Attributed Event',
++            start_time=datetime(self.CAL_YEAR, self.CAL_MONTH, 4, 20, 0, tzinfo=dt_timezone.utc),
++            end_time=datetime(self.CAL_YEAR, self.CAL_MONTH, 4, 21, 0, tzinfo=dt_timezone.utc),
++        )
++        CalendarEventMeta.objects.create(event=self.attributed_event, run=self.approved_run)
++
++        # An event with no CalendarEventMeta row at all -- a click target campaign_decoration()
++        # never attributes -- so the fix is proven on an unattributed entry too (ANNOT-02
++        # empty-input edge, must_haves Truth 3), not just the attributed one above.
++        # Title kept at or under the timed-event loop's truncatechars:16 budget so the
++        # locator below can match on the full rendered title text without truncation.
++        self.unattributed_event = CalendarEvent.objects.create(
++            title='UnattrEvent',
++            start_time=datetime(self.CAL_YEAR, self.CAL_MONTH, 12, 20, 0, tzinfo=dt_timezone.utc),
++            end_time=datetime(self.CAL_YEAR, self.CAL_MONTH, 12, 21, 0, tzinfo=dt_timezone.utc),
++        )
++
+     def tearDown(self):
+         self.page.close()
+         super().tearDown()
+ 
++    def _calendar_url(self):
++        return f'{self.live_server_url}{reverse("calendar:calendar")}?year={self.CAL_YEAR}&month={self.CAL_MONTH}'
++
++    def test_calendar_modal_opens_for_campaign_attributed_event_with_no_page_errors(self):
++        """UAT G-33-2: clicking a campaign-attributed calendar entry opens `#cal-modal` via
++        the Bootstrap 5 API, with the 'Attributed campaign run' block and its 'View
++        campaign' link, and raises no page error. Against the pre-fix jQuery handler this
++        assertion fails with a ReferenceError naming the undefined `$` global (see SUMMARY
++        for the exact message observed during the revert-and-restore sensitivity check)."""
++        page_errors = []
++        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
++
++        self.page.goto(self._calendar_url())
++        self.page.locator('.cal-event').first.click()
++
++        modal = self.page.locator('#cal-modal.show')
++        modal.wait_for(state='visible')
++        assert modal.is_visible()
++
++        modal_body_text = self.page.locator('#cal-modal-body').inner_text()
++        assert 'Attributed campaign run' in modal_body_text
++        assert self.page.locator('#cal-modal-body a', has_text='View campaign').count() >= 1
++
++        assert page_errors == []
++
++    def test_calendar_modal_opens_for_new_event_button_with_no_page_errors(self):
++        """The '+ New Event' button -- a click target with no CalendarEvent behind it at
++        all -- opens the same modal through the same Bootstrap 5 handler."""
++        page_errors = []
++        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
++
++        self.page.goto(self._calendar_url())
++        self.page.get_by_role('button', name='+ New Event').click()
++
++        modal = self.page.locator('#cal-modal.show')
++        modal.wait_for(state='visible')
++        assert modal.is_visible()
++
++        assert page_errors == []
++
++    def test_calendar_modal_opens_for_unattributed_event_with_no_page_errors(self):
++        """must_haves Truth 3: an entry with no attributed run must open the pop-up too --
++        the defect affected every click target, not just campaign-attributed ones."""
++        page_errors = []
++        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
++
++        self.page.goto(self._calendar_url())
++        self.page.locator('.cal-event', has_text='UnattrEvent').first.click()
++
++        modal = self.page.locator('#cal-modal.show')
++        modal.wait_for(state='visible')
++        assert modal.is_visible()
++
++        assert page_errors == []
++
++    def test_calendar_modal_opens_for_empty_day_cell_with_no_page_errors(self):
++        """must_haves Truth 3: clicking the empty area of a day cell with no events at all
++        must also open the pop-up. Click the day-num span specifically -- it sits outside
++        the inner event-container div's `event.stopPropagation()` guard, so the click
++        bubbles to the day cell's own handler."""
++        page_errors = []
++        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
++
++        self.page.goto(self._calendar_url())
++        empty_day_cell = self.page.locator(f'[hx-get*="date={self.CAL_YEAR}-{self.CAL_MONTH:02d}-01"]')
++        empty_day_cell.locator('.day-num').click()
++
++        modal = self.page.locator('#cal-modal.show')
++        modal.wait_for(state='visible')
++        assert modal.is_visible()
++
++        assert page_errors == []
++
+     def test_navbar_dropdown_toggle_shows_menu(self):
+         """Clicking the Observatories navbar toggle reveals a `.dropdown-menu.show` (BS5 JS runs)."""
+         self.page.goto(f'{self.live_server_url}/')
+@@ -94,3 +225,135 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
+ 
+         assert '/observatory/create/' not in self.page.url
+         assert Observatory.objects.filter(obscode='704').exists()
++
++    def test_attribution_page_sections_open_and_close_with_bootstrap5(self):
++        """UAT G-37.1-1: the attribution page's Confirmed and Dismissed headings must open and
++        close their sections under the Bootstrap 5 that ``tom_common/base.html`` loads. The page
++        used the Bootstrap 4 ``data-toggle``/``data-target`` attributes, which Bootstrap 5
++        ignores, so neither heading did anything and the system-linked rows (and their Undo
++        buttons) were unreachable. Also pins the default state: Confirmed open on load,
++        Dismissed folded away."""
++        staff = get_user_model().objects.create_user(username='bs5-attribution-staff', password='pw', is_staff=True)
++        campaign = TargetList.objects.create(name='BS5 Attribution Campaign')
++        target = NonSiderealTargetFactory.create()
++        campaign.targets.add(target)
++        observatory = Observatory.objects.create(obscode='E10', name='Siding Spring', short_name='SSO')
++        # Same shape as AttributionViewTestBase.campaign_run, whose system links
++        # TestSystemLinkInConfirmedTable already saves without error.
++        run = CampaignRun.objects.create(
++            campaign=campaign,
++            telescope_instrument='FTS/MuSCAT4',
++            window_start=date(2026, 7, 7),
++            window_end=date(2026, 7, 21),
++            site=observatory,
++            telescope_class='',
++        )
++
++        def make_record(night_offset, observation_id):
++            return ObservationRecord.objects.create(
++                target=target,
++                user=staff,
++                facility='LCO',
++                observation_id=observation_id,
++                status='PENDING',
++                parameters={
++                    'instrument_type': '2M0-SCICAM-MUSCAT',
++                    'start': datetime(2026, 7, 7 + night_offset, 22, 0).isoformat(),
++                    'end': datetime(2026, 7, 8 + night_offset, 6, 0).isoformat(),
++                },
++            )
++
++        CampaignRunObservation.objects.create(
++            run=run, observation_record=make_record(0, 'BS5-ATTR-1'), confirmed_at=timezone.now()
++        )
++        ObservationRecordDismissal.objects.create(
++            observation_record=make_record(1, 'BS5-ATTR-2'),
++            run=run,
++            dismissed_by=staff,
++            dismissed_at=timezone.now(),
++            reason='BS5 browser dismissal',
++        )
++
++        # Log the browser in by handing it the test client's session cookie.
++        self.client.force_login(staff)
++        self.page.context.add_cookies(
++            [
++                {
++                    'name': settings.SESSION_COOKIE_NAME,
++                    'value': self.client.cookies[settings.SESSION_COOKIE_NAME].value,
++                    'url': self.live_server_url,
++                }
++            ]
++        )
++        page_errors = []
++        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
++
++        self.page.goto(f'{self.live_server_url}{reverse("campaigns:attribution")}')
++
++        confirmed = self.page.locator('#attribution-confirmed-section')
++        dismissed = self.page.locator('#attribution-dismissed-section')
++
++        # On load: Confirmed is open and shows the system link; Dismissed is folded away.
++        confirmed.wait_for(state='visible')
++        assert 'System (exact match)' in confirmed.inner_text()
++        dismissed.wait_for(state='hidden')
++
++        # Clicking the Dismissed heading opens it, with the dismissal reason showing.
++        self.page.locator('button[data-bs-target="#attribution-dismissed-section"]').click()
++        dismissed.wait_for(state='visible')
++        assert 'BS5 browser dismissal' in dismissed.inner_text()
++
++        # Clicking the Confirmed heading folds it away.
++        self.page.locator('button[data-bs-target="#attribution-confirmed-section"]').click()
++        confirmed.wait_for(state='hidden')
++
++        assert page_errors == []
++
++
++class TestTemplatesUseBootstrap5DataAttributes(SimpleTestCase):
++    """UAT G-37.1-1 guard: ``tom_common/base.html`` loads Bootstrap 5, whose plugins bind only the
++    ``data-bs-*`` attribute spellings. A Bootstrap 4 spelling (``data-toggle``, ``data-target``,
++    ...) in a template is inert there and fails silently in a browser -- the attribution page's
++    collapse headings did exactly that. This scan needs no browser and no database."""
++
++    # Bootstrap 4's plugin data attributes. Bootstrap 5's carry a `bs-` segment (data-bs-toggle)
++    # and so never match: after `data-` the next characters must be one of these names and then `=`.
++    BOOTSTRAP4_ATTRIBUTE = re.compile(
++        r'\bdata-(?:toggle|target|dismiss|parent|ride|slide-to|slide|spy|backdrop|keyboard|placement)\s*='
++    )
++
++    @staticmethod
++    def _template_files():
++        files = []
++        for template_dir in settings.TEMPLATES[0]['DIRS']:
++            files.extend(sorted(Path(template_dir).rglob('*.html')))
++        return files
++
++    def test_no_template_uses_bootstrap4_data_attributes(self):
++        files = self._template_files()
++        hits = []
++        for path in files:
++            for lineno, line in enumerate(path.read_text(encoding='utf-8').splitlines(), start=1):
++                if self.BOOTSTRAP4_ATTRIBUTE.search(line):
++                    relative = path.relative_to(Path(settings.TEMPLATES[0]['DIRS'][0]))
++                    hits.append(f'{relative}:{lineno}: {line.strip()}')
++        self.assertEqual(hits, [], 'Bootstrap 4 plugin data attributes found:\n' + '\n'.join(hits))
++
++    def test_the_scan_is_not_vacuous(self):
++        """Guard against the scan silently covering nothing (wrong directory, empty glob)."""
++        files = self._template_files()
++        self.assertGreaterEqual(len(files), 20, f'expected at least 20 templates, scanned {len(files)}')
++        names = {path.as_posix() for path in files}
++        for expected in ('campaigns/attribution_queue.html', 'campaigns/campaign_list.html'):
++            self.assertTrue(any(name.endswith(expected) for name in names), f'{expected} was not covered by the scan')
++
++    def test_the_pattern_matches_bootstrap4_and_not_bootstrap5_spellings(self):
++        for bad in ('data-toggle="collapse"', 'data-target="#x"', '<a data-dismiss="modal">', 'data-slide-to="1"'):
++            self.assertIsNotNone(self.BOOTSTRAP4_ATTRIBUTE.search(bad), bad)
++        for good in (
++            'data-bs-toggle="collapse"',
++            'data-bs-target="#x"',
++            'data-bs-dismiss="modal"',
++            'data-bs-slide-to="1"',
++        ):
++            self.assertIsNone(self.BOOTSTRAP4_ATTRIBUTE.search(good), good)
+diff --git a/src/fomo/urls.py b/src/fomo/urls.py
+index 2958e25..4baa356 100644
+--- a/src/fomo/urls.py
++++ b/src/fomo/urls.py
+@@ -8,7 +8,7 @@ from solsys_code.scout_views import (
+     ScoutTargetExportView,
+     ScoutTargetListView,
+ )
+-from solsys_code.views import Ephemeris, MakeEphemerisView
++from solsys_code.views import Ephemeris, MakeEphemerisView, ProtectedUserDeleteView
+ 
+ urlpatterns = [
+     # Shadow the 'targets/' list and export routes inside tom_common.urls (included below).
+@@ -22,5 +22,19 @@ urlpatterns = [
+     path('targets/<int:pk>/makeephem/', MakeEphemerisView.as_view(), name='makeephem'),
+     path('scout/rubin-too/', RubinTooScoutListView.as_view(), name='scout_rubin_too'),
+     path('scout/rubin-too/stats/', RubinTooScoutStatsView.as_view(), name='scout_rubin_too_stats'),
++    # DISPLAY-09 — must precede tom_common.urls: tomtoolkit 3.0 now also registers a 'calendar'
++    # namespace there (tom_calendar.urls) with identical URL names, which triggers Django's
++    # urls.W005 "namespace isn't unique" check warning. That's expected and benign — this entry,
++    # being first, is what `calendar:*` reversal and dispatch actually resolve to; the tom_common
++    # one is fully shadowed. See solsys_code/calendar_urls.py's module docstring.
++    path('calendar/', include('solsys_code.calendar_urls', namespace='calendar')),
++    path('campaigns/', include('solsys_code.campaign_urls', namespace='campaigns')),  # VIEW-01 — before tom_common
++    # tomtoolkit 3.0.0 final dropped the 'alerts/' include from tom_common.urls (previously
++    # registered there in 2.x/3.0.0a9) -- tom_alerts is still an installed app, so its urls
++    # must now be wired up at the project level to keep the 'alerts' namespace resolvable.
++    path('alerts/', include('tom_alerts.urls', namespace='alerts')),
++    # WR-10 (37.1-REVIEW.md): must precede tom_common.urls -- TOM's own 'user-delete' view 500s on an
++    # account that confirmed a campaign link or calendar event attribution (their confirmed_by is PROTECT).
++    path('users/<int:pk>/delete/', ProtectedUserDeleteView.as_view(), name='user-delete'),
+     path('', include('tom_common.urls')),
+ ]
