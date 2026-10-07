@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 38
 current_phase_name: Sync with main
 status: executing
-stopped_at: Completed 38-01-PLAN.md
-last_updated: "2026-10-07T17:28:16.185Z"
+stopped_at: Completed 38-02-PLAN.md
+last_updated: "2026-10-07T18:05:24.484Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 38 execution started
-state_head: e8cfe4d0fb9278e703a89cdb270cb28978990296
+state_head: 22e1b0aa30b96f88518f615e54fdbef9703d6296
 progress:
   total_phases: 5
   completed_phases: 39
   total_plans: 4
-  completed_plans: 1
-  percent: 25
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-06 — v2.5 milestone started)
 ## Current Position
 
 Phase: 38 (Sync with main) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-10-07 — Phase 38 execution started
 
-Progress: [███░░░░░░░] 25%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -42,6 +42,7 @@ Progress: [███░░░░░░░] 25%
 |------|----------|-------|-------|
 | - | - | - | - |
 | Phase 38 P01 | 35min | 3 tasks | 9 files |
+| Phase 38 P02 | 8 min | 3 tasks | 31 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -56,6 +57,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Roadmap]: Five phases under `granularity: coarse` — four are forced by the ordering constraints; the fifth keeps the security gate (Phase 39) verifiable on its own.
 - [Phase 38]: 38-01: merge landed with SKIP=django-test,ruff,ruff-format so no reformat rides in the merge commit (D-02); developer approved staged resolution at Task 2
 - [Phase 38]: 38-01: run_unattended cron line stays paused (restore: crontab $HOME/tmp/phase38-crontab.bak) until 38-03 restores it after the database migrate
+- [Phase 38]: 38-02: SIM103 fixed in code (not by widening ruff ignores); smoke-test.yml gets the same ephemeris_segfault exclusion as the CI matrix; codebase maps edited alongside CLAUDE.md
 
 ### Pending Todos
 
@@ -103,8 +105,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-07T17:28:16.169Z
-**Stopped at:** Completed 38-01-PLAN.md
+**Last session:** 2026-10-07T18:05:24.468Z
+**Stopped at:** Completed 38-02-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
