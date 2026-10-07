@@ -193,7 +193,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. A push to the branch runs the Django test runner with coverage in CI, as `main` does, and no pytest job; `[tool.pytest.ini_options]`, the pytest dev extras and `tests/` are gone, CLAUDE.md's Testing section describes only the Django runner, and the LINCC template v2.2.0 files are present with every FOMO-specific file from the branch still in place
   5. Draft PR #43 is still a draft, and its description says what the branch delivers as of v2.4 — the observation projector, the allocation layer, unattended operation and the public tallies — and links `docs/runbooks/telescope_runs_calendar.rst`
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -206,7 +206,7 @@ Plans:
 - [x] 38-03-PLAN.md — Fresh-install proof of the floors, full suite and the CI/hook form green, developer database migrated behind a backup, cron restored, tom_calendar override comparison for Phase 39 (SYNC-02, SYNC-05, SYNC-07)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 38-04-PLAN.md — Refresh PR #43's head branch in a separate worktree, developer approves publishing, normal pushes, D-12 body, CI on the PR push proves the Django runner with coverage; PR stays a draft (SYNC-08, SYNC-05)
+- [x] 38-04-PLAN.md — Refresh PR #43's head branch in a separate worktree, developer approves publishing, normal pushes, D-12 body, CI on the PR push proves the Django runner with coverage; PR stays a draft (SYNC-08, SYNC-05)
 
 ### Phase 39: Calendar Write Access
 
@@ -346,7 +346,7 @@ Plans:
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
 | 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 17/17 | Complete    | 2026-10-06 |
-| 38. Sync with main | v2.5 | 3/4 | In Progress | - |
+| 38. Sync with main | v2.5 | 4/4 | In Progress | - |
 | 39. Calendar Write Access | v2.5 | 0/TBD | Not started | - |
 | 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |

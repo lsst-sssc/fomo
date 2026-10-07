@@ -13,10 +13,10 @@ Requirements for this milestone. Each maps to a roadmap phase.
 - [x] **SYNC-02**: `pyproject.toml` carries `main`'s dependency floors — `tomtoolkit>=3.1.0` and `tom_jpl>=0.3.0` — and the dev environment runs tomtoolkit 3.1.0 (`pip show tomtoolkit` reports 3.1.0 or later). No other version floor is raised beyond what `main` already requires.
 - [x] **SYNC-03**: ruff is 0.16.9 everywhere it is referenced — `.pre-commit-config.yaml`'s `ruff-pre-commit` rev, the dev extra (`ruff>=0.16`, as `main` has it), and the lint/format commands and D-07 note in `CLAUDE.md` — and `pre-commit run ruff --all-files` and `pre-commit run ruff-format --all-files` are clean on the merged tree.
 - [x] **SYNC-04**: The repository follows LINCC python-project-template v2.2.0 as `main` does (PR template, hooks, `.gitignore` for the collectstatic output directory), with no FOMO-specific file from the branch lost in the merge.
-- [ ] **SYNC-05**: CI (`.github/workflows/`) runs `python manage.py test solsys_code --exclude-tag=ephemeris_segfault` as `main` does, with `coverage` reporting; the pytest-based CI job is gone.
+- [x] **SYNC-05**: CI (`.github/workflows/`) runs `python manage.py test solsys_code --exclude-tag=ephemeris_segfault` as `main` does, with `coverage` reporting; the pytest-based CI job is gone.
 - [x] **SYNC-06**: The dead pytest configuration is removed — `[tool.pytest.ini_options]`, the `pytest`/`pytest-cov` dev extras, and the legacy `tests/` directory — and `CLAUDE.md`'s Testing section no longer describes a pytest suite as present.
 - [x] **SYNC-07**: The full suite (`python manage.py test solsys_code --exclude-tag=ephemeris_segfault`) passes on the merged tree with tomtoolkit 3.1.0; any failure caused by a tomtoolkit 3.0.1→3.1.0 or `main` change is fixed in FOMO code, not by skipping the test.
-- [ ] **SYNC-08**: Draft PR #43's description is rewritten to describe what the branch delivers as of v2.4 (observation projector, allocation layer, unattended operation, tallies) and links `docs/runbooks/telescope_runs_calendar.rst`; the PR remains a draft.
+- [x] **SYNC-08**: Draft PR #43's description is rewritten to describe what the branch delivers as of v2.4 (observation projector, allocation layer, unattended operation, tallies) and links `docs/runbooks/telescope_runs_calendar.rst`; the PR remains a draft.
 
 ### Calendar write access (ACCESS)
 
@@ -83,10 +83,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SYNC-02 | Phase 38 | Complete |
 | SYNC-03 | Phase 38 | Complete |
 | SYNC-04 | Phase 38 | Complete |
-| SYNC-05 | Phase 38 | Pending |
+| SYNC-05 | Phase 38 | Complete |
 | SYNC-06 | Phase 38 | Complete |
 | SYNC-07 | Phase 38 | Complete |
-| SYNC-08 | Phase 38 | Pending |
+| SYNC-08 | Phase 38 | Complete |
 | ACCESS-01 | Phase 39 | Pending |
 | ACCESS-02 | Phase 39 | Pending |
 | WARN-01 | Phase 39 | Pending |
