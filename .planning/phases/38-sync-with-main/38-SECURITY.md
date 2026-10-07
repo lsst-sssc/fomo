@@ -60,6 +60,16 @@ Verified 2026-10-07 by the execute-phase `verify:post` hook at L1 evidence depth
 | T-38-19 | Elevation of privilege | PR #43 draft state | high | mitigate | only `gh pr edit 43 --body-file` was run; `gh pr view 43 --json isDraft` → true (re-checked) | closed |
 | T-38-20 | Tampering | branch-implicit commands after a push | medium | mitigate | every block started with `git branch --show-current` / `git -C ../fomo_code_only branch --show-current`; primary checkout never switched (on issue37-telescope-runs-calendar now); `../fomo_code_only` removed | closed |
 | T-38-21 | Information disclosure | PR body text | low | mitigate | body check rejects `/home/` paths and api_key text (live PR body: 0 / 0); developer read the full body at the checkpoint | closed |
+| T-38-22 | Elevation of privilege | /alerts/ URL space served from the uninstalled tom_alerts app (38-05) | medium | mitigate | the four-line include deleted in `a4d77f2` (numstat `0 4`, matching main's ada2000); `grep tom_alerts src/fomo/urls.py` → 0; `test_urls.py` asserts Resolver404, NoReverseMatch and a logged-in 404 (RED `FAILED (failures=3)` → GREEN `Ran 4 tests OK`); tom_alerts not re-added to INSTALLED_APPS | closed |
+| T-38-23 | Tampering | a later merge restoring the include unnoticed (38-05) | medium | mitigate | `solsys_code/tests/test_urls.py` carries no `@tag`/skip/expectedFailure, so it runs in the CI matrix, the django-test hook, the smoke test and every whole-suite run; the 2182-test verbosity-2 log lists all four tests; CI on `846be34` ran it on 3.10/3.11/3.12 | closed |
+| T-38-24 | Denial of service | the urls.py edit removing or reordering a neighbouring route (38-05) | medium | mitigate | route-set check: exactly origin/main's routes plus `calendar/`, `campaigns/`, `users/<int:pk>/delete/`, no duplicate, all before `tom_common.urls`; fix-commit numstat `0 4`; guard test + `TestUserDeleteView` + `test_scout_views` green (19 tests) | closed |
+| T-38-25 | Repudiation | planning-doc correction rewriting executed-plan history (38-05) | low | mitigate | docs commit `db3ae7c` touches exactly 38-01-PLAN.md (4/4), 38-RESEARCH.md (1/1), 38-PATTERNS.md (1/1) + the new evidence JSON, each edit marked "corrected by 38-05"; no SUMMARY, MERGE-RESOLUTION.diff, VERIFICATION, REVIEW or PR43-BODY edited | closed |
+| T-38-26 | Information disclosure | issue37-code-only re-snapshot (38-06) | high | mitigate | `.planning/` removed from index and disk before the commit; leak grep over the snapshot's `ls-files` for `.planning/`, `*.sqlite3`, `local_settings.py`, `reqgroup_*.json`: 0 matches (re-checked on `origin/issue37-code-only` tree); changed paths vs the pre-push head exactly the two 38-05 files; developer saw it at the blocking-human checkpoint (`publish`) | closed |
+| T-38-27 | Tampering | published branch history (38-06) | high | mitigate | plain pushes only, after `publish`; `1a68a76` is an ancestor of `origin/issue37-code-only` (`846be34`) and `62605b8` of `origin/issue37-telescope-runs-calendar` (`49be149`); `ls-remote` proved nothing moved while the checkpoint waited | closed |
+| T-38-28 | Elevation of privilege | PR #43 draft state (38-06) | high | mitigate | only `gh pr view` was run (no `gh pr edit`, ready-for-review or merge); `gh pr view 43 --json isDraft` → true (re-checked), D-12 body sections intact | closed |
+| T-38-29 | Tampering | branch-implicit commands across two checkouts (38-06) | medium | mitigate | every block started with `git branch --show-current` / `git -C /home/tlister/git/fomo_code_only branch --show-current`; the primary checkout never switched; `/home/tlister/git/fomo_code_only` removed (`git worktree list` shows one entry) | closed |
+| T-38-30 | Tampering | snapshot drifting from the corrected branch tree (38-06) | medium | mitigate | no edit in the worktree; hooks passed with no rewrite; `git diff --quiet issue37-telescope-runs-calendar origin/issue37-code-only -- . ':(exclude).planning'` holds before and after the push | closed |
+| T-38-SC | Tampering | pip/npm installs (38-05, 38-06) | low | accept | no package installed or upgraded in either gap-closure plan; the package-legitimacy gate ran at 38-01 Task 2 — see AR-38-02 | closed (accepted) |
 
 *Status: open · closed · open — below high threshold (non-blocking)*
 *Severity: critical > high > medium > low — only open threats at or above workflow.security_block_on count toward threats_open*
@@ -72,6 +82,7 @@ Verified 2026-10-07 by the execute-phase `verify:post` hook at L1 evidence depth
 | Risk ID | Threat Ref | Rationale | Accepted By | Date |
 |---------|------------|-----------|-------------|------|
 | AR-38-01 | T-38-04 | Open self-registration is the policy the branch already had through `tom_registration`; tomtoolkit 3.1.0 now owns it (`TOM_REGISTRATION_STRATEGY = 'open'` arrived from main by automatic merge). FOMO does not re-add `ModelBackend` or `tom_registration`. Shown to the developer at the 38-01 Task 2 checkpoint, answered `approve`. | developer (38-01 checkpoint) | 2026-10-07 |
+| AR-38-02 | T-38-SC | 38-05 and 38-06 install or upgrade no package; their supply-chain row is carried from the plans as an accepted no-op because the only install this phase made (38-01 Task 3, `.[dev]` at origin/main's floors) was legitimacy-checked at the 38-01 checkpoint and `pip check` was clean in both venvs. | execute-phase verify:post hook (gap-closure re-audit) | 2026-10-07 |
 
 *Accepted risks do not resurface in future audit runs.*
 
@@ -90,3 +101,11 @@ Verified 2026-10-07 by the execute-phase `verify:post` hook at L1 evidence depth
 - [x] All threats have a disposition (mitigate / accept / transfer)
 - [x] Accepted risks documented in Accepted Risks Log
 - [x] `threats_open: 0` confirmed
+
+## Security Audit 2026-10-07
+
+| Metric | Count |
+|---|---|
+| Threats found | 31 |
+| Closed | 31 |
+| Open | 0 |
