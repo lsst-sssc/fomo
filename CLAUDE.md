@@ -26,14 +26,14 @@ python manage.py fetch_jplsbdb_objects --orbital_constraints "e>=1.2,q<1.3" --gr
 python manage.py fetch_jplsbdb_objects --orbit_class IEO
 
 # Tests — the Django test runner is the only test runner (see "Testing" below):
-python manage.py test                          # everything, incl. Playwright browser tests (needs `playwright install chromium`)
-python manage.py test --exclude-tag functional # what pre-commit and the CI unit-test matrix run
+python manage.py test solsys_code --exclude-tag=ephemeris_segfault   # full local suite, incl. Playwright browser tests (needs `playwright install chromium`)
+python manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault   # what pre-commit and the CI unit-test matrix run
 python manage.py test --tag functional         # Playwright browser tests only (CI functional-tests job)
 python manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
-coverage run manage.py test --exclude-tag functional && coverage report       # with coverage
+coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault && coverage report   # with coverage
 
 # Lint / format: run through pre-commit, which pins ruff to the version .pre-commit-config.yaml
-# enforces (v0.2.1) -- an unpinned `ruff` on PATH can report findings the enforced gate does not
+# enforces (v0.16.9) -- an unpinned `ruff` on PATH can report findings the enforced gate does not
 # have (see D-07). Single quotes, 120-col line length.
 pre-commit run ruff --all-files
 pre-commit run ruff-format --all-files
@@ -94,6 +94,12 @@ Tests that need a real browser (`StaticLiveServerTestCase` + Playwright) are tag
 `--exclude-tag functional`; the CI `functional-tests` job runs them with `--tag functional`.
 Coverage is measured with `coverage run manage.py test` (`[tool.coverage.run]` in `pyproject.toml`).
 
+`TestEphemeris` in `solsys_code/tests/test_views.py` is tagged `@tag('ephemeris_segfault')` because the
+native ASSIST integrator crashes the whole test process instead of failing a single test. Every
+whole-suite run excludes it: `--exclude-tag ephemeris_segfault` in the `django-test` pre-commit hook, the CI
+unit-test matrix and the daily smoke test, and `python manage.py test solsys_code --exclude-tag=ephemeris_segfault`
+locally. It still runs when you name it directly.
+
 ## Conventions
 
 - Database is local SQLite (`src/fomo_db.sqlite3`); `DEBUG=True` and the secret key in `settings.py` are
@@ -106,14 +112,18 @@ Coverage is measured with `coverage run manage.py test` (`[tool.coverage.run]` i
   writes or reviews test/demo code touching `Target`.
 - ruff config (`pyproject.toml`) follows Rubin DM style: many `N8xx` naming rules are intentionally
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
-- pre-commit blocks direct commits to `main`, clears Jupyter notebook output, runs ruff, and runs the
-  Django tests minus the `functional` tag (`django-test` hook). Sphinx docs are built only in CI. CI
-  (`.github/workflows/`) tests Python 3.10–3.12.
+- pre-commit blocks direct commits to `main`, clears Jupyter notebook output (except under
+  `docs/notebooks/pre_executed/`), checks that the pre-executed notebooks are marked never-execute, runs
+  ruff and ruff-format, and runs the Django tests minus the `functional` and `ephemeris_segfault` tags
+  (`django-test` hook, about 10 minutes; use `SKIP=django-test git commit ...` for work-in-progress
+  commits). Sphinx docs are built only in CI. CI (`.github/workflows/`) tests Python 3.10–3.12.
 - The repo is generated from the LINCC python-project-template (`.copier-answers.yml`). The template's
   CI/pre-commit files assume pytest; after each `copier update` the test steps in
   `testing-and-coverage.yml`, `smoke-test.yml` and `.pre-commit-config.yaml` must be re-pointed at
   `manage.py test`, and the `ruff-pre-commit` rev (stale upstream) re-bumped — these are deliberate local
-  divergences. Answer `custom_install: custom`, never `retrofit` (which strips the ruff config).
+  divergences, as are the `--exclude-tag ephemeris_segfault` on the test steps and the pre-executed-notebook
+  hook path `docs/notebooks/pre_executed/`. Answer `custom_install: custom`, never `retrofit` (which strips
+  the ruff config).
 - **Verify the checked-out branch before any branch-implicit git command** (`rebase`, `reset`,
   `merge`, `cherry-pick`, `commit --amend`, etc.) — these operate on whatever `HEAD` currently
   points to, not the branch name mentioned in a prior command. `git push origin <branch>` in
@@ -252,7 +262,7 @@ experiment actually validates). Either failing is a meaningful result.
 ## Frameworks
 
 - Django 2.1+ (via TOM Toolkit) - Web framework for TOM Toolkit-based TOM application
-- TOM Toolkit 2.31.4+ - Target and Observation Manager framework for Solar System object follow-up
+- TOM Toolkit 3.1.0+ - Target and Observation Manager framework for Solar System object follow-up
 - Django REST Framework - REST API support (`rest_framework`, `rest_framework.authtoken`)
 - Django Crispy Forms (`crispy_forms`, `crispy_bootstrap4`) - Form rendering with Bootstrap 4
 - Bootstrap 4 (`bootstrap4`) - CSS framework
@@ -260,23 +270,23 @@ experiment actually validates). Either failing is a meaningful result.
 - Django HTMX (`django_htmx`) - HTMX middleware for AJAX interactions
 - Django ORM (via TOM Toolkit) - Database abstraction and models
 - SQLite3 (default development) - File-based database backend
-- pytest - Test runner
-- pytest-cov - Code coverage reporting (`--cov` flags in GitHub workflows)
+- Django test runner (`python manage.py test`) - the only test runner
+- coverage - Code coverage of the Django test suite (CI and the django-test pre-commit hook)
 - setuptools 62+ - Package building
 - setuptools_scm 6.2+ - Version management from git tags
-- ruff 0.2.1+ - Linting and code formatting (via pre-commit)
+- ruff 0.16.9 - Linting and code formatting (pinned by the ruff-pre-commit rev; dev extra ruff>=0.16)
 - Sphinx - Documentation generation
 
 ## Key Dependencies
 
-- tomtoolkit>=2.31.4 - TOM Toolkit framework for observatory management and observations
+- tomtoolkit>=3.1.0 - TOM Toolkit framework for observatory management and observations
 - tom_fink>=1.0.0 - Fink alert stream integration
 - tom_alertstreams - Alert stream handling framework
 - sorcha - Solar System object simulation and planning
 - tom_eso - ESO (VLT) facility integration
+- tom_jpl>=0.3.0 - JPL Scout data service and Scout models
 - tom_observations - Core observation facilities (LCO, Gemini, SOAR)
 - tom_catalogs - Catalog harvesters (JPL Horizons, MPC, SIMBAD, TNS)
-- tom_registration - User registration and management
 - django.contrib.auth - Authentication and authorization
 - django.contrib.contenttypes - Content type framework
 - django.contrib.sessions - Session management
@@ -300,7 +310,7 @@ experiment actually validates). Either failing is a meaningful result.
 - Local settings override via `local_settings.py` import (fallback: no error on missing)
 - `pyproject.toml` - Main configuration (Python 3.10+ required, version dynamic via setuptools_scm)
 - `.readthedocs.yml` - ReadTheDocs build configuration (Python 3.10, Sphinx)
-- `.pre-commit-config.yaml` - Pre-commit hooks (ruff, pytest, Sphinx, validation)
+- `.pre-commit-config.yaml` - Pre-commit hooks (ruff, ruff-format, notebook checks, pyproject and workflow validation, django-test)
 - Ruff config in `pyproject.toml` - Format style (single quotes), line length 120
 
 ## Platform Requirements

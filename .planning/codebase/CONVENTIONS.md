@@ -31,10 +31,10 @@
 ## Code Style
 
 **Formatting:**
-- Line length: 120 characters (enforced by `ruff` v0.2.1)
+- Line length: 120 characters (enforced by `ruff` v0.16.9)
 - Quote style: Single quotes (e.g., `'ephem_form.html'`, `'NON_SIDEREAL'`)
 - Target Python version: 3.10+
-- Ruff version: 0.2.1 (pinned in `.pre-commit-config.yaml`)
+- Ruff version: 0.16.9 (pinned by the ruff-pre-commit rev in `.pre-commit-config.yaml`)
 
 **Tool Configuration:**
 - Tool: `ruff` for linting and formatting

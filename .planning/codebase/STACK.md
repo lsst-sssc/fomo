@@ -22,8 +22,8 @@
 ## Frameworks
 
 **Core:**
-- Django 3.2+ (via TOM Toolkit 3.0+) - Web framework foundation (`src/fomo/`)
-- TOM Toolkit 3.0+ - Target and Observation Manager framework, multi-facility support (`INSTALLED_APPS` in `settings.py`)
+- Django 3.2+ (via TOM Toolkit 3.1+) - Web framework foundation (`src/fomo/`)
+- TOM Toolkit 3.1+ - Target and Observation Manager framework, multi-facility support (`INSTALLED_APPS` in `settings.py`)
 
 **API & REST:**
 - Django REST Framework - REST API support with token authentication (`rest_framework`, `rest_framework.authtoken`)
@@ -66,13 +66,13 @@
 - `zoneinfo` (stdlib) - Timezone-aware datetime handling for `America/Santiago`, `Australia/Sydney`
 
 **Testing:**
-- pytest - Test runner (configured in `pyproject.toml`)
-- pytest-cov - Code coverage reporting
+- Django test runner (`python manage.py test`) - the only test runner
+- coverage - Code coverage of the Django test suite (CI and the django-test pre-commit hook)
 - factory_boy 3.2.1+ - Test data factories for `tom_targets.tests.factories`
 - playwright - Headless browser functional tests (solsys_code/tests/test_bootstrap5_rendering.py)
 
 **Development & Quality:**
-- ruff 0.2.1 (pinned) - Linting and code formatting; version locked to match `.pre-commit-config.yaml`
+- ruff 0.16.9 (pinned by the ruff-pre-commit rev in .pre-commit-config.yaml; dev extra ruff>=0.16) - Linting and code formatting
 - pre-commit - Git hooks for code quality checks
 - Sphinx 2.1+ - HTML documentation generation (`docs/conf.py`)
 - setuptools 62+ - Package building
@@ -83,7 +83,7 @@
 ## Key Dependencies
 
 **Critical (Project-Specific):**
-- tomtoolkit >=3.0.0 - TOM Toolkit framework for facility management and observation scheduling
+- tomtoolkit >=3.1.0 - TOM Toolkit framework for facility management and observation scheduling
 - sorcha - Solar System object simulation, ephemeris calculation with barycentric n-body integration
 - sbpy >=0.6.0 - Solar System object properties (transitive, required for sorcha + astropy compat)
 - numpy >1.24 - Numerical arrays and matrix operations
@@ -94,7 +94,7 @@
 - tom_fink >=2.0.1 - Fink alert stream broker integration (real-time transient alerts)
 - tom_alertstreams >=1.3.0 - Alert stream handling framework, Kafka support for Fink
 - tom_eso >=0.3.1 - ESO facility integration (VLT observations)
-- tom-registration >=2.0.1 - User registration and management UI
+- tom_jpl >=0.3.0 - JPL Scout data service and Scout models
 - tom_observations (from tomtoolkit) - LCO, Gemini, SOAR facility clients and schedulers
 - tom_catalogs (from tomtoolkit) - JPL Horizons, MPC, SIMBAD, TNS catalog integrations
 
@@ -127,7 +127,7 @@
 **Build:**
 - Ruff config in `pyproject.toml`: line length 120, single quotes, target Python 3.10+
 - Sphinx config in `docs/conf.py`: ReadTheDocs build configured in `.readthedocs.yml`
-- Pre-commit config in `.pre-commit-config.yaml`: ruff v0.2.1, pytest, Sphinx docs validation
+- Pre-commit config in `.pre-commit-config.yaml`: ruff and ruff-format v0.16.9, pre-executed notebook check, django-test (Django runner with coverage)
 
 **Database:**
 - SQLite3 (development default at `src/fomo_db.sqlite3`)
