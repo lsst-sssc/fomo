@@ -515,23 +515,27 @@ OK
 | A3 | `git merge -s ours` + snapshot is acceptable as the implementation of D-11's "git merge origin/main into it, then one snapshot commit" | Don't Hand-Roll | Medium; developer may have expected a real conflict-resolved merge. The end state (parents and tree) is the same; confirm at plan review |
 | A4 | CI on GitHub will pass on the pushed `issue37-code-only` snapshot (not run; only local equivalents were) | Operational Facts | Medium; the Docs build and Python 3.10/3.12 jobs were not exercised locally |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How does success criterion 4 ("A push to the branch runs the Django test runner with coverage in CI") become true?**
    - What we know: every workflow in `main` (and so on the merged branch) triggers only on `push` to `main` and `pull_request` to `main`. `gh run list --branch issue37-telescope-runs-calendar` last shows runs on 2026-07-16 (when a PR from that branch existed). `issue37-telescope-runs-calendar` has no open PR; PR #43's head is `issue37-code-only`.
    - What's unclear: whether the criterion means "the workflow *files* run the Django runner" (true after the merge + D-05 edit) or literally "pushing this branch triggers CI" (false without a trigger change).
    - Recommendation: treat the PR #43 refresh push to `issue37-code-only` as the CI proof (it triggers `Unit test and code coverage`, `Run pre-commit hooks`, `Build documentation` via `pull_request`); do **not** edit `on:` triggers (that would diverge from main's template-managed files). Ask the developer to confirm this reading of SC#4 at plan review.
+   - RESOLVED: 38-04 adopts the recommendation as its stated assumption OQ1 -- Task 3 proves SC#4's CI clause from the `pull_request` runs on the pushed `issue37-code-only` snapshot (the `Run Django unit tests with coverage` step, the `functional-tests` job, no pytest job), and the developer confirms that reading at 38-04's Task 2 blocking-human checkpoint before anything is pushed. 38-02's prohibition keeps every `on:` trigger exactly as main has it.
 
 2. **D-11's premise about `issue37-code-only` is out of date.**
    - What we know: the remote branch is at `5a1f27e` (4 commits) as CONTEXT says, but the **local** `issue37-code-only` is at `372d02c` "Sync code-only branch with issue37-telescope-runs-calendar through v2.4" (2026-10-06 21:29, one unpushed commit; its tree is **identical** to the current branch HEAD outside `.planning/`: `git diff --quiet 372d02c HEAD -- . ':!.planning'` succeeds [VERIFIED]). So it is already a valid v2.4 snapshot, just not yet merged with `main` and not pushed.
    - What's unclear: whether to push 372d02c as part of the refresh (it is just a snapshot commit; the new one supersedes it) or reset it first.
    - Recommendation: keep it (no history rewrite; D-11 forbids force-push). The merge + new snapshot go on top, so a normal push publishes three new commits (`372d02c`, the merge, the new snapshot) onto the PR's four, not "four existing + two". Update the plan text accordingly and tell the developer.
+   - RESOLVED: 38-04 adopts the recommendation as its stated assumption OQ2 -- Task 1 keeps `372d02c` and builds the merge and the new snapshot on top of it; Task 2's checkpoint shows the developer the three commits to be published, and its revise option offers rebuilding without `372d02c` (it is unpushed, so resetting the local branch to origin's tip rewrites nothing published).
 
 3. **`use_worktrees: true` in `.planning/config.json` vs D-01 "worktree parallelism is off."**
    - What we know: `workflow.use_worktrees` is `true`; `parallelization` is `true`. Memory notes say worktrees degrade to sequential on feature branches.
    - Recommendation: the merge plan must run in the primary checkout in a non-worktree wave (single plan, wave 1, no parallel plans with it); state this in the plan's frontmatter/objective.
+   - RESOLVED: 38-01's execution constraints require the primary checkout on `issue37-telescope-runs-calendar` (the developer sets `workflow.use_worktrees` to false for this phase before `/gsd-execute-phase 38`), 38-01 is alone in wave 1, and its Task 1 precondition halts the executor if `git rev-parse --git-dir` and `--git-common-dir` differ (a worktree). 38-02, 38-03 and 38-04 repeat the primary-checkout constraint; 38-04 does its code-only work in a separate `git worktree` only for `issue37-code-only`.
 
 4. **Is the 10-minute `django-test` hook acceptable for executor commits?** Recommendation: every plan task commit runs with `SKIP=django-test`; one explicit suite run in the SYNC-07 plan instead.
+   - RESOLVED: every commit in 38-01 through 38-04 uses `SKIP=django-test` (38-01's merge commit also skips `ruff` and `ruff-format`, per D-02). The suite runs explicitly instead: 38-01 Task 3 on the merge commit, and 38-03 Task 2 (SYNC-07) both as a full fresh-venv run and as `pre-commit run django-test --all-files`, the CI form.
 
 ## Environment Availability
 
