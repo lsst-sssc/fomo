@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 38
 current_phase_name: Sync with main
 status: executing
-stopped_at: Phase 38 context gathered
-last_updated: "2026-10-07T16:43:45.024Z"
-last_activity: 2026-10-06
-last_activity_desc: v2.5 roadmap created (Phases 38-42, 23/23 requirements mapped)
-state_head: a58f3ca439b3432ebda1a1fded6873a8a3f237f7
+stopped_at: Completed 38-01-PLAN.md
+last_updated: "2026-10-07T17:28:16.185Z"
+last_activity: 2026-10-07
+last_activity_desc: Phase 38 execution started
+state_head: e8cfe4d0fb9278e703a89cdb270cb28978990296
 progress:
   total_phases: 5
   completed_phases: 39
   total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -29,18 +29,19 @@ See: .planning/PROJECT.md (updated 2026-10-06 — v2.5 milestone started)
 
 ## Current Position
 
-Phase: 38 (Sync with main) — READY TO EXECUTE
-Plan: Not started
+Phase: 38 (Sync with main) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-10-06 — v2.5 roadmap created (Phases 38-42, 23/23 requirements mapped)
+Last activity: 2026-10-07 — Phase 38 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 25%
 
 ## Performance Metrics
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | - | - | - | - |
+| Phase 38 P01 | 35min | 3 tasks | 9 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -53,6 +54,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Roadmap]: Order is 38 sync → 39 calendar write access → 40 notebooks + attribution page → 41 triage → (inserted 41.1 if anything is fix-now) → 42 re-verify. Sync first and re-verify last are the developer's decisions.
 - [Roadmap]: ACCESS-01/02 share Phase 39 with WARN-01 (all three are FOMO's `tom_calendar` overrides, compared against tomtoolkit 3.1.0's upstream copies). WARN-04/07 sit with the notebook work in Phase 40 because `campaign_lifecycle_demo.ipynb` is both a byte-copier (WARN-05) and the attribution page's paired notebook, so it is rebuilt and re-executed once.
 - [Roadmap]: Five phases under `granularity: coarse` — four are forced by the ordering constraints; the fifth keeps the security gate (Phase 39) verifiable on its own.
+- [Phase 38]: 38-01: merge landed with SKIP=django-test,ruff,ruff-format so no reformat rides in the merge commit (D-02); developer approved staged resolution at Task 2
+- [Phase 38]: 38-01: run_unattended cron line stays paused (restore: crontab $HOME/tmp/phase38-crontab.bak) until 38-03 restores it after the database migrate
 
 ### Pending Todos
 
@@ -100,9 +103,9 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-07T14:19:25.564Z
-**Stopped at:** Phase 38 context gathered
-**Resume file:** .planning/phases/38-sync-with-main/38-CONTEXT.md
+**Last session:** 2026-10-07T17:28:16.169Z
+**Stopped at:** Completed 38-01-PLAN.md
+**Resume file:** None
 
 ## Operator Next Steps
 
