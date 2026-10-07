@@ -2,7 +2,7 @@
 phase: 03-classical-calendar-ingest
 verified: 2026-06-16T14:30:00Z
 updated: 2026-06-16T19:00:00Z
-status: complete
+status: passed
 score: 6/6 verified (5 automated + 1 human)
 overrides_applied: 0
 gaps:
