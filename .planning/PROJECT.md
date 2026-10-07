@@ -111,6 +111,7 @@ Validated in Phase 27: all five CANON requirements (CANON-01 through CANON-05) a
 - **Sync with `main`** — merge `origin/main` into the branch (62 commits since the 2026-08-03 merge base `756680f`; merge, not rebase) and adopt exactly what `main` already requires: `tomtoolkit>=3.1.0` (we run 3.0.1), `tom_jpl>=0.3.0`, `ruff` 0.16.9 via `ruff-pre-commit` (replacing the `==0.2.1` pin and the `CLAUDE.md` text that documents it), LINCC python-project-template v2.2.0, the Django test runner in CI, `coverage` in the dev extras. Drop the dead pytest configuration (`[tool.pytest.ini_options]`, `pytest`/`pytest-cov` extras, the legacy `tests/` suite). Full suite green on the new versions. Draft PR #43's body rewritten to describe v2.4; it stays a draft.
 - **Review-warning cleanup** — the seven open Phase 37.1 warnings (WR-05, WR-13 to WR-18). The WR-05 finding that the calendar create/update endpoints have no authentication is handled first.
 - **Todo triage and fixes** — the 19 pending todos and backlog Phase 999.1 sorted into fix-now / drop / park with a one-line reason each; fix-now items become requirements of this milestone, the rest are closed or stay as todos.
+- **Re-verify the stale v2.4 reports** — after the sync, the verifier is re-run against HEAD for phases 34, 35, 36, 37 and 37.1 (archived under `.planning/milestones/v2.4-phases/`), the reports are refreshed in place, and `MILESTONES.md`'s v2.4 "stale verification reports" known gap is replaced by the per-phase outcome.
 - **SEED-261007-5pe update** — the gist of the TOM Toolkit Slack "multi proposal support" thread folded into the seed so the Proposal-record design starts from it in a later milestone. No code.
 
 **Out of scope for v2.5:** merging PR #43 to `main`; speculative version bumps beyond `main`'s floors (Django 5.2.18, astropy, sorcha wait); implementing SEED-261007-5pe or SEED-261007-j63; the ESO seeds (SEED-001/002); SUBMIT-06/07.
@@ -501,6 +502,7 @@ v2.5 Main Sync & Consolidation (defined 2026-10-06; REQ-IDs in `.planning/REQUIR
 - [ ] Draft PR #43's description reflects v2.4.
 - [ ] The seven open Phase 37.1 review warnings are closed (WR-05 first).
 - [ ] The 19 pending todos and backlog Phase 999.1 are triaged; fix-now items are fixed.
+- [ ] The five stale v2.4 verification reports are re-run against HEAD and refreshed; the v2.4 known-gap entry records the outcome.
 - [ ] SEED-261007-5pe records the TOM Toolkit multi-proposal Slack thread.
 
 Still carried forward, not in this milestone: SEED-261007-5pe implementation and SEED-261007-j63; SEED-003 (still marked dormant although v2.4's unattended operation was scoped from it — review whether it can be closed); ESO-10/ESO-11 (`sync_eso_observation_calendar` + paired notebook); SUBMIT-06/07 (trusted-PI self-approval, submission status lookup); SEED-004 (upstream the projector to tomtoolkit). Dropped, not deferred: v2.3's OUTCOME-01..04 and ADAPT-01..06.
