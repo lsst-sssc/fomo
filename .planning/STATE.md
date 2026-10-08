@@ -79,7 +79,26 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 
 ### Pending Todos
 
-19 files under `.planning/todos/pending/` at milestone start (listed in Deferred Items below). Phase 41 (TRIAGE-01) gives each one a decision; WARN-05 (Phase 40) closes the 2026-10-02 scratch-DB todo.
+- [2026-09-01] [general] Add TTL cache to attribution banner count — [todo file](.planning/todos/pending/2026-09-01-add-ttl-cache-to-attribution-banner-count.md)
+- [2026-09-01] [general] Guard attribution dismiss action with is_offered_candidate — [todo file](.planning/todos/pending/2026-09-01-guard-attribution-dismiss-action-with-is-offered-candidate.md)
+- [2026-09-01] [general] Skip sun_event computation for already-existing reconciler nights — [todo file](.planning/todos/pending/2026-09-01-skip-sun-event-computation-for-already-existing-reconciler-n.md)
+- [2026-09-30] [unattended-discovery] Fetch LCO observation blocks in bulk per proposal instead of one call per request — [todo file](.planning/todos/pending/2026-09-30-fetch-lco-observation-blocks-in-bulk-per-proposal.md)
+- [2026-10-02] [telescope-runs] "load_telescope_runs: skip comment lines and warn on a bare proposal token" — [todo file](.planning/todos/pending/2026-10-02-load-telescope-runs-skip-comment-lines-and-warn-on-a-bare-pr.md)
+- [2026-10-02] [docs] Run pre-executed demo notebooks against a scratch DB copy, never the live dev DB — [todo file](.planning/todos/pending/2026-10-02-run-pre-executed-demo-notebooks-against-a-scratch-db-copy-ne.md)
+- [2026-10-07] [observation-projector] "A failed or aborted record keeps its last scheduled window instead of the original re… — [todo file](.planning/todos/pending/2026-10-07-a-failed-or-aborted-record-keeps-its-last-scheduled-window-i.md)
+- [2026-10-07] [campaign-runs] "Decide whether CampaignRun.run_status needs an awarded-and-in-progress value" — [todo file](.planning/todos/pending/2026-10-07-decide-whether-campaignrun-run-status-needs-an-awarded-and-i.md)
+- [2026-10-07] [campaign-reconciler] "Delete the reconciler's own stale RUN:{pk} container on a container-to-per-night re-cla… — [todo file](.planning/todos/pending/2026-10-07-delete-the-reconciler-s-own-stale-run-pk-container-on-a-cont.md)
+- [2026-10-07] [campaign-runs] "Explain CampaignRun.telescope_class: setting it on a site-resolved run switches it to one con… — [todo file](.planning/todos/pending/2026-10-07-explain-campaignrun-telescope-class-setting-it-on-a-site-res.md)
+- [2026-10-07] [campaign-gap] "Give the campaign gap analysis a start/end date control" — [todo file](.planning/todos/pending/2026-10-07-give-the-campaign-gap-analysis-a-start-end-date-control.md)
+- [2026-10-07] [tests] "Isolate the campaign table query-count test from the shared file cache" — [todo file](.planning/todos/pending/2026-10-07-isolate-the-campaign-table-query-count-test-from-the-shared.md)
+- [2026-10-07] [observation-projector] "Keep a request's site restriction and show it in the event title from the start (LCO-… — [todo file](.planning/todos/pending/2026-10-07-keep-a-request-s-site-restriction-and-show-it-in-the-event-t.md)
+- [2026-10-07] [campaign-table] "Link each campaign table row to its run, or give the target its own column" — [todo file](.planning/todos/pending/2026-10-07-link-each-campaign-table-row-to-its-run-or-give-the-target-i.md)
+- [2026-10-07] [observation-projector] "Mark site lookups as 'not attempted' in project_observation_calendar --dry-run output" — [todo file](.planning/todos/pending/2026-10-07-mark-site-lookups-as-not-attempted-in-project-observation-ca.md)
+- [2026-10-07] [unattended-discovery] "Report system-link outcomes in the discovery step's tick summary" — [todo file](.planning/todos/pending/2026-10-07-report-system-link-outcomes-in-the-discovery-step-s-tick-sum.md)
+- [2026-10-07] [allocation-projector] "Revisit 'a human-confirmed allocation night is not retired' if a real doubled night ap… — [todo file](.planning/todos/pending/2026-10-07-revisit-a-human-confirmed-allocation-night-is-not-retired-if.md)
+- [2026-10-07] [unattended-discovery] "Say in WatchedProposal.attributed_to help text and the runbook that it applies only to… — [todo file](.planning/todos/pending/2026-10-07-say-in-watchedproposal-attributed-to-help-text-and-the-runbo.md)
+- [2026-10-07] [campaign-tally] "Show a proposal-level unused-nights figure once per proposal, not on every run row" — [todo file](.planning/todos/pending/2026-10-07-show-a-proposal-level-unused-nights-figure-once-per-proposal.md)
+- [2026-10-08] [telescope-runs] Cache telescope_runs.sun_event() and speed up the test suite — [todo file](.planning/todos/pending/2026-10-08-cache-telescope-runs-sun-event-and-speed-up-the-test-suite.md)
 
 ### Blockers/Concerns
 
