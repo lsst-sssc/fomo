@@ -93,8 +93,8 @@ the default. Create it before running ``migrate`` below, so that the database it
    file at the repository root (when FOMO is run with ``manage.py``) or in ``src/`` (when it is served through gunicorn
    or WSGI). A ``local_settings.py`` in either place is no longer read, and nothing reports it: FOMO starts on every
    development default, including the committed ``SECRET_KEY``, ``DEBUG = True``, the console email backend and empty
-   facility API keys. When upgrading such a host, move the file to ``src/fomo/``, using the command that matches where it is
-   now, from the repository root:
+   facility API keys. When upgrading such a host, move the file to ``src/fomo/``, using the command that matches where
+   it is now, from the repository root:
 
    .. code-block:: console
 
