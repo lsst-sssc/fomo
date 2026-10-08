@@ -1835,6 +1835,16 @@ class EventModalReadOnlyCardTest(TestCase):
         self.assertNotIn('cal-event-card', content)
         self.assertEqual(content.count('Attributed campaign run'), 1)
 
+    def test_signed_in_create_form_uses_upstream_button_labels(self):
+        """WR-02: the create form's buttons read exactly as tomtoolkit 3.1.0's (Save, Save and Edit)."""
+        self.client.force_login(self.editor)
+        response = self.client.get(reverse('calendar:create-event'))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('>Save and Edit</button>', content)
+        self.assertIn('>Save</button>', content)
+        self.assertNotIn('>Save and ' + 'edit</button>', content)
+
     def _row_counts(self) -> tuple[int, int, int]:
         return (CalendarEvent.objects.count(), EventTodo.objects.count(), CalendarEventMeta.objects.count())
 
@@ -1910,15 +1920,40 @@ class EventCardUrlLinkTest(TestCase):
         self.assertNotIn('not a web link', content)
 
 
+def normalized_upstream_diff(upstream_lines: list[str], body_lines: list[str]) -> str:
+    """Render the line-level difference between the upstream partial and FOMO's body as stable text.
+
+    Each non-equal opcode of ``difflib.SequenceMatcher`` (``autojunk=False``) becomes one ``@@ ... @@`` header line,
+    followed by the upstream lines prefixed with ``-`` and the FOMO body lines prefixed with ``+``.
+
+    Args:
+        upstream_lines: Lines of the installed tom_calendar event_form.html.
+        body_lines: Lines of FOMO's event_form.html after its header comment.
+
+    Returns:
+        The diff text, ending with a newline (empty string when the two are identical).
+    """
+    out: list[str] = []
+    matcher = difflib.SequenceMatcher(None, upstream_lines, body_lines, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'equal':
+            continue
+        out.append(f'@@ {tag} upstream {i1 + 1}-{i2} fomo-body {j1 + 1}-{j2} @@')
+        out.extend('-' + line for line in upstream_lines[i1:i2])
+        out.extend('+' + line for line in body_lines[j1:j2])
+    return '\n'.join(out) + '\n' if out else ''
+
+
 class EventFormHeaderMatchesUpstreamTest(SimpleTestCase):
     """WARN-01 / D-10: event_form.html's header lists exactly the blocks that differ from the installed upstream."""
 
     TEMPLATE = Path(__file__).resolve().parents[2] / 'src/templates/tom_calendar/partials/event_form.html'
+    SNAPSHOT = Path(__file__).resolve().parent / 'data' / 'event_form_vs_tomtoolkit_3_1_0.diff'
     # Per header item: literals that must occur in a differing region and in that item's own header text.
     ANCHORS = {
         1: ('attribution_display_extras',),
         2: ('is_web_url', 'noopener noreferrer', 'not a web link'),
-        3: ('<button',),
+        3: ('<button', 'Save and Edit'),
         4: ('observation_series_decoration', 'campaign_decoration', 'high_band_attribution_candidates'),
         5: ('request.user.is_authenticated', 'cal-event-card'),
         6: ('request.user.is_authenticated', 'event.todos.all'),
@@ -1944,6 +1979,30 @@ class EventFormHeaderMatchesUpstreamTest(SimpleTestCase):
         )
         assert upstream.exists(), f'installed upstream partial not found at {upstream}'
         return upstream.read_text().splitlines()
+
+    @classmethod
+    def current_diff(cls) -> str:
+        return normalized_upstream_diff(cls._upstream_lines(), cls._body_lines())
+
+    @classmethod
+    def _differing_regions(cls, upstream: list[str], body: list[str]) -> list[str]:
+        """Return the text of each region where the body differs from upstream (FOMO side, upstream for a delete)."""
+        regions = []
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, upstream, body, autojunk=False).get_opcodes():
+            if tag == 'equal':
+                continue
+            lines = body[j1:j2] if j2 > j1 else upstream[i1:i2]
+            regions.append('\n'.join(lines))
+        return regions
+
+    def _unanchored_regions(self, upstream: list[str], body: list[str]) -> list[str]:
+        """Return the differing regions that hold no anchor of any header item."""
+        all_anchors = [anchor for anchors in self.ANCHORS.values() for anchor in anchors]
+        return [
+            region
+            for region in self._differing_regions(upstream, body)
+            if not any(anchor in region for anchor in all_anchors)
+        ]
 
     def test_header_names_the_pinned_upstream(self):
         source = self._source()
@@ -1979,13 +2038,7 @@ class EventFormHeaderMatchesUpstreamTest(SimpleTestCase):
     def test_every_differing_region_is_listed_and_every_item_differs(self):
         upstream = self._upstream_lines()
         body = self._body_lines()
-        opcodes = difflib.SequenceMatcher(None, upstream, body, autojunk=False).get_opcodes()
-        regions = []
-        for tag, i1, i2, j1, j2 in opcodes:
-            if tag == 'equal':
-                continue
-            lines = body[j1:j2] if j2 > j1 else upstream[i1:i2]
-            regions.append('\n'.join(lines))
+        regions = self._differing_regions(upstream, body)
         all_anchors = [anchor for anchors in self.ANCHORS.values() for anchor in anchors]
         for region in regions:
             self.assertTrue(
@@ -2001,6 +2054,41 @@ class EventFormHeaderMatchesUpstreamTest(SimpleTestCase):
         for number, anchors in self.ANCHORS.items():
             for anchor in anchors:
                 self.assertIn(anchor, texts[number], f'header item {number} does not mention {anchor!r}')
+
+    def test_body_diff_matches_pinned_snapshot(self):
+        """The body's full diff against upstream is pinned, so any new difference fails until the header is updated.
+
+        difflib merges the card and decoration blocks into one inserted region, so the anchor rule above cannot see an
+        unlisted line inside it (39-REVIEW WR-02); this snapshot can.
+        """
+        self.assertTrue(self.SNAPSHOT.exists(), f'pinned snapshot missing at {self.SNAPSHOT}')
+        self.maxDiff = None
+        self.assertEqual(
+            self.current_diff(),
+            self.SNAPSHOT.read_text(),
+            "event_form.html's body now differs from tomtoolkit 3.1.0 in a way the pinned snapshot does not record; "
+            "update the header's numbered list, then regenerate the snapshot with: python manage.py shell -c "
+            '"from solsys_code.tests.test_calendar_template import EventFormHeaderMatchesUpstreamTest as T; '
+            'T.SNAPSHOT.write_text(T.current_diff())"',
+        )
+
+    def test_snapshot_detects_an_unlisted_line_inside_an_anchored_region(self):
+        """A line inserted beside an anchored line passes the anchor rule yet changes the diff (39-REVIEW WR-02)."""
+        upstream = self._upstream_lines()
+        body = self._body_lines()
+        pinned = self.SNAPSHOT.read_text()
+        self.assertEqual(normalized_upstream_diff(upstream, body), pinned)
+
+        index = next(i for i, line in enumerate(body) if 'cal-event-card' in line)
+        mutated = body[: index + 1] + ['<p>an unlisted line</p>'] + body[index + 1 :]
+        self.assertEqual(self._unanchored_regions(upstream, mutated), [])
+        self.assertNotEqual(normalized_upstream_diff(upstream, mutated), pinned)
+
+        label_index = next(i for i, line in enumerate(body) if 'name="save_and_edit"' in line)
+        relabelled = list(body)
+        relabelled[label_index] = relabelled[label_index].replace('Save and Edit', 'Save and ' + 'edit')
+        self.assertNotEqual(relabelled[label_index], body[label_index])
+        self.assertNotEqual(normalized_upstream_diff(upstream, relabelled), pinned)
 
 
 class CalendarTemplateBootstrap5ClassTest(SimpleTestCase):

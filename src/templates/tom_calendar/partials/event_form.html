@@ -7,7 +7,9 @@
    byte-for-byte upstream. FOMO owns this copy and it drifts: re-diff it against the installed
    upstream file on every tomtoolkit upgrade (T-27-20).
    EventFormHeaderMatchesUpstreamTest in solsys_code/tests/test_calendar_template.py checks
-   this list against the installed upstream file.
+   this list against the installed upstream file, and pins the full diff in
+   solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff, so any new difference fails
+   until this list and that file are updated together.
 
    1. Before the form: this header, and the load line, which adds attribution_display_extras
       and calendar_display_extras to upstream's django_bootstrap5.
@@ -15,8 +17,9 @@
       rel="noopener noreferrer"; any other stored value shows "(not a web link)" instead
       (UAT G-37.1-1-allocurl: the allocation layer and the campaign reconciler keep ALLOC:/RUN:
       namespace keys in CalendarEvent.url).
-   3. At the end of the form: plain <button> markup for Save, "Save and edit" and Delete,
-      where upstream uses bootstrap_button tags and a differently laid-out Delete button.
+   3. At the end of the form: plain <button> markup for Save, "Save and Edit" and Delete -- the
+      same labels as upstream -- where upstream uses bootstrap_button tags and a differently
+      laid-out Delete button.
    4. Between the form's end and the Todo list heading: the observation_series_decoration
       block, the campaign_decoration block (with its run_tally line) and the staff-only
       high_band_attribution_candidates hint, with their reason comments.
@@ -101,7 +104,7 @@
     </div>
     <button type="submit" class="btn btn-primary">Save</button>
     {% if action == "create" %}
-    <button type="submit" name="save_and_edit" value="1" class="btn btn-primary">Save and edit</button>
+    <button type="submit" name="save_and_edit" value="1" class="btn btn-primary">Save and Edit</button>
     {% else %}
     <button type="button"
             hx-post="{% url 'calendar:delete-event' event.id %}"

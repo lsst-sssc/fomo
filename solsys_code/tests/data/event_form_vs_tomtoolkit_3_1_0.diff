@@ -1,0 +1,243 @@
+@@ replace upstream 1-1 fomo-body 1-2 @@
+-{% load django_bootstrap5 %}
++{% load django_bootstrap5 attribution_display_extras calendar_display_extras %}
++{% if request.user.is_authenticated %}
+@@ replace upstream 31-31 fomo-body 32-32 @@
+-          {% if form.url.value %}
++          {% if form.url.value|is_web_url %}
+@@ replace upstream 33-33 fomo-body 34-34 @@
+-              <a href="{{ form.url.value }}" target="_blank">View  ↗</a>
++              <a href="{{ form.url.value }}" target="_blank" rel="noopener noreferrer">View  ↗</a>
+@@ insert upstream 35-34 fomo-body 36-37 @@
++          {% elif form.url.value %}
++            <small class="text-muted">(not a web link)</small>
+@@ replace upstream 65-65 fomo-body 68-68 @@
+-    {% bootstrap_button "Save" button_type="submit" button_class="btn btn-primary" %}
++    <button type="submit" class="btn btn-primary">Save</button>
+@@ replace upstream 67-67 fomo-body 70-70 @@
+-      {% bootstrap_button "Save and Edit" button_type="submit" button_class="btn btn-primary" name="save_and_edit" value="1" %}
++    <button type="submit" name="save_and_edit" value="1" class="btn btn-primary">Save and Edit</button>
+@@ replace upstream 69-72 fomo-body 72-76 @@
+-      <button type="button" class="btn btn-danger" hx-post="{% url 'calendar:delete-event' event.id %}"
+-        hx-target="#calendar-partial" hx-confirm="Are you sure you want to delete this event?">
+-        Delete
+-      </button>
++    <button type="button"
++            hx-post="{% url 'calendar:delete-event' event.id %}"
++            hx-target="#calendar-partial"
++            hx-confirm="Are you sure you want to delete this event?"
++            class="btn btn-danger">Delete</button>
+@@ insert upstream 75-74 fomo-body 79-275 @@
++{% else %}
++<div id="cal-event-card">
++  <dl class="row mb-2">
++    <dt class="col-sm-3">Title</dt>
++    <dd class="col-sm-9">{{ event.title }}</dd>
++    <dt class="col-sm-3">Start</dt>
++    <dd class="col-sm-9">{{ event.start_time|date:'Y-m-d H:i' }} UTC</dd>
++    <dt class="col-sm-3">End</dt>
++    <dd class="col-sm-9">{{ event.end_time|date:'Y-m-d H:i' }} UTC</dd>
++    {% if event.description %}
++    <dt class="col-sm-3">Description</dt>
++    <dd class="col-sm-9">{{ event.description|linebreaksbr }}</dd>
++    {% endif %}
++    {% if event.url %}
++    <dt class="col-sm-3">URL</dt>
++    <dd class="col-sm-9">
++      {% if event.url|is_web_url %}
++      <a href="{{ event.url }}" target="_blank" rel="noopener noreferrer">View ↗</a>
++      {% else %}
++      <span class="text-muted">(not a web link)</span>
++      {% endif %}
++    </dd>
++    {% endif %}
++    {% if event.target_list %}
++    <dt class="col-sm-3">Target list</dt>
++    <dd class="col-sm-9">
++      <a href="{% url 'targets:list' %}?targetlist__name={{ event.target_list.id }}" target="_blank">{{ event.target_list.name }} ↗</a>
++    </dd>
++    {% endif %}
++    {% if event.user %}
++    <dt class="col-sm-3">User</dt>
++    <dd class="col-sm-9">{{ event.user }}</dd>
++    {% endif %}
++    {% if event.proposal %}
++    <dt class="col-sm-3">Proposal</dt>
++    <dd class="col-sm-9">{{ event.proposal }}</dd>
++    {% endif %}
++    {% if event.telescope %}
++    <dt class="col-sm-3">Telescope</dt>
++    <dd class="col-sm-9">{{ event.telescope }}</dd>
++    {% endif %}
++    {% if event.instrument %}
++    <dt class="col-sm-3">Instrument</dt>
++    <dd class="col-sm-9">{{ event.instrument }}</dd>
++    {% endif %}
++  </dl>
++</div>
++{% endif %}
++{% comment %}
++   D-08: event.telescope_label_meta is CalendarEventMeta's reverse one-to-one accessor
++   (related_name, unchanged by the Phase 27 rename). A reverse one-to-one miss raises
++   ObjectDoesNotExist, which Django templates swallow (silent_variable_failure) -- the same
++   mechanism calendar.html's own is_verified branches already rely on -- so a conference,
++   proposal deadline, or any other event with no companion row at all renders exactly as it
++   does today, with no run block.
++
++   WR-03 (27-07 gap closure, 27-UAT.md Test 9): Phase 29's reconciler
++   (campaign_reconciler.py's reconcile_run(), both the container and classical-nights
++   branches) now writes CalendarEventMeta.run automatically for every event it creates or
++   adopts, unconditionally, via _link_event_to_run(). An event from a pipeline the
++   reconciler doesn't own -- raw sync_lco_observation_calendar/sync_gemini_observation_calendar/
++   load_telescope_runs output not yet adopted by any run -- still has no link until a staff
++   member hand-links it via the admin CalendarEventMetaInline picker or confirms a match in
++   the Phase 28 attribution queue. The block added below now surfaces a HIGH-band
++   attribution-queue candidate for exactly that still-unlinked case, so the modal is never
++   silently empty when a good match already exists. See
++   docs/runbooks/telescope_runs_calendar.rst, "Why doesn't the calendar pop-up show a
++   'Campaign run' block?".
++{% endcomment %}
++{% comment %}
++   D-14/D-17 (Phase 33): CalendarEventMeta.run means the event is ATTRIBUTED to that
++   run, never that the run OWNS it. The block below is rendered from that link at
++   request time via campaign_decoration() -- nothing is written to the event's own
++   fields -- so a base-layer re-projection of this event's title/description cannot
++   erase the attribution.
++   WR-07 (Phase 33 Plan 06): campaign_decoration()'s own `run is None or not
++   run.is_publicly_visible` rule is now the ONLY place that visibility gate lives --
++   there is no second, independent `run.is_publicly_visible` gate in this template.
++   A run not yet approved therefore renders no link here, for every user including
++   staff -- mirrors CampaignRunTableView.get_queryset()'s existing exclude(). There is
++   no run-detail view today (D-06 defers it to Phase 28, where the attribution UI it
++   would host gets built), so the run's identity is rendered inline here rather than
++   relying on the link alone to answer "which run is this" -- and the link below
++   targets the campaign table instead. Contact fields and source are deliberately
++   never rendered here: this modal is a non-staff-visible surface, contact fields are
++   PII gated elsewhere by contact_public_opt_in, and source is staff-only per D-18.
++   A reverse one-to-one accessor with no row (event.telescope_label_meta) resolves
++   silently in a template because ObjectDoesNotExist sets silent_variable_failure --
++   campaign_decoration() itself guards this, so no {% with %} wrapper is needed here
++   to pre-resolve it.
++{% endcomment %}
++{% comment %}
++   PROJ-04/PROJ-05 (Phase 34 Plan 03, D-04): series identity is read from the companion
++   row's observation_group link at request time via observation_series_decoration() --
++   nothing is written into the event's own title or description -- so a re-projection of
++   this event cannot erase it. This block is a sibling of the campaign-decoration block
++   above, not nested inside it: a record can be in a group with no campaign, or attributed
++   to a campaign with no group, and both cases must render independently.
++{% endcomment %}
++{% observation_series_decoration event as series %}
++{% if series %}
++    <div class="row">
++      <div class="col">
++        <label>Observation series</label>
++        <div>
++          <a href="{{ series.group_list_url }}" target="_blank">{{ series.group_name }} ↗</a>
++          &mdash; Night {{ series.index }} of {{ series.size }}
++          &mdash; <a href="{{ series.record_url }}" target="_blank">View record ↗</a>
++        </div>
++      </div>
++    </div>
++{% endif %}
++{% campaign_decoration event as deco %}
++{% if deco %}
++    <div class="row">
++      <div class="col">
++        <label>
++          Attributed campaign run
++          <small>
++            {% if deco.table_url %}
++            <a href="{{ deco.table_url }}" target="_blank">View campaign ↗</a>
++            {% endif %}
++          </small>
++        </label>
++        <div>
++          {{ deco.campaign_name }} &mdash; {{ deco.telescope_instrument }}
++          {% comment %}
++             WR-04: window_start and window_end are guaranteed both-NULL or both-set by
++             the campaign_run_window_start_end_null_together CheckConstraint, so gating
++             on window_start alone is sufficient -- a TBD run (both NULL) must not render
++             the literal "(None-None)" here.
++          {% endcomment %}
++          {% if deco.window_start %}
++          ({{ deco.window_start }}&ndash;{{ deco.window_end }})
++          {% endif %}
++          &mdash; {{ deco.run_status_display }}
++        </div>
++        {% comment %}
++           D-09/TALLY-01 (Phase 37 Plan 06): the run's live tally, read from the same
++           run.is_publicly_visible-gated link campaign_decoration() already applied above --
++           deliberately rendered INSIDE this {% if deco %} block, not behind a second
++           top-level {% if %}, so the visibility gate is applied once. run_tally() mirrors
++           campaign_decoration()'s own guard shape and returns campaign_tally's
++           tally_segments() -- the same ordered segments the campaign table's public
++           Progress column renders (D-15: the two surfaces agree by construction).
++        {% endcomment %}
++        {% run_tally event as tally %}
++        {% if tally %}
++        <div class="small text-secondary" title="{{ tally.summary }}" aria-label="{{ tally.summary }}">
++          {{ tally.groups }} group{{ tally.groups|pluralize }} &middot; {{ tally.records }} record{{ tally.records|pluralize }}
++          {% for segment in tally.segments %}
++          &middot; {{ segment.marker }}
++          {% comment %}
++             WR-04-style guard (event_form.html's own window_start rule, above): a
++             not-yet-known unused figure must never render as a bare zero.
++          {% endcomment %}
++          {% if not segment.known %}
++          {{ segment.label }} not yet known
++          {% elif segment.is_estimate %}
++          &asymp;{{ segment.count }} {{ segment.label }} (estimate)
++          {% else %}
++          {{ segment.count }} {{ segment.label }}
++          {% endif %}
++          {% endfor %}
++        </div>
++        {% endif %}
++      </div>
++    </div>
++{% elif not event.telescope_label_meta.run and request.user.is_staff %}
++    {% comment %}
++       27-07 gap closure (27-UAT.md Test 9, T-27-21): `not run` is true both when
++       event.telescope_label_meta has no companion row at all and when the companion row
++       exists with run unset -- both are the same "not yet attributed" state
++       candidates_for_event() already treats as an orphan, so they are not special-cased
++       separately here. Staff-only via request.user.is_staff (server-derived from the
++       request, not client input, matching campaign_list.html's nav-banner gate
++       convention) -- an offered candidate run may not yet be publicly visible, so this
++       hint must never reach an anonymous or non-staff visitor.
++    {% endcomment %}
++    {% high_band_attribution_candidates event as attribution_candidates %}
++    {% if attribution_candidates %}
++    <div class="row">
++      <div class="col">
++        <label>Possible campaign run match</label>
++        {% for candidate in attribution_candidates %}
++        <div>
++          {{ candidate.run }}
++          <span class="badge text-bg-light border">{{ candidate.score }}</span>
++        </div>
++        {% endfor %}
++        <small>
++          <a href="{% url 'campaigns:attribution' %}?band=high" target="_blank">Confirm in the attribution queue ↗</a>
++        </small>
++      </div>
++    </div>
++    {% endif %}
++{% endif %}
+@@ insert upstream 78-77 fomo-body 279-279 @@
++{% if request.user.is_authenticated %}
+@@ insert upstream 83-82 fomo-body 285-297 @@
++{% else %}
++  <ul class="list-unstyled mb-0" id="cal-todos-readonly">
++  {% for todo in event.todos.all %}
++    {% if todo.is_completed %}
++    <li><span class="text-decoration-line-through">{{ todo.description }}</span> <small class="text-muted">(done)</small></li>
++    {% else %}
++    <li>{{ todo.description }} <small class="text-muted">(not done)</small></li>
++    {% endif %}
++  {% empty %}
++    <li class="text-muted small">No todos yet.</li>
++  {% endfor %}
++  </ul>
++{% endif %}
