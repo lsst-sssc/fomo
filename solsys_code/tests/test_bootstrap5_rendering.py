@@ -20,6 +20,7 @@ user, so the tests that open the modal from those targets log a plain user in fi
 
 import os
 import re
+import time
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from pathlib import Path
@@ -138,6 +139,19 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
                 }
             ]
         )
+
+    def _wait_for_db(self, predicate, message, timeout=5.0):
+        """Poll until predicate() is true; fail with message after timeout seconds.
+
+        The live server answers in its own thread, so a row it writes may land a moment after the
+        browser sees the modal close.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.1)
+        self.fail(message)
 
     def test_calendar_modal_opens_for_campaign_attributed_event_with_no_page_errors(self):
         """UAT G-33-2: clicking a campaign-attributed calendar entry opens `#cal-modal` via
@@ -264,6 +278,70 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
 
         assert self.page.locator('#cal-modal.show').count() == 0
         assert not any('/calendar/create/' in url for url in requests)
+        assert page_errors == []
+
+    def test_signed_in_editor_creates_edits_and_deletes_from_month_view(self):
+        """Phase 39 success criterion 2 (D-01, D-03): a plain, non-staff logged-in user still
+        creates, edits and deletes a calendar event from the month view, through the guarded
+        routes, exactly as before the login guards existed."""
+        page_errors = []
+        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
+        # Delete's hx-confirm raises a native confirm dialog; accept it.
+        self.page.on('dialog', lambda dialog: dialog.accept())
+
+        self._log_in_browser(self._calendar_editor())
+        modal = self.page.locator('#cal-modal.show')
+        modal_body = self.page.locator('#cal-modal-body')
+
+        # Create: click the empty 2026-08-20 day cell, fill the title, save.
+        self.page.goto(self._calendar_url())
+        day_cell = self.page.locator(f'[hx-get*="date={self.CAL_YEAR}-{self.CAL_MONTH:02d}-20"]')
+        day_cell.locator('.day-num').click()
+        modal.wait_for(state='visible')
+        self.page.locator('#cal-modal-body form').wait_for(state='attached')
+        # Upstream pre-fills the start time from the clicked day.
+        assert self.page.locator('#id_start_time').input_value() == '2026-08-20T00:00'
+        self.page.locator('#id_title').fill('EditorTrip')
+        modal_body.get_by_role('button', name='Save', exact=True).click()
+        modal.wait_for(state='hidden')
+        self._wait_for_db(
+            lambda: CalendarEvent.objects.filter(title='EditorTrip').count() == 1,
+            'the created event never reached the database',
+        )
+        event = CalendarEvent.objects.get(title='EditorTrip')
+        assert event.start_time.date() == date(2026, 8, 20)
+
+        # Edit: reload the month (a save re-renders the current year's month, not 2026-08),
+        # reopen the event, change the title, save.
+        self.page.goto(self._calendar_url())
+        self.page.locator('.cal-event', has_text='EditorTrip').first.click()
+        modal.wait_for(state='visible')
+        # The editor gets the update form, not the read-only card. (The pop-up of a saved event
+        # also holds upstream's separate add-a-todo form, so count the update form specifically.)
+        update_form = self.page.locator('#cal-modal-body form[hx-post*="/calendar/update/"]')
+        update_form.wait_for(state='attached')
+        assert update_form.count() == 1
+        assert self.page.locator('#cal-event-card').count() == 0
+        self.page.locator('#id_title').fill('EditorTrip2')
+        modal_body.get_by_role('button', name='Save', exact=True).click()
+        modal.wait_for(state='hidden')
+        self._wait_for_db(
+            lambda: CalendarEvent.objects.filter(pk=event.pk, title='EditorTrip2').exists(),
+            'the edited title never reached the database',
+        )
+
+        # Delete: reopen, press Delete, accept the confirm dialog.
+        self.page.goto(self._calendar_url())
+        self.page.locator('.cal-event', has_text='EditorTrip2').first.click()
+        modal.wait_for(state='visible')
+        modal_body.get_by_role('button', name='Delete').wait_for(state='visible')
+        modal_body.get_by_role('button', name='Delete').click()
+        modal.wait_for(state='hidden')
+        self._wait_for_db(
+            lambda: not CalendarEvent.objects.filter(pk=event.pk).exists(),
+            'the deleted event is still in the database',
+        )
+
         assert page_errors == []
 
     def test_navbar_dropdown_toggle_shows_menu(self):
