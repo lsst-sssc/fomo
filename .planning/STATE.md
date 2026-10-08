@@ -5,16 +5,16 @@ milestone_name: Main Sync & Consolidation
 current_phase: 39
 current_phase_name: Calendar Write Access
 status: executing
-stopped_at: Completed 39-04-PLAN.md
-last_updated: "2026-10-08T20:43:29.859Z"
+stopped_at: Completed 39-05-PLAN.md
+last_updated: "2026-10-08T22:55:54.478Z"
 last_activity: 2026-10-08
-last_activity_desc: Plan 39-04 complete (gap closure)
-state_head: a8548ea79f22c26235dbf23f906d6a2e306d6d72
+last_activity_desc: Phase 39 execution started
+state_head: ba8a53a4075905eaaddbf7a1c195d743fcdbf790
 progress:
   total_phases: 5
   completed_phases: 40
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 12
+  completed_plans: 12
   percent: 100
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-08 — Phase 38 complete)
 ## Current Position
 
 Phase: 39 (Calendar Write Access) — EXECUTING
-Plan: 4 of 4
-Status: Plan 39-04 complete; ready for phase re-verification
-Last activity: 2026-10-08 — Plan 39-04 complete (gap closure: CSRF refusal path, CR-01 accepted, Save and Edit label)
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-10-08 — Phase 39 execution started
 
 Progress: [████████████████████] 7/7 plans ([██████████] 100%)
 
@@ -52,6 +52,7 @@ Progress: [████████████████████] 7/7 pla
 | Phase 39 P02 | 36 min | 3 tasks | 7 files |
 | Phase 39 P03 | 45 min | 2 tasks | 3 files |
 | Phase 39 P04 | 2h | 3 tasks | 9 files |
+| Phase 39 P05 | 30 min | 2 tasks | 6 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -79,6 +80,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39]: 39-03: edit step counts form[hx-post*='/calendar/update/'] because the saved-event pop-up also holds upstream's add-a-todo form
 - [Phase 39]: 39-04: gap 1 closed by docs and tests, not a CSRF_FAILURE_VIEW; CR-01 open self-registration recorded as an accepted risk (Tim Lister 2026-10-08); upstream Save and Edit label restored with a pinned body diff snapshot
 - [Phase 39]: wave 3 ui.safety-gate block ("UI files changed, no UI-SPEC.md") overridden by the developer (2026-10-08): the only UI change is 65ba57c restoring a one-word button label, and 39-UI-REVIEW.md already audits the phase against the abstract standards
+- [Phase 39]: 39-05: G-39-4 fixed minimally with an isinstance guard on high_band_attribution_candidates plus an action-first gate on the staff hint in event_form.html; header item 4 and the pinned snapshot updated in the same commit
+- [Phase 39]: 39-05: G-39-3 is runbook-only; the template method=post hardening (39-REVIEW WR-01 item 2) was offered at UAT and not requested. campaign_attribution.candidates_for_event missing guard surfaced for Phase 41 todo triage
 
 ### Pending Todos
 
@@ -146,8 +149,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-08T20:43:29.831Z
-**Stopped at:** Completed 39-04-PLAN.md
+**Last session:** 2026-10-08T22:55:54.433Z
+**Stopped at:** Completed 39-05-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps

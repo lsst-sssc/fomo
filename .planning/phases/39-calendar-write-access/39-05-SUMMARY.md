@@ -147,7 +147,7 @@ status: complete
 1. **Task 1 (tracer): staff/superuser create form, tag guard, hint gate, header item 4, snapshot** - `917a895` (fix)
 2. **Task 2: runbook bare-form warning (G-39-3)** - `c71b7b0` (docs)
 
-**Plan metadata:** the docs(39-05) closeout commit holding this SUMMARY, STATE.md, ROADMAP.md and REQUIREMENTS.md.
+**Plan metadata:** `ba8a53a` (docs: plan summary), then a docs(39-05) closeout commit for STATE.md, ROADMAP.md and REQUIREMENTS.md.
 
 ## Task 1 evidence
 
