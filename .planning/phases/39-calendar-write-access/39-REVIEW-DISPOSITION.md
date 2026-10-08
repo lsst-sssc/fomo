@@ -45,13 +45,13 @@ findings:
     title: "The runbook's \"pop-up does not open\" troubleshooting does not cover the \"opens empty\" symptom G-39-4 actually produced"
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "The CSRF path's post-login landing page is a live, script-less form whose Save submits a GET carrying the CSRF token; the new runbook text calls it \"only a form\""
   - id: CR-01
     severity: critical
     disposition: skipped
     title: "Open self-registration lets anyone through the login guard, so any internet user can still create, edit and delete any calendar event"
-open: 11
+open: 10
 total: 12
 recorded: 2026-10-08T23:08:19.143Z
 ---
@@ -70,7 +70,7 @@ recorded: 2026-10-08T23:08:19.143Z
 | IN-05 | info | open | - |
 | IN-06 | info | open | - |
 | IN-07 | info | open | - |
-| WR-01 | warning | open | - (not in the current review) |
+| WR-01 | warning | fixed | resolved by documentation in 39-05 Task 2 (c71b7b0): the runbook now says the create and edit addresses show a bare, unstyled copy of the form, not to use it, and to go back to the calendar page; the residual token-in-URL risk is accepted as AR-39-02 (39-SECURITY.md). Round-3 review (bc0e22c) records it "Resolved by documentation". |
 | CR-01 | critical | skipped | accepted risk (won't fix), Tim Lister 2026-10-08: "Self-signup is wanted; collaborators should be able to join without an operator; calendar edits are visible, attributable and easily reverted." TOM_REGISTRATION_STRATEGY, D-01 and the guard unchanged; see 39-SECURITY.md AR-39-01 and T-39-22 (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
