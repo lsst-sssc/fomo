@@ -89,14 +89,17 @@ committed. ``settings.py`` imports it as ``fomo.local_settings`` at the end of t
 the default. Create it before running ``migrate`` below, so that the database it names is the one ``migrate`` sets up.
 
 .. warning::
-   Earlier versions of FOMO imported a top-level ``local_settings`` module, so a host set up for one of them usually
-   keeps the file at the repository root. A ``local_settings.py`` there is no longer read, and nothing reports it: FOMO
-   starts on every development default, including the committed ``SECRET_KEY``, ``DEBUG = True``, the console email
-   backend and empty facility API keys. When upgrading such a host, move the file, from the repository root:
+   Earlier versions of FOMO imported a top-level ``local_settings`` module, so a host set up for one of them keeps the
+   file at the repository root (when FOMO is run with ``manage.py``) or in ``src/`` (when it is served through gunicorn
+   or WSGI). A ``local_settings.py`` in either place is no longer read, and nothing reports it: FOMO starts on every
+   development default, including the committed ``SECRET_KEY``, ``DEBUG = True``, the console email backend and empty
+   facility API keys. When upgrading such a host, move the file to ``src/fomo/``, using the command that matches where it is
+   now, from the repository root:
 
    .. code-block:: console
 
       >> mv local_settings.py src/fomo/local_settings.py
+      >> mv src/local_settings.py src/fomo/local_settings.py
 
    To confirm FOMO reads it, print the path of the module it imports. A ``ModuleNotFoundError`` instead means the file
    is not where FOMO looks:
@@ -104,6 +107,9 @@ the default. Create it before running ``migrate`` below, so that the database it
    .. code-block:: console
 
       >> python3 manage.py shell -c "import fomo.local_settings as m; print(m.__file__)"
+
+   ``main`` makes the same change through pull request #58 (``from .local_settings import *``), so
+   ``src/fomo/local_settings.py`` is the location on every current FOMO branch.
 
 Initializing FOMO and the database
 -------------------------------------
