@@ -1,14 +1,22 @@
 ---
-status: diagnosed
+status: testing
 phase: 38-sync-with-main
 source: [38-VERIFICATION.md]
 started: 2026-10-08T00:40:00Z
-updated: 2026-10-08T00:34:10.026Z
+updated: 2026-10-08T02:48:51Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 4
+name: WR-01 (2026-10-08 review) — keep or fix the PR #58 sentence in the installation warning
+expected: |
+  Decide whether docs/installation.rst:111-112 ("``main`` makes the same change through pull request #58 ..., so
+  ``src/fomo/local_settings.py`` is the location on every current FOMO branch.") stays as a forward-looking statement
+  (record an override) or is fixed before the next push/snapshot refresh (drop the sentence, or scope it to
+  "from this release on; main until PR #58 merges"). Optionally record advisory WR-02 (keep the absolute
+  `fomo.local_settings` import when PR #58's settings.py conflict is resolved) in STATE.md's deferred items.
+awaiting: user response
 
 ## Tests
 
@@ -32,12 +40,16 @@ expected: Developer confirms each from memory of the session. Verifier evidence:
 result: pass
 note: "Developer confirmed all five prohibitions from the session. On-disk evidence re-checked at UAT time: backup present (2026-10-07 11:10), crontab has 0 PHASE38 lines, every 2026-10-07 HEAD reflog entry is a plain commit (plus the 10:19 commit (merge))."
 
+### 4. WR-01 (2026-10-08 review) — keep or fix the PR #58 sentence in the installation warning
+expected: PR #58 is still OPEN and origin/main still has the bare `from local_settings import *`, so the sentence added by 38-07 (`a060f9d`) is false today, though no must-have asserts it and the commits are unpushed. Either accept it as forward-looking (override) or make a one-line docs fix before the next push or snapshot refresh. Source: 38-VERIFICATION.md (2026-10-08, human item 1), 38-REVIEW.md WR-01/WR-02.
+result: [pending]
+
 ## Summary
 
-total: 3
+total: 4
 passed: 2
 issues: 1
-pending: 0
+pending: 1
 skipped: 0
 blocked: 0
 
