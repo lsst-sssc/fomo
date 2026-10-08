@@ -10,10 +10,13 @@ fix, status box-shadow rings, composition with Phase 8 dashed border, and the fo
 legend with click-to-filter infrastructure.
 """
 
+import difflib
+import re
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from pathlib import Path
 
+import tom_calendar
 from django.contrib.auth.models import User
 from django.db import connection
 from django.db.models.signals import m2m_changed, post_save
@@ -1905,3 +1908,113 @@ class EventCardUrlLinkTest(TestCase):
         content = self._card_html('')
         self.assertNotIn('<dt class="col-sm-3">URL</dt>', content)
         self.assertNotIn('not a web link', content)
+
+
+class EventFormHeaderMatchesUpstreamTest(SimpleTestCase):
+    """WARN-01 / D-10: event_form.html's header lists exactly the blocks that differ from the installed upstream."""
+
+    TEMPLATE = Path(__file__).resolve().parents[2] / 'src/templates/tom_calendar/partials/event_form.html'
+    # Per header item: literals that must occur in a differing region and in that item's own header text.
+    ANCHORS = {
+        1: ('attribution_display_extras',),
+        2: ('is_web_url', 'noopener noreferrer', 'not a web link'),
+        3: ('<button',),
+        4: ('observation_series_decoration', 'campaign_decoration', 'high_band_attribution_candidates'),
+        5: ('request.user.is_authenticated', 'cal-event-card'),
+        6: ('request.user.is_authenticated', 'event.todos.all'),
+    }
+
+    @classmethod
+    def _source(cls) -> str:
+        return cls.TEMPLATE.read_text()
+
+    @classmethod
+    def _header(cls) -> str:
+        source = cls._source()
+        return source.split('{% endcomment %}', 1)[0]
+
+    @classmethod
+    def _body_lines(cls) -> list[str]:
+        return cls._source().split('{% endcomment %}\n', 1)[1].splitlines()
+
+    @classmethod
+    def _upstream_lines(cls) -> list[str]:
+        upstream = (
+            Path(tom_calendar.__file__).resolve().parent / 'templates' / 'tom_calendar' / 'partials' / 'event_form.html'
+        )
+        assert upstream.exists(), f'installed upstream partial not found at {upstream}'
+        return upstream.read_text().splitlines()
+
+    def test_header_names_the_pinned_upstream(self):
+        source = self._source()
+        self.assertTrue(source.startswith('{% comment %}'))
+        header = self._header()
+        for needed in (
+            'tomtoolkit 3.1.0',
+            'tom_calendar/templates/tom_calendar/partials/event_form.html',
+            'FOMO override of the upstream tom_calendar partial',
+        ):
+            self.assertIn(needed, header)
+        for stale in ('exact copy', 'one new block', '3.0.1', '3.0.0a9'):
+            self.assertNotIn(stale, header)
+        # The header sits inside a {% comment %} block, so it must not contain template syntax itself.
+        inner = header[len('{% comment %}') :]
+        self.assertNotIn('{%', inner)
+        self.assertNotIn('#}', inner)
+
+    def test_header_items_are_numbered_one_to_six(self):
+        markers = re.findall(r'^\s+(\d+)\.\s', self._header(), flags=re.MULTILINE)
+        self.assertEqual(markers, ['1', '2', '3', '4', '5', '6'])
+
+    def _item_texts(self) -> dict[int, str]:
+        header = self._header()
+        starts = {int(m.group(1)): m.start() for m in re.finditer(r'^\s+(\d+)\.\s', header, flags=re.MULTILINE)}
+        self.assertEqual(sorted(starts), [1, 2, 3, 4, 5, 6], 'header items must be numbered 1 to 6')
+        texts = {}
+        for number in range(1, 7):
+            end = starts[number + 1] if number < 6 else len(header)
+            texts[number] = header[starts[number] : end]
+        return texts
+
+    def test_every_differing_region_is_listed_and_every_item_differs(self):
+        upstream = self._upstream_lines()
+        body = self._body_lines()
+        opcodes = difflib.SequenceMatcher(None, upstream, body, autojunk=False).get_opcodes()
+        regions = []
+        for tag, i1, i2, j1, j2 in opcodes:
+            if tag == 'equal':
+                continue
+            lines = body[j1:j2] if j2 > j1 else upstream[i1:i2]
+            regions.append('\n'.join(lines))
+        all_anchors = [anchor for anchors in self.ANCHORS.values() for anchor in anchors]
+        for region in regions:
+            self.assertTrue(
+                any(anchor in region for anchor in all_anchors),
+                f'a differing region is not covered by any header item:\n{region}',
+            )
+        for anchor in all_anchors:
+            self.assertTrue(
+                any(anchor in region for region in regions),
+                f'header anchor {anchor!r} does not occur in any region that differs from upstream',
+            )
+        texts = self._item_texts()
+        for number, anchors in self.ANCHORS.items():
+            for anchor in anchors:
+                self.assertIn(anchor, texts[number], f'header item {number} does not mention {anchor!r}')
+
+
+class CalendarTemplateBootstrap5ClassTest(SimpleTestCase):
+    """D-11: calendar.html uses the Bootstrap 5 utility names tomtoolkit 3.1.0's partial uses."""
+
+    TEMPLATE = Path(__file__).resolve().parents[2] / 'src/templates/tom_calendar/partials/calendar.html'
+
+    def test_calendar_partial_uses_bootstrap5_utility_names(self):
+        source = self.TEMPLATE.read_text()
+        self.assertIsNone(re.search(r'(?<![\w-])(?:mr|ml)-[0-9]', source))
+        bootstrap4_names = ('border-' + 'left', 'border-' + 'right', 'font-weight-' + 'bold', 'var(--' + 'white)')
+        for name in bootstrap4_names:
+            self.assertNotIn(name, source)
+        for name in ('border-start', 'border-end', 'fw-bold', 'me-2', 'me-3', 'var(--bs-white)'):
+            self.assertIn(name, source)
+        self.assertIn('data-url=', source)
+        self.assertNotIn('data-bs-url', source)

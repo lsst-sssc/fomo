@@ -1,28 +1,36 @@
 {% comment %}
-   FOMO override of the upstream tom_calendar partial at
-   tom_calendar/templates/tom_calendar/partials/event_form.html (tomtoolkit 3.0.1,
-   installed package path verified via `pip show tomtoolkit`; re-diffed against upstream
-   for the tomtoolkit 3.0.0a9 -> 3.0.1 Bootstrap4->5 migration: `{% load bootstrap4 %}` ->
-   `{% load django_bootstrap5 %}`, `form-row` -> `row`, and the `{% buttons %}/{% endbuttons %}`
-   wrapper dropped since django_bootstrap5 doesn't provide it).
+   FOMO override of the upstream tom_calendar partial
+   tom_calendar/templates/tom_calendar/partials/event_form.html, compared with
+   tomtoolkit 3.1.0 (Phase 39, WARN-01).
 
-   Reason (D-08, Phase 27 CANON-05): an event must link back to its owning CampaignRun.
-   tom_calendar.views.update_event already renders this partial with `event` in context
-   (both the GET and invalid-POST branches), so a template override alone is enough -- no
-   view override, no URL change. This mirrors the existing calendar.html override's use of
-   event.telescope_label_meta.
+   Every block that differs from that upstream file is listed below; everything else is
+   byte-for-byte upstream. FOMO owns this copy and it drifts: re-diff it against the installed
+   upstream file on every tomtoolkit upgrade (T-27-20).
+   EventFormHeaderMatchesUpstreamTest in solsys_code/tests/test_calendar_template.py checks
+   this list against the installed upstream file.
 
-   Accepted cost (T-27-20): this is now the SECOND upstream tom_calendar template FOMO
-   owns, and both will drift on a future tomtoolkit upgrade -- diff this file against the
-   upstream path above when upgrading.
+   1. Before the form: this header, and the load line, which adds attribution_display_extras
+      and calendar_display_extras to upstream's django_bootstrap5.
+   2. Inside the form, the URL label: the "View" link is gated by is_web_url and carries
+      rel="noopener noreferrer"; any other stored value shows "(not a web link)" instead
+      (UAT G-37.1-1-allocurl: the allocation layer and the campaign reconciler keep ALLOC:/RUN:
+      namespace keys in CalendarEvent.url).
+   3. At the end of the form: plain <button> markup for Save, "Save and edit" and Delete,
+      where upstream uses bootstrap_button tags and a differently laid-out Delete button.
+   4. Between the form's end and the Todo list heading: the observation_series_decoration
+      block, the campaign_decoration block (with its run_tally line) and the staff-only
+      high_band_attribution_candidates hint, with their reason comments.
+   5. Around the form (Phase 39, ACCESS-02, D-05): a request.user.is_authenticated branch; a
+      visitor who is not logged in gets the read-only cal-event-card (labelled text, no form
+      controls) instead of the form.
+   6. Inside the cal-todos div (Phase 39, D-05): a request.user.is_authenticated branch around
+      upstream's todos include; a visitor who is not logged in gets a read-only list built from
+      event.todos.all.
 
-   Second deviation from upstream (UAT G-37.1-1-allocurl): the URL label's "View" link is limited
-   to http(s) web addresses via the is_web_url filter, because the allocation layer and the campaign
-   reconciler store ALLOC:/RUN: namespace keys in CalendarEvent.url; any other value shows a
-   "not a web link" note instead, and the link gains rel="noopener noreferrer".
-
-   Below this point, this file starts as an exact copy of the upstream partial with one
-   new block inserted after </form> and before the Todo list heading (D-08).
+   Reason for the campaign-run blocks (D-08, Phase 27 CANON-05): an event links back to the
+   campaign run it is attributed to. tom_calendar.views.update_event already renders this
+   partial with `event` in context (GET and invalid-POST branches), so a template override is
+   enough -- no view override and no URL change.
 {% endcomment %}
 {% load django_bootstrap5 attribution_display_extras calendar_display_extras %}
 {% if request.user.is_authenticated %}
