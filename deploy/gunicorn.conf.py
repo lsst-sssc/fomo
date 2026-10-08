@@ -7,8 +7,8 @@ Used by the systemd unit that ``deploy/install_service.sh`` generates. To run it
 import os
 from pathlib import Path
 
-# gunicorn chdirs here and puts it on sys.path, which makes `solsys_code` importable; `src/` (for `fomo.*`
-# and `local_settings`) is on sys.path via the editable install's .pth file.
+# gunicorn chdirs here and puts it on sys.path, which makes `solsys_code` importable; `src/` (for `fomo.*`)
+# is on sys.path via the editable install's .pth file.
 chdir = str(Path(__file__).resolve().parent.parent)
 wsgi_app = 'fomo.wsgi:application'
 

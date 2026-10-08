@@ -57,7 +57,7 @@ Installation
 
       >> pip install -e '.[deploy]'
 
-2. Add production overrides to ``src/local_settings.py``. This file is
+2. Add production overrides to ``src/fomo/local_settings.py``. This file is
    gitignored and star-imported at the end of ``src/fomo/settings.py``. At a
    minimum:
 
@@ -184,7 +184,7 @@ data unreadable. Rotate it gracefully instead:
 
       >> python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 
-2. In ``src/local_settings.py`` set the new key as primary and keep the old
+2. In ``src/fomo/local_settings.py`` set the new key as primary and keep the old
    one as a fallback:
 
    .. code-block:: python
