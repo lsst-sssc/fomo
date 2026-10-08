@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 39
-current_phase_name: calendar-write-access
+current_phase_name: Calendar Write Access
 status: executing
-stopped_at: Phase 39 context gathered
-last_updated: "2026-10-08T14:34:39.211Z"
-last_activity: 2026-10-07
-last_activity_desc: Phase 38 complete, transitioned to Phase 39
-state_head: 4f0c6a633cce20fb11397fc034e54b6d2049e018
+stopped_at: Completed 39-01-PLAN.md
+last_updated: "2026-10-08T15:17:16.382Z"
+last_activity: 2026-10-08
+last_activity_desc: Plan 39-01 complete (calendar write guards)
+state_head: 4d32e627c6ee11b43decbd1d5bde1e9841164e25
 progress:
   total_phases: 5
   completed_phases: 40
   total_plans: 10
-  completed_plans: 7
-  percent: 70
+  completed_plans: 8
+  percent: 80
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-08 — Phase 38 complete)
 
 ## Current Position
 
-Phase: 39 (calendar-write-access) — READY TO EXECUTE
-Plan: Not started
+Phase: 39 (Calendar Write Access) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-10-07 — Phase 38 complete, transitioned to Phase 39
+Last activity: 2026-10-08 — Plan 39-01 complete (calendar write guards)
 
-Progress: [████████████████████] 7/7 plans ([███████░░░] 70%)
+Progress: [████████████████████] 7/7 plans ([████████░░] 80%)
 
 ## Performance Metrics
 
@@ -48,6 +48,7 @@ Progress: [████████████████████] 7/7 pla
 | Phase 38 P05 | 21 min | 2 tasks | 6 files |
 | Phase 38 P06 | 55 min | 3 tasks | 0 files |
 | Phase 38 P07 | 80min elapsed | 3 tasks | 3 files |
+| Phase 39 P01 | 34 min | 2 tasks | 5 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -69,6 +70,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 38]: 38-05: took main's side for the alerts/ include (deleted the four lines, ada2000) instead of re-adding tom_alerts to INSTALLED_APPS; D-03 not reopened
 - [Phase 38]: 38-06: developer approved publish; issue37-code-only re-snapshotted (846be34) without the alerts/ route, plain fast-forward pushes, PR #43 still a draft, CI green on 3.10-3.12
 - [Phase 38]: 38-07: G-38-1 closed by documentation only; src/fomo/local_settings.py is the canonical location and the wording names both old locations (repo root and src/) and main's PR #58
+- [Phase 39]: 39-01: any logged-in user may write the calendar (D-01); five routes guarded at FOMO's URL conf, require_POST on delete-event/create-todo/update-todo, login next=/calendar/
+- [Phase 39]: 39-01: CSRF failure on a signed-in calendar POST surfaces as 302 to login (tom_common Raise403Middleware), not 403; nothing is written
 
 ### Pending Todos
 
@@ -117,9 +120,9 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-08T05:24:34.270Z
-**Stopped at:** Phase 39 context gathered
-**Resume file:** .planning/phases/39-calendar-write-access/39-CONTEXT.md
+**Last session:** 2026-10-08T15:17:16.356Z
+**Stopped at:** Completed 39-01-PLAN.md
+**Resume file:** None
 
 ## Operator Next Steps
 
