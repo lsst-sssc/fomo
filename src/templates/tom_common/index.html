@@ -4,13 +4,16 @@
 {% block content %}
 <div class="row">
   <div class="col-md-8">
-    <h2 class="text-center">Welcome to FOMO, a TOM for Follow-up Observations of Moving Objects.</h2>
-    <div class="row" style="align-items:center">
+    <div class="fomo-welcome d-flex flex-column flex-sm-row align-items-center justify-content-center gap-3 mb-3">
+      <img src="{% static 'fomo/img/fomo-logo.png' %}" alt="FOMO logo" width="160" height="160" class="flex-shrink-0">
+      <h2 class="mb-0 text-center text-sm-start">Welcome to FOMO, a TOM for <span class="text-nowrap">Follow-up</span> Observations of Moving Objects.</h2>
+    </div>
+    <div class="row fomo-partner-logos align-items-center my-4">
       <div class="col-md-6">
         <p class="text-center"><img src="{% static 'tom_common/img/rubin-logo-color.png' %}" class="img-fluid m-auto"></p>
       </div>
       <div class="col-md-6">
-        <p class="text-center"><img src="{% static 'tom_common/img/logo-color.png' %}" class="img-fluid m-auto"></p>
+        <p class="text-center"><img src="{% static 'fomo/img/tom-logo-color.png' %}" class="img-fluid m-auto"></p>
       </div>
     </div>
     <h3>Next steps</h3>

@@ -30,6 +30,11 @@ Requirements
   * scipy
   * spiceypy
 
+* whitenoise>=6.6 (serves static files when ``DEBUG=False``)
+
+The optional ``deploy`` extra (``pip install -e '.[deploy]'``) adds gunicorn>=23 for running FOMO as a
+long-lived service; see :doc:`deploy/deploy`.
+
 
 Setting Up Your Virtual Environment
 ---------------------------------------
@@ -105,6 +110,8 @@ Several lines of debugging output should appear. You should then be able to poin
   :width: 800
   :alt: Screenshot of the FOMO frontpage after first running the webserver
   :align: center
+
+``runserver`` is intended for development only. To run FOMO as a long-lived service that survives reboots, see :doc:`deploy/deploy`.
 
 Log in as the admin user you created earlier using the `Login` button in the top right corner of the menu bar.
 

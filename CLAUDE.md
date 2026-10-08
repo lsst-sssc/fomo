@@ -95,7 +95,8 @@ Coverage is measured with `coverage run manage.py test` (`[tool.coverage.run]` i
 ## Conventions
 
 - Database is local SQLite (`src/fomo_db.sqlite3`); `DEBUG=True` and the secret key in `settings.py` are
-  dev defaults — production overrides belong in a `local_settings.py` (imported at the end of `settings.py`).
+  dev defaults — production overrides belong in `src/fomo/local_settings.py` (gitignored; relative-imported at the
+  end of `settings.py`, so it must sit next to it — a copy anywhere else is silently ignored).
 - Targets are `NON_SIDEREAL`; default target permission is `OPEN` and `AUTH_STRATEGY='READ_ONLY'`.
 - ruff config (`pyproject.toml`) follows Rubin DM style: many `N8xx` naming rules are intentionally
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
