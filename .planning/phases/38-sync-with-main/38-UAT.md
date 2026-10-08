@@ -1,22 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 38-sync-with-main
 source: [38-VERIFICATION.md]
 started: 2026-10-08T00:40:00Z
-updated: 2026-10-08T02:48:51Z
+updated: 2026-10-08T03:06:33.152Z
 ---
 
 ## Current Test
 
-number: 4
-name: WR-01 (2026-10-08 review) — keep or fix the PR #58 sentence in the installation warning
-expected: |
-  Decide whether docs/installation.rst:111-112 ("``main`` makes the same change through pull request #58 ..., so
-  ``src/fomo/local_settings.py`` is the location on every current FOMO branch.") stays as a forward-looking statement
-  (record an override) or is fixed before the next push/snapshot refresh (drop the sentence, or scope it to
-  "from this release on; main until PR #58 merges"). Optionally record advisory WR-02 (keep the absolute
-  `fomo.local_settings` import when PR #58's settings.py conflict is resolved) in STATE.md's deferred items.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -42,14 +34,15 @@ note: "Developer confirmed all five prohibitions from the session. On-disk evide
 
 ### 4. WR-01 (2026-10-08 review) — keep or fix the PR #58 sentence in the installation warning
 expected: PR #58 is still OPEN and origin/main still has the bare `from local_settings import *`, so the sentence added by 38-07 (`a060f9d`) is false today, though no must-have asserts it and the commits are unpushed. Either accept it as forward-looking (override) or make a one-line docs fix before the next push or snapshot refresh. Source: 38-VERIFICATION.md (2026-10-08, human item 1), 38-REVIEW.md WR-01/WR-02.
-result: [pending]
+result: pass
+decision: "pass (the first option) — keep the sentence as a forward-looking statement; override recorded. PR #58 (production-deploy → main) standardises src/fomo/local_settings.py on main; until it merges, main still has the bare import. Advisory WR-02 (keep the absolute `fomo.local_settings` import when PR #58's settings.py conflict is resolved) is recorded in STATE.md Operator Next Steps."
 
 ## Summary
 
 total: 4
-passed: 2
+passed: 3
 issues: 1
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
@@ -57,7 +50,9 @@ blocked: 0
 
 - gap_id: G-38-1
   truth: "docs/installation.rst and the PR #43 body (38-PR43-BODY.md) state that local_settings.py lives at src/fomo/local_settings.py, so a host set up for main (file at the repo root, found via the bare `from local_settings import *`) is told to move it before PR #43 merges"
-  status: failed
+  status: resolved
+  resolved_by: 38-07-PLAN.md
+  resolved_at: 2026-10-07
   reason: "User reported: I think `local_settings.py` is supposed to be in src/fomo/ alongside `settings.py` - not sure why it's not in `main`. Decision (a): src/fomo/ is canonical; the documentation follow-up WR-01 names is still outstanding."
   severity: minor
   test: 1
