@@ -1,14 +1,18 @@
 ---
-status: diagnosed
+status: testing
 phase: 39-calendar-write-access
 source: [39-VERIFICATION.md]
 started: 2026-10-08T21:14:30Z
-updated: 2026-10-08T21:59:55Z
+updated: 2026-10-08T23:21:54Z
 ---
 
 ## Current Test
 
-[testing complete]
+number: 5
+name: New Event pop-up as staff or superuser (re-run of Test 4 after gap closure 39-05)
+expected: |
+  On the dev server, signed in as a staff or superuser account, '+ New Event' and an empty day cell both open the pop-up with the create form (title, dates, Save and 'Save and Edit'), not an empty box; an existing unlinked entry with a High-band candidate still shows the 'Possible campaign run match' hint.
+awaiting: user response
 
 ## Tests
 
@@ -32,12 +36,24 @@ result: issue
 reported: "clicking on the '+ New Event' button on the background of a day brings up a wide but short blank box - see screenshot (Screenshot from 2026-10-08 14-52-26.png: modal shows only a close X, no form content; month view October 2026 behind it; user logged in)"
 severity: major
 
+### 5. New Event pop-up as staff or superuser (re-run of Test 4 after gap closure 39-05)
+expected: On the dev server, signed in as a staff or superuser account (e.g. sssc_admin or talister), click "+ New Event" and click an empty day cell; then open an existing unlinked entry that has a High-band candidate. Both triggers open the pop-up with the create form (title, dates, Save and "Save and Edit"), not an empty box; the existing unlinked entry's pop-up still shows the "Possible campaign run match" hint. (Automated evidence: staff/superuser GETs return 200 with the form and the staff body equals the plain user's once the CSRF token is masked; the planner deferred the real-browser check to end of phase.)
+result: [pending]
+
+### 6. Runbook bare-form sentence reads as asked (re-check of Test 3 after gap closure 39-05)
+expected: Read docs/runbooks/telescope_runs_calendar.rst lines 2596-2607 once. The new closing sentences ("show a bare, unstyled copy of the event form. Do not use that copy: its Save saves nothing and silently discards what was typed; go back to the calendar page and make the change there.") read clearly and match what was asked for at UAT Test 3.
+result: [pending]
+
+### 7. Decide on 39-REVIEW WR-04 (non-staff edit pop-up hint test)
+expected: No repository test GETs the edit pop-up as a signed-in NON-staff user and asserts the "Possible campaign run match" hint is absent. Either add the test before shipping (recommended; about 6 lines in EventModalAttributionHintTest, reusing plain_user, _signed_in_client and unlinked_event_with_candidate) or accept WR-04 as an advisory. Behaviour is correct today: the verifier's scratch test of exactly that case passes on the real tree and fails when the template's gate is mutated to request.user.is_authenticated, while all 17 repository tests still pass under that mutation. Not a must-have failure; a ship decision.
+result: [pending]
+
 ## Summary
 
-total: 4
+total: 7
 passed: 2
 issues: 2
-pending: 0
+pending: 3
 skipped: 0
 blocked: 0
 
