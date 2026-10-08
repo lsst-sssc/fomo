@@ -2601,8 +2601,10 @@ posted from another site, or a tab whose form token a newer login has
 replaced) is turned away before the calendar's own login check runs and is
 sent to the login page with the refused address as the page to return to;
 after logging in the browser simply opens that address, which changes
-nothing -- the delete and todo addresses refuse a plain visit and the
-create and edit addresses only show a form.
+nothing -- the delete and todo addresses refuse a plain visit, and the
+create and edit addresses show a bare, unstyled copy of the event form.
+Do not use that copy: its Save saves nothing and silently discards what
+was typed; go back to the calendar page and make the change there.
 
 Before chasing a missing attribution, first confirm the pop-up opens at
 all: clicking a calendar entry opens the pop-up through the Bootstrap 5
