@@ -53,7 +53,11 @@ created: "2026-10-08"
 | T-39-17 | Elevation of privilege | a test-only login shortcut leaking into production to make the browser test pass | medium | mitigate | login only via the test-side `_log_in_browser` force_login cookie hand-off in test_bootstrap5_rendering.py; settings.py and src/fomo/urls.py unchanged since f929f4e | closed |
 | T-39-18 | Repudiation | a ledger marked fixed without evidence, or another finding's disposition changed by accident | low | mitigate | commit 798dfe9 touches exactly 33-REVIEW.md (+4/-0) and 37.1-REVIEW-DISPOSITION.md (+2/-2), WR-05 only, written after the 2233-test gate was green | closed |
 | T-39-19 | Tampering | the installed tom_calendar package edited in place | medium | mitigate | 39-03 verified all 22 hashed tom_calendar files against tomtoolkit 3.1.0's RECORD sha256; no site-packages path in the phase diff | closed |
+| T-39-20 | Repudiation | the runbook's read-only paragraph and calendar_access.py's module docstring claim every refused logged-out write returns to the calendar page, so an operator misreads where a tokenless refusal lands (39-REVIEW WR-01) | low | mitigate | both texts rewritten in 39-04 Task 1 (commit bc73bfd) to name the two refusal paths (runbook "fails the CSRF check" paragraph; calendar_access.py:15-19 names `CsrfViewMiddleware` and `AnonymousCsrfFailureWriteTest`); `AnonymousCsrfFailureWriteTest` pins `next=<refused path>` per route; the Task 1 structural check ties the phrases to the tested behaviour and the guard code is AST-identical to 798dfe9 | closed |
+| T-39-21 | Tampering (login replay via the CSRF-failure path) | a tokenless write (script, forged cross-site post) gets `next=<the refused write path>`; after logging in, the browser GETs it | medium | mitigate | `require_POST` (405) unchanged on delete-event, create-todo, update-todo and render-only GET on create-event, update-event; `test_replaying_the_refused_path_as_a_signed_in_get_changes_nothing` (test_calendar_write_access.py:349) asserts no row changes for all five routes; tokenless repeat and missing-id POSTs write nothing (lines 320, 334); non-vacuity run with CSRF enforcement off FAILED 22 | closed |
 | T-39-22 | Elevation of privilege | open self-registration (TOM_REGISTRATION_STRATEGY = 'open', src/fomo/settings.py): any member of the public can create an account, is logged in at once, and passes both calendar guards (39-REVIEW CR-01) | high | accept | accepted risk AR-39-01 (corrected 2026-10-08, Tim Lister) by developer sign-off, where ASVS L1 would otherwise mitigate a high threat; recorded in the runbook's read-only paragraph and in 39-REVIEW-DISPOSITION.md (CR-01 skipped); registration setting, D-01 and the guard unchanged | closed |
+| T-39-23 | Repudiation | event_form.html's header omits a difference from upstream (the button label case), and `EventFormHeaderMatchesUpstreamTest` cannot see an unlisted line inside a region that already holds an anchor (39-REVIEW WR-02) | low | mitigate | 39-04 Task 2 (commit 65ba57c) restores upstream's "Save and Edit" label (event_form.html:107), lists it in header item 3 and `ANCHORS[3]` (test_calendar_template.py:1956), pins the full normalized body diff in `solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff` (10 regions; `test_body_diff_matches_pinned_snapshot`) and proves with `test_snapshot_detects_an_unlisted_line_inside_an_anchored_region` that an unlisted line now fails; RED evidence in 39-04-red-evidence-task2.json | closed |
+| T-39-24 | Repudiation | the accepted-risk record drifts: the rationale paraphrased, another ledger finding changed, or the CR-01 entry inconsistent between front matter and table | low | mitigate | 39-04 Task 3 records check printed OK against a saved pre-task copy; commit a8548ea touches exactly 39-REVIEW-DISPOSITION.md (+3/-3) and 39-SECURITY.md (+3/-2); the verbatim rationale is present in the runbook (lines 2592-2594), AR-39-01 / T-39-22 here and the CR-01 ledger row | closed |
 
 *Status: open · closed · open — below high threshold (non-blocking)*
 *Severity: critical > high > medium > low — only open threats at or above workflow.security_block_on count toward threats_open*
@@ -76,6 +80,7 @@ created: "2026-10-08"
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-10-08 | 19 | 19 | 0 | execute-phase verify:post (L1 grep-depth short-circuit: plan-time register, ASVS 1) |
+| 2026-10-08 | 24 | 24 | 0 | execute-phase verify:post after gap-closure plan 39-04 (L1 grep-depth short-circuit: plan-time register, ASVS 1; T-39-20, T-39-21, T-39-23, T-39-24 added from 39-04's threat model, T-39-22 recorded by the plan itself) |
 
 ---
 
@@ -86,4 +91,12 @@ created: "2026-10-08"
 - [x] `threats_open: 0` confirmed
 - [x] `status: verified` set in frontmatter
 
-**Approval:** verified 2026-10-08
+**Approval:** verified 2026-10-08; re-verified 2026-10-08 after gap-closure plan 39-04 (24 threats, 24 closed, threats_open 0)
+
+## Security Audit 2026-10-08
+
+| Metric | Count |
+|---|---|
+| Threats found | 24 |
+| Closed | 24 |
+| Open | 0 |
