@@ -193,7 +193,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. A push to the branch runs the Django test runner with coverage in CI, as `main` does, and no pytest job; `[tool.pytest.ini_options]`, the pytest dev extras and `tests/` are gone, CLAUDE.md's Testing section describes only the Django runner, and the LINCC template v2.2.0 files are present with every FOMO-specific file from the branch still in place
   5. Draft PR #43 is still a draft, and its description says what the branch delivers as of v2.4 — the observation projector, the allocation layer, unattended operation and the public tallies — and links `docs/runbooks/telescope_runs_calendar.rst`
 
-**Plans**: 6/7 plans executed (38-05 and 38-06 close the CR-01 verification gap; 38-07 closes UAT gap G-38-1)
+**Plans**: 7/7 plans executed (38-05 and 38-06 close the CR-01 verification gap; 38-07 closes UAT gap G-38-1)
 
 Plans:
 **Wave 1**
@@ -215,7 +215,7 @@ Plans:
 - [x] 38-06-PLAN.md — Gap closure: re-snapshot issue37-code-only from the corrected branch (D-11, separate worktree), developer approves publishing, plain pushes, PR #43 stays a draft with its body unchanged, CI green on the PR push (SYNC-04, SYNC-05, SYNC-08)
 
 **Wave 7** *(gap closure, blocked on Wave 6 completion)*
-- [ ] 38-07-PLAN.md — Gap closure (G-38-1, docs only): installation guide section saying local_settings.py lives at src/fomo/local_settings.py (a repo-root file is silently ignored), FOMO_BASE_URL note and runbook fresh-host step path-qualified, PR #43 body file's Settings line notes the move; developer approves before the live PR body is edited; nothing pushed, re-snapshot out of scope (SYNC-08)
+- [x] 38-07-PLAN.md — Gap closure (G-38-1, docs only): installation guide section saying local_settings.py lives at src/fomo/local_settings.py (a repo-root file is silently ignored), FOMO_BASE_URL note and runbook fresh-host step path-qualified, PR #43 body file's Settings line notes the move; developer approves before the live PR body is edited; nothing pushed, re-snapshot out of scope (SYNC-08)
 
 ### Phase 39: Calendar Write Access
 
@@ -355,7 +355,7 @@ Plans:
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
 | 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 17/17 | Complete    | 2026-10-06 |
-| 38. Sync with main | v2.5 | 6/6 | In Progress | - |
+| 38. Sync with main | v2.5 | 7/7 | In Progress | - |
 | 39. Calendar Write Access | v2.5 | 0/TBD | Not started | - |
 | 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |

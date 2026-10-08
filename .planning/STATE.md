@@ -4,17 +4,17 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 38
 current_phase_name: Sync with main
-status: verification human_needed
-stopped_at: Completed 38-06-PLAN.md
-last_updated: "2026-10-08T00:14:11.962Z"
+status: executing
+stopped_at: Completed 38-07-PLAN.md
+last_updated: "2026-10-08T02:28:49.868Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 38 execution started
-state_head: 12b7ed5657c3c2fa3f3199c34e8028173e1125fa
+state_head: 63bd305a7d60c8edafd706da21ba69c3ec37b6cc
 progress:
   total_phases: 5
   completed_phases: 39
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 7
+  completed_plans: 7
   percent: 100
 ---
 
@@ -30,9 +30,9 @@ See: .planning/PROJECT.md (updated 2026-10-06 — v2.5 milestone started)
 ## Current Position
 
 Phase: 38 (Sync with main) — EXECUTING
-Plan: 6 of 6 complete
-Status: verification human_needed
-Last activity: 2026-10-07 — Phase 38 execution started
+Plan: 7 of 7 complete
+Status: All plans executed (gap closure 38-07 done); ready for verification
+Last activity: 2026-10-08 — Completed 38-07 (G-38-1 docs; PR #43 body updated)
 
 Progress: [██████████] 100%
 
@@ -47,6 +47,7 @@ Progress: [██████████] 100%
 | Phase 38 P04 | 32 min | 3 tasks | 1 files |
 | Phase 38 P05 | 21 min | 2 tasks | 6 files |
 | Phase 38 P06 | 55 min | 3 tasks | 0 files |
+| Phase 38 P07 | 80min elapsed | 3 tasks | 3 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -67,6 +68,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 38]: 38-04: PR #43 refreshed by publishing 372d02c, a merge -s ours of origin/main and a tree snapshot on issue37-code-only (plain fast-forward pushes); developer answered publish; CI (Django runner, pre-commit, docs) green on the snapshot
 - [Phase 38]: 38-05: took main's side for the alerts/ include (deleted the four lines, ada2000) instead of re-adding tom_alerts to INSTALLED_APPS; D-03 not reopened
 - [Phase 38]: 38-06: developer approved publish; issue37-code-only re-snapshotted (846be34) without the alerts/ route, plain fast-forward pushes, PR #43 still a draft, CI green on 3.10-3.12
+- [Phase 38]: 38-07: G-38-1 closed by documentation only; src/fomo/local_settings.py is the canonical location and the wording names both old locations (repo root and src/) and main's PR #58
 
 ### Pending Todos
 
@@ -114,8 +116,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-07T23:32:53.719Z
-**Stopped at:** Completed 38-06-PLAN.md
+**Last session:** 2026-10-08T02:28:49.758Z
+**Stopped at:** Completed 38-07-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
