@@ -239,7 +239,15 @@ Plans:
   3. An anonymous visitor to `/calendar/` sees no create or update click target in the month view, yet can still open an event's pop-up and read it, including its attributed-run link; a logged-in editor still sees the click targets
   4. The header comment of `src/templates/tom_calendar/partials/event_form.html` names the blocks that actually differ from tomtoolkit 3.1.0's upstream template, and a diff against that upstream file matches the list
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+**Wave 1**
+- [ ] 39-01-PLAN.md — Server guard (tracer: update-event): solsys_code/calendar_access.py wraps all five tom_calendar write routes; anonymous writes by any method go to login with next=/calendar/, htmx gets HX-Redirect, delete and todo routes POST-only, shadowing, CSRF and plain-user-unchanged tests (ACCESS-01)
+- [ ] 39-02-PLAN.md — Read-only presentation (tracer: the visitor's month view and pop-up): create targets only for logged-in users, read-only event card with todos and the attributed-run block, runbook paragraph; six-item WARN-01 header checked against tomtoolkit 3.1.0; Bootstrap 5 utility names; browser proof (ACCESS-02, WARN-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 39-03-PLAN.md — Browser round trip for a logged-in editor (create, edit, delete from the month view), phase gate on the whole tree, both WR-05 review ledgers recorded fixed (ACCESS-01, ACCESS-02, WARN-01)
 **UI hint**: yes
 
 ### Phase 40: Notebook Isolation & Attribution Page
