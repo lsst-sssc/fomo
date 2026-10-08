@@ -27,6 +27,10 @@ created: "2026-10-08"
 | test harness -> live server | the browser test logs in by copying a force_login session cookie; nothing in production code knows about tests | session cookie (test only) |
 | ledgers -> later verifiers and Phase 42 re-verification | a ledger row marked fixed is read as fact by later phases | review dispositions |
 | installed tomtoolkit package -> FOMO | the guard's correctness assumes the vendored views were not edited in place | site-packages integrity |
+| signed-in staff browser -> calendar:create-event | a staff viewer's GET or invalid POST renders event_form.html with no `event`, which reaches the staff-only hint branch (39-05) | form fields, `action`, missing `event` |
+| template layer -> attribution matcher | the hint tag hands the template's `event` value to an ORM lookup and to campaign_attribution (39-05) | template context value |
+| staff-only hint -> non-staff viewers | the hint can name a candidate run that is not yet publicly visible, so who sees it must not widen (39-05) | candidate run names |
+| operator docs -> operators | the runbook is read as fact about what the post-login create and edit pages do (39-05) | operator behaviour |
 
 ---
 
@@ -58,6 +62,11 @@ created: "2026-10-08"
 | T-39-22 | Elevation of privilege | open self-registration (TOM_REGISTRATION_STRATEGY = 'open', src/fomo/settings.py): any member of the public can create an account, is logged in at once, and passes both calendar guards (39-REVIEW CR-01) | high | accept | accepted risk AR-39-01 (corrected 2026-10-08, Tim Lister) by developer sign-off, where ASVS L1 would otherwise mitigate a high threat; recorded in the runbook's read-only paragraph and in 39-REVIEW-DISPOSITION.md (CR-01 skipped); registration setting, D-01 and the guard unchanged | closed |
 | T-39-23 | Repudiation | event_form.html's header omits a difference from upstream (the button label case), and `EventFormHeaderMatchesUpstreamTest` cannot see an unlisted line inside a region that already holds an anchor (39-REVIEW WR-02) | low | mitigate | 39-04 Task 2 (commit 65ba57c) restores upstream's "Save and Edit" label (event_form.html:107), lists it in header item 3 and `ANCHORS[3]` (test_calendar_template.py:1956), pins the full normalized body diff in `solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff` (10 regions; `test_body_diff_matches_pinned_snapshot`) and proves with `test_snapshot_detects_an_unlisted_line_inside_an_anchored_region` that an unlisted line now fails; RED evidence in 39-04-red-evidence-task2.json | closed |
 | T-39-24 | Repudiation | the accepted-risk record drifts: the rationale paraphrased, another ledger finding changed, or the CR-01 entry inconsistent between front matter and table | low | mitigate | 39-04 Task 3 records check printed OK against a saved pre-task copy; commit a8548ea touches exactly 39-REVIEW-DISPOSITION.md (+3/-3) and 39-SECURITY.md (+3/-2); the verbatim rationale is present in the runbook (lines 2592-2594), AR-39-01 / T-39-22 here and the CR-01 ledger row | closed |
+| T-39-25 | Denial of service | GET /calendar/create/ and an invalid create POST for any staff or superuser viewer: the unguarded `high_band_attribution_candidates` raised ValueError on the create form's missing `event`, so the New Event pop-up was a 500 shown as an empty box (G-39-4; latent since 27-07, not a Phase 39 regression) | medium | mitigate | 39-05 Task 1 (commit 917a895): `if not isinstance(event, CalendarEvent): return []` is the tag's first statement (attribution_display_extras.py:52) and the staff-hint elif tests `action == "update"` first (event_form.html:284); `test_staff_and_superuser_get_the_create_form`, `test_staff_create_form_matches_the_plain_users_apart_from_the_csrf_token`, `test_staff_invalid_create_post_re_renders_the_form` and `test_attribution_tag_returns_empty_list_for_a_non_event` (test_calendar_template.py:922-978) were RED before the fix (39-05-red-evidence-task1.json, RED_EVIDENCE_OK) and are green | closed |
+| T-39-26 | Information disclosure | the staff-only "Possible campaign run match" hint can name a run not yet publicly visible; changing its gate must not show it to anonymous or non-staff viewers nor drop it for staff on the edit form | medium | mitigate | the elif keeps `request.user.is_staff` (event_form.html:284) with only the action test added in front; `test_anonymous_does_not_see_hint` (test_calendar_template.py:891) and the other pre-existing `EventModalAttributionHintTest` tests are AST-identical and pass; `test_hint_is_gated_on_the_edit_form` (:979) proves update still shows it and `test_superuser_sees_high_band_hint_for_unlinked_event` (:994) covers superusers; the plain-user equivalence test (:940) proves no staff-only text reaches the create form | closed |
+| T-39-27 | Information disclosure | the bare copy of the event form shown at the create or edit address after a CSRF-failure login: its Save is a native GET that carries the CSRF token in the query string (browser history, server logs) and silently drops the input (39-REVIEW WR-01) | low | accept | accepted risk AR-39-02: 39-05 Task 2 (commit c71b7b0) tells operators not to use the copy and to go back to the calendar page (telescope_runs_calendar.rst:2605-2607); the template `method="post"` hardening (39-REVIEW WR-01 item 2) was offered and not requested by the developer at UAT on 2026-10-08, so the residual token-in-URL risk if someone uses it anyway is accepted; not reachable by an anonymous visitor and not a write path | closed |
+| T-39-28 | Repudiation | the runbook's closing clause presented the post-login create and edit pages as harmless forms, so an operator types a change there and believes it saved | low | mitigate | 39-05 Task 2 (commit c71b7b0, runbook only: +4/-2) rewrote the clause to say the addresses show a bare, unstyled copy of the event form, that its Save saves nothing and silently discards what was typed, and to go back to the calendar page (rst:2605-2607); the Task 2 structural check requires those phrases, forbids the old clause and proves no other text in the runbook or docs/ changed | closed |
+| T-39-29 | Repudiation | event_form.html changes without its header list and pinned snapshot, so the record of how FOMO's copy differs from tomtoolkit 3.1.0 drifts (D-10, WARN-01) | low | mitigate | header item 4 now reads "edit form only" (event_form.html:25) and the snapshot was regenerated in the same commit 917a895 (`+{% elif action == "update" ...` at event_form_vs_tomtoolkit_3_1_0.diff:199, still exactly 10 regions); `test_body_diff_matches_pinned_snapshot` (test_calendar_template.py:2162) and the Task 1 structural check enforce it | closed |
 
 *Status: open · closed · open — below high threshold (non-blocking)*
 *Severity: critical > high > medium > low — only open threats at or above workflow.security_block_on count toward threats_open*
@@ -70,6 +79,7 @@ created: "2026-10-08"
 | Risk ID | Threat Ref | Rationale | Accepted By | Date |
 |---------|------------|-----------|-------------|------|
 | AR-39-01 | T-39-10, T-39-22 | D-01 / D-03 (39-CONTEXT.md): any logged-in user may create, edit or delete any calendar event, including other users' and pipeline-created ones; the boundary this phase sets is anonymous vs. logged-in, and tightening to staff/ownership is a later, separate decision at the same wrapping point (39-01 prohibition). Corrected 2026-10-08 (39-REVIEW CR-01): this risk was first accepted on the premise that accounts are issued by the operator (39-01-PLAN.md T-39-10); that premise is false while TOM_REGISTRATION_STRATEGY = 'open' -- any member of the public can obtain a login -- so the accepted risk covers self-registered accounts too. Re-accepted with the premise corrected: "Self-signup is wanted; collaborators should be able to join without an operator; calendar edits are visible, attributable and easily reverted." The registration setting, D-01 and the guard are unchanged. | Tim Lister (D-01 at discuss-phase 39; re-accepted after 39-REVIEW CR-01) | 2026-10-08 |
+| AR-39-02 | T-39-27 | After a CSRF-failure login the create and edit addresses render event_form.html as a bare fragment (no page shell, no htmx); its Save is a native GET that saves nothing, discards the typed input and puts the CSRF token in the query string. Phase 39-05 closes this by documentation (runbook: do not use the copy, go back to the calendar page); the `method="post"` / `action` hardening of the FOMO-owned form (39-REVIEW WR-01 item 2) was offered and not requested at UAT on 2026-10-08. The path is not reachable by an anonymous visitor and is not a write path. | Tim Lister (UAT decision 2026-10-08, G-39-3 scope) | 2026-10-08 |
 
 *Accepted risks do not resurface in future audit runs.*
 
@@ -81,6 +91,7 @@ created: "2026-10-08"
 |------------|---------------|--------|------|--------|
 | 2026-10-08 | 19 | 19 | 0 | execute-phase verify:post (L1 grep-depth short-circuit: plan-time register, ASVS 1) |
 | 2026-10-08 | 24 | 24 | 0 | execute-phase verify:post after gap-closure plan 39-04 (L1 grep-depth short-circuit: plan-time register, ASVS 1; T-39-20, T-39-21, T-39-23, T-39-24 added from 39-04's threat model, T-39-22 recorded by the plan itself) |
+| 2026-10-08 | 29 | 29 | 0 | execute-phase verify:post after gap-closure plan 39-05 (L1 grep-depth short-circuit: plan-time register, ASVS 1; T-39-25, T-39-26, T-39-28, T-39-29 mitigated and T-39-27 accepted as AR-39-02 from 39-05's threat model; the shared T-39-SC supply-chain row stays accepted/no installs as in every plan of this phase and is not tabulated) |
 
 ---
 
@@ -91,7 +102,7 @@ created: "2026-10-08"
 - [x] `threats_open: 0` confirmed
 - [x] `status: verified` set in frontmatter
 
-**Approval:** verified 2026-10-08; re-verified 2026-10-08 after gap-closure plan 39-04 (24 threats, 24 closed, threats_open 0)
+**Approval:** verified 2026-10-08; re-verified 2026-10-08 after gap-closure plan 39-04 (24 threats, 24 closed, threats_open 0); re-verified 2026-10-08 after gap-closure plan 39-05 (29 threats, 29 closed, threats_open 0)
 
 ## Security Audit 2026-10-08
 
@@ -99,4 +110,12 @@ created: "2026-10-08"
 |---|---|
 | Threats found | 24 |
 | Closed | 24 |
+| Open | 0 |
+
+## Security Audit 2026-10-08
+
+| Metric | Count |
+|---|---|
+| Threats found | 29 |
+| Closed | 29 |
 | Open | 0 |
