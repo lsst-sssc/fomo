@@ -3,9 +3,9 @@ phase: "39"
 slug: "calendar-write-access"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-10-08"
 ---
 
@@ -40,13 +40,13 @@ created: "2026-10-08"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 39-01-01 | 01 | 1 | ACCESS-01 | T-39-01, T-39-03, T-39-04, T-39-08 | anonymous POST/PUT/PATCH/DELETE/OPTIONS on update-event is a 302 to `/accounts/login/?next=/calendar/` with every field unchanged; anonymous GET/HEAD (the pop-up) 200; plain signed-in POST saves; guard module has no mutable state and no upstream logic (AST check) | unit (TDD, RED recorded) | `python manage.py test --noinput solsys_code.tests.test_calendar_write_access` | ❌ W0 — created by this task (tests first) | ⬜ pending |
-| 39-01-02 | 01 | 1 | ACCESS-01 | T-39-01..T-39-07, T-39-09 | all five routes refuse anonymous callers on every method (GET included on delete/todo routes); htmx gets 200 + HX-Redirect, never 403; signed-in GET on delete-event/create-todo/update-todo is 405; CSRF still enforced; literal paths resolve to FOMO's guarded conf (app_name 'calendar') | unit (TDD, RED recorded) | `python manage.py test --noinput solsys_code.tests.test_calendar_write_access solsys_code.tests.test_urls` | ❌ W0 — module from 39-01-01 | ⬜ pending |
-| 39-02-01 | 02 | 1 | ACCESS-02 | T-39-11..T-39-15 | anonymous month view has no `/calendar/create/` target; anonymous pop-up is the read-only `cal-event-card` (no form/input/select/textarea/button/hx-post/csrf token), shows the attributed-run block once and read-only todos, escapes markup, never echoes ALLOC:/RUN: keys; editor form unchanged; runbook paragraph present | unit (TDD, RED recorded) + structural python check | `python manage.py test --noinput solsys_code.tests.test_calendar_template` | ✅ module exists — new classes added by this task | ⬜ pending |
-| 39-02-02 | 02 | 1 | WARN-01 | T-39-16 | event_form.html header pins tomtoolkit 3.1.0 and lists six items; every region where the body differs from the installed upstream file matches an item's anchor and vice versa; calendar.html carries only Bootstrap 5 utility names, keeps `data-url` | unit, source-level (TDD, RED recorded) | `python manage.py test --noinput solsys_code.tests.test_calendar_template` | ✅ module exists — new classes added by this task | ⬜ pending |
-| 39-02-03 | 02 | 1 | ACCESS-02 | T-39-15 | Chromium, no cookie: no '+ New Event', no create hx-get, event click opens the read-only card via the Bootstrap 5 API with the attributed-run link and no form control; empty day cell opens nothing and sends no create request; logged-in user still opens the modal from both create targets | functional (Playwright) | `python manage.py test --noinput --tag functional` with the seven named `TestBootstrap5Rendering` tests (see 39-02 Task 3 verify) | ✅ module exists — tests added/re-pointed by this task | ⬜ pending |
-| 39-03-01 | 03 | 2 | ACCESS-01, ACCESS-02 | T-39-17 | a logged-in plain user creates, edits and deletes an event from the month view through the guarded routes; no test-only login path | functional (Playwright) | `python manage.py test --noinput --tag functional` with the five named `TestBootstrap5Rendering` tests (see 39-03 Task 1 verify) | ✅ module exists — test added by this task | ⬜ pending |
-| 39-03-02 | 03 | 2 | ACCESS-01, ACCESS-02, WARN-01 | T-39-18, T-39-19 | full suite OK with no skips; ruff clean twice; check only urls.W005; no migrations; tom_calendar files match tomtoolkit RECORD; ledgers record WR-05 fixed with no other disposition changed | full suite + gates + ledger check | `python manage.py test --noinput solsys_code --exclude-tag=ephemeris_segfault` (plus the four gate commands in 39-03 Task 2 verify) | ✅ | ⬜ pending |
+| 39-01-01 | 01 | 1 | ACCESS-01 | T-39-01, T-39-03, T-39-04, T-39-08 | anonymous POST/PUT/PATCH/DELETE/OPTIONS on update-event is a 302 to `/accounts/login/?next=/calendar/` with every field unchanged; anonymous GET/HEAD (the pop-up) 200; plain signed-in POST saves; guard module has no mutable state and no upstream logic (AST check) | unit (TDD, RED recorded) | `python manage.py test --noinput solsys_code.tests.test_calendar_write_access` | ❌ W0 — created by this task (tests first) | ✅ green |
+| 39-01-02 | 01 | 1 | ACCESS-01 | T-39-01..T-39-07, T-39-09 | all five routes refuse anonymous callers on every method (GET included on delete/todo routes); htmx gets 200 + HX-Redirect, never 403; signed-in GET on delete-event/create-todo/update-todo is 405; CSRF still enforced; literal paths resolve to FOMO's guarded conf (app_name 'calendar') | unit (TDD, RED recorded) | `python manage.py test --noinput solsys_code.tests.test_calendar_write_access solsys_code.tests.test_urls` | ❌ W0 — module from 39-01-01 | ✅ green |
+| 39-02-01 | 02 | 1 | ACCESS-02 | T-39-11..T-39-15 | anonymous month view has no `/calendar/create/` target; anonymous pop-up is the read-only `cal-event-card` (no form/input/select/textarea/button/hx-post/csrf token), shows the attributed-run block once and read-only todos, escapes markup, never echoes ALLOC:/RUN: keys; editor form unchanged; runbook paragraph present | unit (TDD, RED recorded) + structural python check | `python manage.py test --noinput solsys_code.tests.test_calendar_template` | ✅ module exists — new classes added by this task | ✅ green |
+| 39-02-02 | 02 | 1 | WARN-01 | T-39-16 | event_form.html header pins tomtoolkit 3.1.0 and lists six items; every region where the body differs from the installed upstream file matches an item's anchor and vice versa; calendar.html carries only Bootstrap 5 utility names, keeps `data-url` | unit, source-level (TDD, RED recorded) | `python manage.py test --noinput solsys_code.tests.test_calendar_template` | ✅ module exists — new classes added by this task | ✅ green |
+| 39-02-03 | 02 | 1 | ACCESS-02 | T-39-15 | Chromium, no cookie: no '+ New Event', no create hx-get, event click opens the read-only card via the Bootstrap 5 API with the attributed-run link and no form control; empty day cell opens nothing and sends no create request; logged-in user still opens the modal from both create targets | functional (Playwright) | `python manage.py test --noinput --tag functional` with the seven named `TestBootstrap5Rendering` tests (see 39-02 Task 3 verify) | ✅ module exists — tests added/re-pointed by this task | ✅ green |
+| 39-03-01 | 03 | 2 | ACCESS-01, ACCESS-02 | T-39-17 | a logged-in plain user creates, edits and deletes an event from the month view through the guarded routes; no test-only login path | functional (Playwright) | `python manage.py test --noinput --tag functional` with the five named `TestBootstrap5Rendering` tests (see 39-03 Task 1 verify) | ✅ module exists — test added by this task | ✅ green |
+| 39-03-02 | 03 | 2 | ACCESS-01, ACCESS-02, WARN-01 | T-39-18, T-39-19 | full suite OK with no skips; ruff clean twice; check only urls.W005; no migrations; tom_calendar files match tomtoolkit RECORD; ledgers record WR-05 fixed with no other disposition changed | full suite + gates + ledger check | `python manage.py test --noinput solsys_code --exclude-tag=ephemeris_segfault` (plus the four gate commands in 39-03 Task 2 verify) | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -54,9 +54,9 @@ created: "2026-10-08"
 
 ## Wave 0 Requirements
 
-- [ ] `solsys_code/tests/test_calendar_write_access.py` — ACCESS-01 tests (AnonymousCalendarWriteTest, SignedInCalendarWriteTest, CalendarUrlConfShadowingTest). Folded into 39-01 Task 1 (tracer, tests written and run RED before the guard) and extended in Task 2; no separate Wave 0 plan.
-- [ ] New classes in `solsys_code/tests/test_calendar_template.py` — CalendarMonthViewReadOnlyTest, EventModalReadOnlyCardTest, EventCardUrlLinkTest (39-02 Task 1, written RED first); EventFormHeaderMatchesUpstreamTest, CalendarTemplateBootstrap5ClassTest (39-02 Task 2, RED first). `EventFormUrlLinkTest` is re-pointed at a logged-in user in 39-02 Task 1 (RESEARCH Pitfall 3).
-- [ ] `solsys_code/tests/test_bootstrap5_rendering.py` — two anonymous create-target tests re-pointed at a logged-in user and two anonymous read-only tests added (39-02 Task 3); editor round trip added (39-03 Task 1).
+- [x] `solsys_code/tests/test_calendar_write_access.py` — ACCESS-01 tests (AnonymousCalendarWriteTest, SignedInCalendarWriteTest, CalendarUrlConfShadowingTest). Folded into 39-01 Task 1 (tracer, tests written and run RED before the guard) and extended in Task 2; no separate Wave 0 plan.
+- [x] New classes in `solsys_code/tests/test_calendar_template.py` — CalendarMonthViewReadOnlyTest, EventModalReadOnlyCardTest, EventCardUrlLinkTest (39-02 Task 1, written RED first); EventFormHeaderMatchesUpstreamTest, CalendarTemplateBootstrap5ClassTest (39-02 Task 2, RED first). `EventFormUrlLinkTest` is re-pointed at a logged-in user in 39-02 Task 1 (RESEARCH Pitfall 3).
+- [x] `solsys_code/tests/test_bootstrap5_rendering.py` — two anonymous create-target tests re-pointed at a logged-in user and two anonymous read-only tests added (39-02 Task 3); editor round trip added (39-03 Task 1).
 - Framework install: none — Django runner, Playwright 1.62.0 and Chromium (`~/.cache/ms-playwright/chromium-1234`, `-1243`) are already present.
 
 ---
@@ -72,11 +72,21 @@ created: "2026-10-08"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 90s (targeted runs; the full suite is the wave/phase gate)
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 90s (targeted runs; the full suite is the wave/phase gate)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** {pending / approved YYYY-MM-DD}
+**Approval:** approved 2026-10-08 (execute-phase verify:post audit — 7/7 tasks green: 39-01 25 unit tests, 39-02 94 template tests + 13 Playwright, 39-03 full suite 2233 OK incl. functional; 2 manual-only items retained)
+
+## Validation Audit 2026-10-08
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Tasks green | 7 |
+| Manual-only | 2 |
