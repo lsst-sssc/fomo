@@ -5,7 +5,7 @@ titles: json
 findings:
   - id: CR-01
     severity: critical
-    disposition: open
+    disposition: skipped
     title: "Open self-registration lets anyone through the login guard, so any internet user can still create, edit and delete any calendar event"
   - id: WR-01
     severity: warning
@@ -31,7 +31,7 @@ findings:
     severity: info
     disposition: open
     title: "The Bootstrap 5 rename in calendar.html is incomplete, and its test covers only `--white`"
-open: 7
+open: 6
 total: 7
 recorded: 2026-10-08T16:39:18.859Z
 ---
@@ -40,7 +40,7 @@ recorded: 2026-10-08T16:39:18.859Z
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-01 | critical | open | - |
+| CR-01 | critical | skipped | accepted risk (won't fix), Tim Lister 2026-10-08: "Self-signup is wanted; collaborators should be able to join without an operator; calendar edits are visible, attributable and easily reverted." TOM_REGISTRATION_STRATEGY, D-01 and the guard unchanged; see 39-SECURITY.md AR-39-01 and T-39-22 |
 | WR-01 | warning | open | - |
 | WR-02 | warning | open | - |
 | IN-01 | info | open | - |
