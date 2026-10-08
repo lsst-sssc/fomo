@@ -47,6 +47,9 @@ created: "2026-10-08"
 | 39-02-03 | 02 | 1 | ACCESS-02 | T-39-15 | Chromium, no cookie: no '+ New Event', no create hx-get, event click opens the read-only card via the Bootstrap 5 API with the attributed-run link and no form control; empty day cell opens nothing and sends no create request; logged-in user still opens the modal from both create targets | functional (Playwright) | `python manage.py test --noinput --tag functional` with the seven named `TestBootstrap5Rendering` tests (see 39-02 Task 3 verify) | ✅ module exists — tests added/re-pointed by this task | ✅ green |
 | 39-03-01 | 03 | 2 | ACCESS-01, ACCESS-02 | T-39-17 | a logged-in plain user creates, edits and deletes an event from the month view through the guarded routes; no test-only login path | functional (Playwright) | `python manage.py test --noinput --tag functional` with the five named `TestBootstrap5Rendering` tests (see 39-03 Task 1 verify) | ✅ module exists — test added by this task | ✅ green |
 | 39-03-02 | 03 | 2 | ACCESS-01, ACCESS-02, WARN-01 | T-39-18, T-39-19 | full suite OK with no skips; ruff clean twice; check only urls.W005; no migrations; tom_calendar files match tomtoolkit RECORD; ledgers record WR-05 fixed with no other disposition changed | full suite + gates + ledger check | `python manage.py test --noinput solsys_code --exclude-tag=ephemeris_segfault` (plus the four gate commands in 39-03 Task 2 verify) | ✅ | ✅ green |
+| 39-04-01 | 04 | 3 | ACCESS-01 | T-39-20, T-39-21 | a tokenless anonymous POST to each of the five write routes is a 302 (htmx: 200 + HX-Redirect) to `/accounts/login/?next=<the refused path>`, repeats identically, a missing id gives 302 not 404, a signed-in GET replay of the refused path writes nothing (405 on delete/todo routes, form render on create/update), no row changes; guard code AST-identical (docstring-only change); runbook names both refusal paths | unit (tracer; non-vacuity run with CSRF off FAILED 22) + structural python check | `python manage.py test --noinput solsys_code.tests.test_calendar_write_access` | ✅ module exists — `CalendarRowSnapshotMixin`, `AnonymousCsrfFailureWriteTest` added by this task | ✅ green (30 tests) |
+| 39-04-02 | 04 | 3 | WARN-01 | T-39-23 | create form's "Save and Edit" label matches tomtoolkit 3.1.0; the body's normalized diff against the installed upstream file matches the pinned snapshot `solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff` (10 regions); an unlisted line inside an anchored region fails (non-vacuity test) | unit, source-level (TDD, RED recorded in `39-04-red-evidence-task2.json`) | `python manage.py test --noinput solsys_code.tests.test_calendar_template` (+ the two named functional tests) | ✅ module exists — tests added by this task | ✅ green (97 + 2 functional) |
+| 39-04-03 | 04 | 3 | ACCESS-01 | T-39-22, T-39-24 | full suite OK with no skips; ruff clean twice; check only urls.W005; no migrations; tom_calendar files match tomtoolkit RECORD; CR-01 recorded as an accepted risk with the verbatim rationale in the runbook, 39-SECURITY.md (T-39-10 premise corrected, T-39-22 row, AR-39-01) and the review ledger, exactly three ledger lines changed | full suite + gates + records check | `python manage.py test --noinput solsys_code --exclude-tag=ephemeris_segfault` (plus the gate commands and the records check script in 39-04 Task 3 verify) | ✅ | ✅ green (2241 tests) |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -81,6 +84,8 @@ created: "2026-10-08"
 
 **Approval:** approved 2026-10-08 (execute-phase verify:post audit — 7/7 tasks green: 39-01 25 unit tests, 39-02 94 template tests + 13 Playwright, 39-03 full suite 2233 OK incl. functional; 2 manual-only items retained)
 
+**Re-approval after gap closure 39-04:** approved 2026-10-08 (execute-phase verify:post audit — 10/10 tasks green: 39-04 write-access module 30 tests, template module 97 + 2 functional, full suite 2241 OK incl. functional; the 2 manual-only items are retained — the CSRF-failure variant of the first one is now asserted automatically by `test_replaying_the_refused_path_as_a_signed_in_get_changes_nothing`, the allauth landing page itself remains manual)
+
 ## Validation Audit 2026-10-08
 
 | Metric | Count |
@@ -89,4 +94,14 @@ created: "2026-10-08"
 | Resolved | 0 |
 | Escalated | 0 |
 | Tasks green | 7 |
+| Manual-only | 2 |
+
+## Validation Audit 2026-10-08
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Tasks green | 10 |
 | Manual-only | 2 |
