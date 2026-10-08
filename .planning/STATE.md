@@ -78,6 +78,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39]: 39-02: read-only visitor card lives inside event_form.html (one file, series/campaign blocks render once); a non-web URL value is never echoed on the anonymous card; todos stay readable to visitors
 - [Phase 39]: 39-03: edit step counts form[hx-post*='/calendar/update/'] because the saved-event pop-up also holds upstream's add-a-todo form
 - [Phase 39]: 39-04: gap 1 closed by docs and tests, not a CSRF_FAILURE_VIEW; CR-01 open self-registration recorded as an accepted risk (Tim Lister 2026-10-08); upstream Save and Edit label restored with a pinned body diff snapshot
+- [Phase 39]: wave 3 ui.safety-gate block ("UI files changed, no UI-SPEC.md") overridden by the developer (2026-10-08): the only UI change is 65ba57c restoring a one-word button label, and 39-UI-REVIEW.md already audits the phase against the abstract standards
 
 ### Pending Todos
 

@@ -1,8 +1,8 @@
 ---
 phase: 39-calendar-write-access
-verified: 2026-10-08T16:55:00Z
-status: gaps_found
-score: 33/36 must-haves verified
+verified: 2026-10-08T21:11:50Z
+status: human_needed
+score: 48/49 must-haves verified
 covered_files:
   - .planning/phases/39-calendar-write-access/39-01-PLAN.md
   - .planning/phases/39-calendar-write-access/39-01-SUMMARY.md
@@ -10,9 +10,12 @@ covered_files:
   - .planning/phases/39-calendar-write-access/39-02-SUMMARY.md
   - .planning/phases/39-calendar-write-access/39-03-PLAN.md
   - .planning/phases/39-calendar-write-access/39-03-SUMMARY.md
+  - .planning/phases/39-calendar-write-access/39-04-PLAN.md
+  - .planning/phases/39-calendar-write-access/39-04-SUMMARY.md
   - docs/runbooks/telescope_runs_calendar.rst
   - solsys_code/calendar_access.py
   - solsys_code/calendar_urls.py
+  - solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff
   - solsys_code/tests/test_bootstrap5_rendering.py
   - solsys_code/tests/test_calendar_template.py
   - solsys_code/tests/test_calendar_write_access.py
@@ -20,239 +23,229 @@ covered_files:
   - src/fomo/urls.py
   - src/templates/tom_calendar/partials/calendar.html
   - src/templates/tom_calendar/partials/event_form.html
-covered_digest: "v3:sha256:32cc64f243aa0dda510814243e92e5500775cf0d13db20c777b66b1cdb40acbc"
+covered_digest: "v3:sha256:c15fcc752d1521e801022c68b1283a32185ceccce8ce76a1b1d9b6edcb8a50d3"
 behavior_unverified: 0
-overrides_applied: 0
+overrides_applied: 1
 overrides:
   - must_have: "CSRF unchanged: a signed-in POST to calendar:create-event without a CSRF token through Client(enforce_csrf_checks=True) returns 403 and creates nothing (the guards do not exempt CSRF)."
     reason: "tom_common's Raise403Middleware rewrites every browser 403 into a 302 to login (next=/calendar/create/); the request is still refused and nothing is created, and the distinct next proves the CSRF layer refused it, not the guard"
     accepted_by: "Tim Lister"
     accepted_at: "2026-10-08T17:04:52Z"
-gaps:
-  - truth: "Paired doc (CLAUDE.md paired-docs rule): the runbook's 'Not logged in, the calendar is read-only.' paragraph describes what happens to a logged-out write attempt truthfully"
-    status: failed
-    reason: "The paragraph says a logged-out write attempt from 'a stale browser tab, a script' is sent to login and 'after logging in, the browser returns to the calendar page, never to the refused write'. A write with no valid CSRF token (a script, or a forged cross-site post) is refused by CsrfViewMiddleware before the guard runs; tom_common's Raise403Middleware turns that 403 into /accounts/login/?next=<the refused write path> (htmx: HX-Redirect to the same). Reproduced for all five routes with an anonymous Client(enforce_csrf_checks=True). No row is written on that path, and replaying the next URL as a signed-in GET gives 405 for delete-event/create-todo/update-todo and a bare form fragment for create-event/update-event, so this is a truthfulness defect, not a write hole (39-REVIEW WR-01)."
-    artifacts:
-      - path: "docs/runbooks/telescope_runs_calendar.rst"
-        issue: "Lines ~2586-2589: 'after logging in, the browser returns to the calendar page, never to the refused write' is false for the CSRF-failure path, including the 'script' case the sentence itself names"
-      - path: "solsys_code/tests/test_calendar_write_access.py"
-        issue: "Every AnonymousCalendarWriteTest test uses the default test Client (CSRF checks off), so the exact Location ?next=/calendar/ is proven only for requests that pass the CSRF check; no anonymous CSRF-enforced test exists"
-    missing:
-      - "Correct the runbook sentence (e.g. a refused write that passes the CSRF check returns to the calendar page; one that fails it is sent to login with the refused path as next, where a GET changes nothing), OR make the behaviour match the doc with a CSRF_FAILURE_VIEW that returns redirect_to_login(reverse('calendar:calendar')) for anonymous /calendar/ requests"
-      - "Add an anonymous Client(enforce_csrf_checks=True) test per write route that asserts no row changes and pins whichever Location is chosen"
-      - "Optionally scope calendar_access.py's module-docstring sentence 'The login next is the calendar page, not the refused URL' to the guard's own redirect"
-  - truth: "39-01 CSRF must-have: a signed-in POST to calendar:create-event without a CSRF token through Client(enforce_csrf_checks=True) returns 403 and creates nothing (the guards do not exempt CSRF)"
-    status: failed
-    reason: "As worded the truth is false: the response is 302 to /accounts/login/?next=/calendar/create/ because tom_common's Raise403Middleware rewrites every browser 403. The intent holds: the request is refused, nothing is created, and the Location (next=/calendar/create/) differs from the guard's next=/calendar/, proving the CSRF layer refused it. The executor recorded this as a Rule-1 deviation and changed the test to assert 302. This needs an override (no code change), not a fix."
-    artifacts:
-      - path: "solsys_code/tests/test_calendar_write_access.py"
-        issue: "test_post_without_csrf_token_is_refused asserts 302 + Location next=/calendar/create/, not the 403 the must-have states"
-    missing:
-      - "Accept the override suggested in the report body (the 403 wording was a planning assumption about the middleware stack), or reword the must-have to 'is refused (302 to login via Raise403Middleware) and creates nothing'"
-coincidental_reliance_items:
-  - truth: "39-01 Pitfall 2 / SC1: an anonymous refused write is redirected to exactly /accounts/login/?next=/calendar/"
-    reason: fixture-only
-    harden: "The default django.test.Client disables CSRF checks, so every anonymous exact-Location assertion relies on a precondition (valid CSRF token) that a tokenless production request (script, forged post) does not have; declare the CSRF-passing precondition in the test docstring and add a CSRF-enforced anonymous test (see gap 1)"
+re_verification:
+  previous_status: gaps_found
+  previous_score: 33/36
+  gaps_closed:
+    - "Paired doc (CLAUDE.md paired-docs rule): the runbook's 'Not logged in, the calendar is read-only.' paragraph describes what happens to a logged-out write attempt truthfully"
+    - "39-01 CSRF must-have (403 wording) -- closed by the accepted override above; test unchanged"
+    - "Coincidental-reliance item (anonymous exact-Location assertions relied on the CSRF-disabled test client) -- precondition declared and the CSRF-failure path pinned by AnonymousCsrfFailureWriteTest"
+  gaps_remaining: []
+  regressions: []
+advisory:
+  - finding: "39-REVIEW WR-01 (post-39-04): on the CSRF-failure path a signed-in user lands, after login, on a bare stand-alone form fragment for create-event/update-event; its <form> has no method or action, so clicking Save without htmx sends a GET carrying the typed fields and csrfmiddlewaretoken in the query string. The runbook's 'only show a form' is accurate (verifier probe: the tag is <form hx-post=... hx-target=...>, no <html>, no htmx script; nothing is written) but does not warn the operator not to use that form."
+    category: security
+    reason: "Not a write path and not reachable by an anonymous visitor; the form block is upstream's markup (unchanged by this phase apart from the label), so the same bare fragment is reached by any signed-in direct visit to /calendar/update/<id>/ today. Resolve with a one-sentence runbook warning and/or method=\"post\" plus action on the FOMO-owned form (one header item and snapshot update)."
+    evidence_status: "reproduced by verifier probe (form tag, no page shell); token-in-URL consequence follows from HTML default form method"
+  - finding: "39-REVIEW WR-02 (post-39-04): event_form.html's header says the pinned snapshot makes 'any new difference fail until this list and that file are updated together'; regenerating the snapshot alone turns the test green for a line inside an already-anchored region, so the header list itself is not enforced on that path."
+    category: other
+    reason: "The six-item list of differences is accurate today (10 snapshot regions all map to items 1-6) and the goal's truthfulness about HOW the override differs holds; this sentence overstates what the drift test enforces. Resolve by rewording to 'fails until that file is regenerated; review it against this list', or by binding a header hash into the snapshot."
+    evidence_status: "statically evident from test_calendar_template.py (current_diff regenerates from the body only); not executed"
+  - finding: "39-REVIEW WR-03: the snapshot is 'vs tomtoolkit 3.1.0' by name, but the test diffs against the installed tomtoolkit and pyproject requires tomtoolkit>=3.1.0 unpinned."
+    category: other
+    reason: "Fails closed (an upstream change turns CI red) with a misleading message and remedy; installed version here is 3.1.0, so the header's comparison is true today. Resolve with an installed-version assertion and an upgrade-specific message, or pin tomtoolkit."
+    evidence_status: "statically evident (pyproject.toml, _upstream_lines reads the installed package)"
 human_verification:
-  - test: "DECISION (39-REVIEW CR-01, highest priority): open self-registration. Effective settings (including local_settings.py) are TOM_REGISTRATION_STRATEGY='open' and ACCOUNT_EMAIL_VERIFICATION='none'; TomAccountAdapter.is_open_for_signup() returns True and /accounts/signup/ serves the signup form (200, password1 field). save_user() creates the account active and allauth logs it in at once."
-    expected: "Developer decides whether D-01 ('any logged-in user may write') stands given that any member of the public can obtain a login in under a minute. Options: TOM_REGISTRATION_STRATEGY='approval_required' (or None) in settings/production local_settings; or reopen D-01 and gate writes on staff/permission at the same wrapping point; or accept explicitly and record why (e.g. production overrides the strategy). Also record that T-39-10/AR-39-01 in 39-SECURITY.md was accepted on the premise 'accounts are issued by the operator', which these settings contradict."
-    why_human: "Not a must-have gap as written (the goal is about 'anyone not logged in'; D-01 is locked and 39-01's prohibition forbids narrowing beyond 'logged in'), so the phase could not close it in scope; it reopens a locked decision and depends on the production deployment's settings, which are not visible here."
-  - test: "DECISION (39-REVIEW WR-02): event_form.html's 'Save and edit' button label differs from upstream's 'Save and Edit'. Header item 3 names the button block and quotes FOMO's label but describes the difference as markup only. EventFormHeaderMatchesUpstreamTest cannot detect an omission inside a region that already holds an anchor (difflib merges FOMO body lines 79-275, card plus series/campaign/high-band blocks, into one inserted region)."
-    expected: "Either restore upstream's 'Save and Edit' label or add the case change to item 3; optionally harden the test (per-region item mapping or a pinned normalized diff snapshot)."
-    why_human: "SC4 holds at block level (every differing block is named and the diff matches the list), so this is a precision and future-robustness choice, not a failed truth."
-  - test: "Judgment-tier prohibition (39-02): 'MUST NOT show an anonymous visitor anything that looks editable or tells them how to get write access'. Non-authoritative LLM-judge verdict: satisfied for the card and the month partial (no form/input/select/textarea/button, no login prompt; tests assert both). Borderline item: 39-REVIEW IN-03, day cells still change background on hover for visitors (.cal-day:hover rules), which may read as clickable."
-    expected: "A human opens /calendar/ logged out and confirms nothing looks editable, or asks for the hover tint to be scoped to logged-in users (39-02 declined that polish deliberately)."
-    why_human: "Visual affordance judgement; judgment-tier prohibitions require human resolution and are never silently passed."
-  - test: "Backstop truth (39-01 concurrency edge): the guard keeps no state between requests, so concurrent or interrupted anonymous requests are each refused independently."
-    expected: "Accept the structural evidence (AST check re-run by the verifier: only a tuple of string constants at module level, no global/nonlocal, calls limited to wraps/redirect_to_login/reverse/view/_login_redirect) as sufficient, or ask for a concurrency test."
+  - test: "Judgment-tier prohibition (39-02): 'MUST NOT show an anonymous visitor anything that looks editable or tells them how to get write access'. Open /calendar/ logged out, click an entry and hover over day cells."
+    expected: "Nothing looks editable and nothing prompts a login. Decide whether the day-cell hover tint (.cal-day:hover, IN-03 of the first review) is acceptable for visitors or should be scoped to logged-in users. Non-authoritative LLM verdict: satisfied (verifier probe: anonymous card has no form/input/select/textarea/hx-post/write URL; anonymous month view's only control is the utc_offset display select, an hx-get to /calendar/; no '+ New Event')."
+    why_human: "Visual affordance judgement; judgment-tier prohibitions need explicit human resolution and are never passed silently."
+  - test: "Backstop truth (39-01 concurrency edge, A12): the guard keeps no state between requests, so concurrent or interrupted anonymous requests are each refused independently."
+    expected: "Accept the structural evidence (calendar_access.py code AST-identical to 798dfe9; module level holds only a tuple of string constants; no global/nonlocal) as sufficient, or ask for a concurrency test."
     why_human: "Marked verification: backstop (non-inferable); presence and structure never qualify on their own, and no concurrent-request test exists."
+  - test: "39-04 Task 1 human-check: read the rewritten runbook paragraph (docs/runbooks/telescope_runs_calendar.rst lines 2576-2605) once."
+    expected: "It reads as plain operator guidance, names both refusal paths without jargon beyond 'CSRF check', and states the self-registration acceptance with its quoted reason. (39-04-SUMMARY reports this was approved at the Task 1 checkpoint; confirm, and decide at the same time whether to add the WR-01 'do not use the bare form' sentence and the IN-02 login-page flash note.)"
+    why_human: "Readability and tone of operator documentation."
 ---
 
 # Phase 39: Calendar Write Access Verification Report
 
 **Phase Goal:** The public calendar is read-only to anyone not logged in — an anonymous visitor can neither create, change nor delete an event, and is not offered a control that would try — and FOMO's event pop-up override says truthfully how it differs from tomtoolkit 3.1.0's upstream template.
-**Verified:** 2026-10-08T16:55:00Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-10-08T21:11:50Z
+**Status:** human_needed
+**Re-verification:** Yes — after gap-closure plan 39-04 (commits bc73bfd, 65ba57c, a8548ea, b1fd597)
 
-The core goal is achieved in code: no anonymous request writes through any of the five calendar write routes by any method (my own CSRF-enforced probe confirms it too), the visitor's month view and pop-up offer no write control, a plain signed-in user still creates, edits and deletes in Chromium, and the WARN-01 header matches the 3.1.0 diff block by block. Two gaps remain. One is real but small: the paired runbook makes a false claim about the CSRF-failure path. The other is a must-have whose wording was wrong (403 vs 302) and needs an override. Separately, CR-01 (open self-registration) is a developer decision that the phase could not close within D-01.
+The goal is achieved in the code. Both gaps from the previous pass are closed:
+
+- **Gap 1:** the runbook paragraph now describes both refusal paths, and new tests pin the path a write takes when it fails the CSRF check, for all five routes. I also ran my own probe of the "tab left open after logging out" example: it logs out through the real logout view, and that tab does pass the CSRF check and reaches the guard.
+- **Gap 2:** closed by the override Tim Lister accepted.
+
+As instructed, CR-01 (open self-registration) is now on record as an accepted risk and is not treated as a gap.
+
+None of the eight new review findings blocks the goal; three are kept as advisories. The phase still needs a human for three items: the judgment-tier visitor-affordance prohibition, the backstop concurrency truth, and the 39-04 readability check on the runbook paragraph. That is why the status is `human_needed` and not `passed`.
 
 ## Goal Achievement
 
+### Re-checked gaps from the previous report
+
+| # | Previous gap | Now | Evidence |
+|---|--------------|-----|----------|
+| D1 | Runbook paragraph claimed every refused logged-out write returns to the calendar page | ✓ VERIFIED | Lines 2596-2605 now name two paths: a write that passes the CSRF check returns to the calendar page, while one that fails it is sent to login with the refused address. The old clause "never to the refused write" is gone, and so is the "script" example from that sentence. The 39-04 Task 1 structural check, re-run by me, printed OK. The first path's example (a tab left open after logging out) was checked by my scratch probe: login through Client(enforce_csrf_checks=True), read the pop-up's token, POST to the `logout` view, then POST to all 5 routes with the old token. The CSRF cookie was kept, all 5 got 302 → `/accounts/login/?next=/calendar/`, and no row changed. The second path is pinned by AnonymousCsrfFailureWriteTest (below). |
+| A7 | 39-01 CSRF must-have said "returns 403" | PASSED (override) | Override: Raise403Middleware rewrites the 403 into a 302 to login; the request is refused and nothing is created. Accepted by Tim Lister on 2026-10-08T17:04:52Z. `test_post_without_csrf_token_is_refused` is AST-identical to 798dfe9, and 39-01-PLAN.md is unchanged (`git diff 798dfe9` is empty). |
+| A5 (advisory) | Coincidental reliance: the exact `next=/calendar/` was proven only through the CSRF-disabled client | ✓ VERIFIED | The class docstring of AnonymousCalendarWriteTest, the `login_url` and `assert_login_redirect` docstrings, and the module docstring all state the CSRF-passing precondition. The other path has its own tests. |
+
 ### Observable Truths
+
+Roadmap success criteria (R), 39-01 (A), 39-02 (B), 39-03 (C), paired doc (D) and 39-04 (N).
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| R1 | SC1: anonymous POST to create-event / update-event / delete-event redirected or refused; a test per route proves count and fields unchanged | ✓ VERIFIED | `test_anonymous_post_{create,update,delete}_event_*` assert 302 + full-field snapshot; module ran OK (123 tests across 3 modules). Verifier probe: CSRF-enforced anonymous POSTs also write nothing |
-| R2 | SC2: a logged-in user can still create, update and delete from the month view | ✓ VERIFIED | `test_signed_in_editor_creates_edits_and_deletes_from_month_view` re-run by verifier in Chromium: OK |
-| R3 | SC3: anonymous visitor sees no create target, can open and read the pop-up incl. attributed-run link; editor still sees targets | ✓ VERIFIED | CalendarMonthViewReadOnlyTest, EventModalReadOnlyCardTest pass; functional `test_anonymous_visitor_opens_read_only_event_card_with_no_page_errors`, `test_anonymous_click_on_empty_day_cell_opens_nothing`, two signed-in create-target tests re-run: OK |
-| R4 | SC4: event_form.html header names the blocks that differ from 3.1.0, diff matches the list | ✓ VERIFIED (warning WR-02) | Verifier difflib run: 10 differing regions, all map to items 1-6 (load line+branch→1/5; URL label→2; buttons→3; inserted card+decorations→5/4; todo branch→6). Label case change sits inside item 3's block, not called out — see human item 2 |
-| A1 | D-02: anonymous POST to create-todo/update-todo → 302, EventTodo unchanged | ✓ VERIFIED | `test_anonymous_post_create_todo_adds_nothing`, `..._update_todo_changes_nothing` |
-| A2 | D-06/Pitfall 1: anonymous GET to create-event, delete-event, create-todo, update-todo redirected, no row changes | ✓ VERIFIED | four GET tests pass |
-| A3 | D-04: update-event GET/HEAD 200, POST/PUT/PATCH/DELETE/OPTIONS redirected | ✓ VERIFIED | `read_open_write_requires_login` (`_READ_METHODS = ('GET','HEAD')`); method tests pass |
-| A4 | D-08: htmx anonymous writes → 200 + HX-Redirect, never 403 | ✓ VERIFIED | `test_htmx_anonymous_writes_get_hx_redirect_never_403` |
-| A5 | Pitfall 2: guard's next is the calendar page; signed-in GET on destructive routes → 405 | ✓ VERIFIED (coincidental-reliance) | `_login_redirect()` uses `reverse('calendar:calendar')`; 405 test passes. Holds only for CSRF-passing requests (default test Client disables CSRF) — see gap 1 |
-| A6 | D-01/D-03: plain signed-in user creates, updates, deletes, adds/changes todos; GET create/update render | ✓ VERIFIED | SignedInCalendarWriteTest passes |
-| A7 | CSRF: signed-in tokenless POST returns 403 and creates nothing | ✗ FAILED (wording) | Response is 302 → `/accounts/login/?next=/calendar/create/` (Raise403Middleware); nothing created. Intent met; override suggested below |
-| A8 | Shadowing: five literal paths resolve to app 'calendar', carry calendar_guard, unwrap to upstream callables | ✓ VERIFIED | CalendarUrlConfShadowingTest, `test_literal_paths_are_guarded`; `src/fomo/urls.py` include precedes tom_common.urls |
-| A9 | Boundary edge: anonymous refused / plain user allowed; missing id → 302 not 404 | ✓ VERIFIED | `test_anonymous_post_to_missing_event_is_redirected_not_404` |
-| A10 | Precision edge: every field compared after refresh | ✓ VERIFIED | `snapshot()` covers all 11 event fields + both todo fields + counts |
-| A11 | Idempotency edge: repeated anonymous POSTs identical and unchanged | ✓ VERIFIED | two repeat tests pass |
-| A12 | Concurrency edge (backstop): guard keeps no state | ? insufficient_spec | AST check re-run by verifier passes; backstop tier needs human acceptance (human item 4) |
-| B1 | D-07: signed-in month view keeps '+ New Event' and day-cell hx-get; anonymous header keeps cal-header-spacer | ✓ VERIFIED | calendar.html lines 218-241; `test_signed_in_month_view_keeps_both_create_targets` |
-| B2 | D-04/D-05: anonymous card has no form controls or write URLs, shows labelled fields, omits empty rows | ✓ VERIFIED | event_form.html 113-163; card tests pass |
-| B3 | Attributed-run block once for both audiences | ✓ VERIFIED | one `campaign_decoration` tag below both branches; `..._renders_attributed_run_block_once`, editor test counts 1 |
-| B4 | Read-only todos with (done)/(not done); 'No todos yet.' | ✓ VERIFIED | `cal-todos-readonly` list; two todo tests |
-| B5 | URL row: web link with noopener; ALLOC:/RUN:/javascript: never echoed | ✓ VERIFIED | EventCardUrlLinkTest |
-| B6 | Editor unchanged; EventFormUrlLinkTest passes signed-in | ✓ VERIFIED | `<form>` block byte-identical to pre-phase; test passes |
-| B7 | XSS escaped on card | ✓ VERIFIED | `test_anonymous_card_escapes_markup`; no `|safe`/`autoescape off` (structural check) |
-| B8 | Pre-existing modal gate classes pass unmodified | ✓ VERIFIED | `git diff b261c9c..HEAD` touches only EventFormUrlLinkTest (planned) plus appended classes |
-| B9 | D-11: Bootstrap 5 names, data-url kept | ✓ VERIFIED | grep finds no BS4 names; `data-url` at line 194; `var(--light/--secondary/--primary)` identical to upstream 3.1.0 lines 8, 9, 33 |
-| B10 | D-09 anonymous browser proof | ✓ VERIFIED | re-run OK |
-| B11 | Signed-in browser create-target tests log in first and see a form | ✓ VERIFIED | re-run OK |
-| B12 | Runbook paragraph present with the required content | ✓ VERIFIED (as worded) | paragraph at line 2576; logged-in-only wording present. One extra sentence is false — see D1 |
-| B13 | Idempotency: anonymous reads write nothing | ✓ VERIFIED | `test_anonymous_reads_write_nothing` |
-| B14 | Concurrency: editor then anonymous renders share no output | ✓ VERIFIED | `test_editor_then_anonymous_render_share_no_output` |
-| C1 | Full local suite OK, no skips | ✓ VERIFIED | Reported by orchestrator at this HEAD (2233 tests incl. functional, OK) and in 39-03-SUMMARY; not re-run per instruction. Verifier's targeted runs: 123 unit + 6 functional OK; no skip/expectedFailure in the three modules |
-| C2 | Quality gates: ruff, check, makemigrations | ✓ VERIFIED | ruff + ruff-format Passed on the phase's Python files; `check` only urls.W005; `makemigrations --check` No changes detected |
-| C3 | Vendored tom_calendar untouched | ✓ VERIFIED | 22 RECORD-hashed tom_calendar files match tomtoolkit 3.1.0 |
-| C4 | D-12: 37.1 ledger WR-05 fixed (front matter + table) | ✓ VERIFIED | line 200 `disposition: fixed`; table row cites 9b2df4d |
-| C5 | D-12: 33-REVIEW WR-05 and WR-04 notes | ✓ VERIFIED | ledger script re-run: tokens and 5e31c0f/4d32e62 present; WR-04 names D-11 and campaignrun_table.html |
-| D1 | CLAUDE.md paired-docs: runbook describes the logged-out write path truthfully | ✗ FAILED | "after logging in, the browser returns to the calendar page, never to the refused write" is false for tokenless writes (gap 1) |
+| R1 | SC1: anonymous POST to create/update/delete-event is redirected or refused; a test per route proves the count and fields are unchanged | ✓ VERIFIED | AnonymousCalendarWriteTest (CSRF-passing) and AnonymousCsrfFailureWriteTest (CSRF-failing) both pass |
+| R2 | SC2: a logged-in user can still create, update and delete from the month view | ✓ VERIFIED | The functional round-trip test, re-run in Chromium with the restored "Save and Edit" label: OK |
+| R3 | SC3: an anonymous visitor sees no create target and can read the pop-up | ✓ VERIFIED | Functional anonymous-card and inert-cell tests re-run: OK. Verifier probe: the anonymous card has no form controls or write URLs, and the month view has no "New Event" |
+| R4 | SC4: the event_form.html header names every block that differs from 3.1.0 | ✓ VERIFIED (advisory WR-02) | The 10 snapshot regions map to items 1-6 (Task 2 check re-run). Item 3 now says the labels match upstream. The sentence about what the test enforces overstates it (advisory) |
+| A1-A4, A6, A8-A11 | 39-01 route, method, htmx, signed-in, shadowing, boundary, precision and idempotency truths | ✓ VERIFIED | Regression: test_calendar_write_access (30 tests) and test_urls pass; calendar_urls.py and src/fomo/urls.py are unchanged since 798dfe9 |
+| A5 | The guard's next is the calendar page; a signed-in GET on a destructive route gives 405 | ✓ VERIFIED | As above, with the precondition now declared |
+| A7 | CSRF: tokenless signed-in POST is refused and creates nothing | PASSED (override) | See the re-checked gaps table |
+| A12 | Concurrency edge (backstop): the guard keeps no state | ? insufficient_spec | calendar_access.py code is AST-identical to 798dfe9; the backstop tier needs human acceptance (human item 2) |
+| B1-B5, B7-B14 | 39-02 presentation, card, URL, XSS, BS5, browser and idempotency/concurrency truths | ✓ VERIFIED | test_calendar_template (97 tests) passes; functional tests re-run OK |
+| B6 | Editor form unchanged | ✓ VERIFIED (deliberately adjusted by 39-04) | The `<form>` block differs from f929f4e in exactly the save_and_edit line, and only in the label (Task 2 check re-run: OK) |
+| C1 | Full local suite OK, no skips | ✓ VERIFIED | Not re-run, per instruction. 39-04 Task 3 reports 2241 tests OK; the orchestrator reports the regression gate at 2196 + 40 OK. My targeted runs: 131 unit tests OK and 4 functional tests OK. The only "skip" matches in the phase's test modules are in prose |
+| C2 | Quality gates | ✓ VERIFIED | `pre-commit run ruff` and `ruff-format` both Passed on the four phase Python files. The scratch probe's system check shows only urls.W005 |
+| C3 | Vendored tom_calendar untouched | ✓ VERIFIED | 22 RECORD-hashed files, 0 mismatches; the partials directory holds exactly calendar.html, campaign_chip.html and event_form.html |
+| C4-C5 | D-12 ledgers | ✓ VERIFIED | Unchanged since the previous pass (no regressions; the 39-04 commits do not touch them) |
+| D1 | Paired doc: the runbook describes the logged-out write path truthfully | ✓ VERIFIED | See the re-checked gaps table |
+| N1 | Tokenless anonymous POST, all 5 routes: 302 to `/accounts/login/?next=<own path>`, not next=/calendar/, and no row changes | ✓ VERIFIED | `test_tokenless_anonymous_post_is_sent_to_login_with_its_own_path` passes; it posts through `Client(enforce_csrf_checks=True)` |
+| N2 | htmx variant: 200 with HX-Redirect to the same address, never 403 | ✓ VERIFIED | `test_tokenless_anonymous_htmx_post_gets_hx_redirect_to_its_own_path` passes |
+| N3 | Replaying the address as a signed-in GET writes nothing: 405 ×3, 200 ×2 | ✓ VERIFIED | `test_replaying_the_refused_path_as_a_signed_in_get_changes_nothing` passes |
+| N4 | Idempotency: repeated tokenless POSTs give identical Locations and leave rows unchanged | ✓ VERIFIED | `test_tokenless_repeat_posts_are_refused_identically` |
+| N5 | Boundary: a missing id gives 302, not 404 | ✓ VERIFIED | `test_tokenless_post_to_missing_event_is_refused_not_404` |
+| N6 | Precision: a single shared `snapshot()` in CalendarRowSnapshotMixin; existing anonymous tests AST-identical | ✓ VERIFIED | Task 1 AST check re-run: OK |
+| N7 | Precondition declared; calendar_access.py docstring scoped ("guard's own"), names CsrfViewMiddleware and Raise403Middleware; code AST-identical | ✓ VERIFIED | Task 1 check re-run: OK. IN-01 (the HX-Redirect actually comes from HTMXRedirectMiddleware) is a small attribution slip and is information only |
+| N8 | CR-01 recorded in the runbook with the verbatim rationale | ✓ VERIFIED | Lines 2586-2594; the verbatim string appears once |
+| N9 | CR-01 recorded in 39-SECURITY.md (T-39-10 premise corrected, T-39-22, AR-39-01) | ✓ VERIFIED | Rows 46, 58 and 72; verbatim rationale present; `threats_open: 0` |
+| N10 | CR-01 recorded in 39-REVIEW-DISPOSITION.md as skipped | ✓ VERIFIED | At a8548ea: `open: 6`, `total: 7`, row `\| CR-01 \| critical \| skipped \|` with the rationale. The later code-review re-render (38ff537) keeps CR-01 skipped with the same Source text and adds the 8 new findings (open 8 / total 9). This is the workflow's normal re-render, not drift |
+| N11 | The label reads "Save and Edit"; the create form renders `>Save and Edit</button>`; item 3 and ANCHORS[3] updated | ✓ VERIFIED | event_form.html line 105; `test_signed_in_create_form_uses_upstream_button_labels` passes; the RED evidence was classified RED_EVIDENCE_OK |
+| N12 | Pinned normalized diff (10 regions); an unlisted line inside an anchored region fails a test | ✓ VERIFIED | `test_body_diff_matches_pinned_snapshot` and `test_snapshot_detects_an_unlisted_line_inside_an_anchored_region` pass; the snapshot has 10 `@@ ` lines |
+| N13 | Header list, snapshot and installed upstream agree; the header names the snapshot file | ✓ VERIFIED | Task 2 check re-run: OK; tomtoolkit 3.1.0 installed |
 
-**Score:** 33/36 truths verified (2 failed, 1 insufficient_spec routed to human; 0 present-but-behavior-unverified)
+**Score:** 48/49 truths verified (including 1 passed by override; 1 insufficient_spec routed to human; 0 present-but-behavior-unverified)
 
 ### Prohibitions
 
 | Plan | Prohibition | Tier | Disposition |
 |------|-------------|------|-------------|
-| 39-01 | No edit/patch of tomtoolkit; no re-implemented view body | test | ✓ RECORD hash check, AST allowlist, `inspect.unwrap` shadowing test |
-| 39-01 | No 403/error page for anonymous writes | test | ✓ guard path 302/HX-Redirect; CSRF-failure path also ends as 302 (Raise403Middleware) |
-| 39-01 | Login next must not be the refused write URL | test | ⚠ flagged: true for the guard's redirect (tests); false for the CSRF-failure path, where tom_common sets next=refused path. No write results (verifier probe: 405 or read-only render on replay). Resolved with gap 1 |
-| 39-01 | No narrowing beyond "logged in" | test | ✓ no is_staff/has_perm in guard; plain-user tests. Note: this is exactly what CR-01 would have to reopen |
-| 39-02 | Nothing looks editable / no login prompt for visitors | judgment | ⚠ flagged, human item 3 (non-authoritative LLM verdict: satisfied; IN-03 hover tint borderline) |
-| 39-02 | No internal identifiers on the anonymous card | test | ✓ EventCardUrlLinkTest, EventModalSeriesDecorationTest, EventModalAttributionHintTest |
-| 39-02 | No duplicated series/campaign blocks | test | ✓ one tag each (structural check) |
-| 39-02 | No third tom_calendar override / no upstream edit | test | ✓ partials dir holds exactly calendar.html, campaign_chip.html, event_form.html; RECORD hashes |
-| 39-03 | No test-only login route/setting/hook | test | ✓ ba37d8e touches only the test module; `_log_in_browser` uses force_login cookie hand-off |
-| 39-03 | Ledgers not marked fixed early; no other disposition changed | test | ✓ ledger commit 798dfe9 holds exactly the two ledgers; only WR-05 changed |
-| 39-03 | No skip/tag-out/expectedFailure | test | ✓ none in the three modules |
+| 39-01 | No edit/patch of tomtoolkit; no re-implemented view body | test | ✓ RECORD hashes; calendar_access.py code unchanged |
+| 39-01 | No 403/error page for anonymous writes | test | ✓ guard path 302/HX-Redirect; CSRF path 302/HX-Redirect (N1, N2, with `assertNotEqual(403)`) |
+| 39-01 | The login next must not be the refused write URL | test | ✓ for the guard's own redirect (the prohibition's subject). The CSRF-failure path, which is outside the guard, does set next to the refused path. That path is now documented, and test N3 proves a replay of that path writes nothing. This replaces the earlier flag |
+| 39-01 | No narrowing beyond "logged in" | test | ✓ guard code unchanged; CR-01 accepted rather than fixed |
+| 39-02 | Nothing looks editable or prompts a login for visitors | judgment | ⚠ flagged, human item 1 (non-authoritative verdict: satisfied) |
+| 39-02 | No internal identifiers, no duplicated blocks, no third override | test | ✓ unchanged since the last pass; still exactly 3 partials |
+| 39-03 | No test-only login hook; ledgers; no skip/expectedFailure | test | ✓ |
+| 39-04 | No behaviour change (no CSRF_FAILURE_VIEW, no edit to settings, the URL confs, calendar.html, or calendar_access.py code) | test | ✓ `git diff 798dfe9` for those files is empty; AST check passes |
+| 39-04 | No change to TOM_REGISTRATION_STRATEGY, D-01 or the guard | test | ✓ settings.py line 280 is still `'open'`; guard code identical |
+| 39-04 | No edit to 39-01-PLAN.md; no 403 re-asserted; CSRF test unchanged | test | ✓ |
+| 39-04 | Rationale not paraphrased; no other ledger finding changed at a8548ea | test | ✓ verbatim string in all three records; a8548ea changes exactly the CR-01 lines and `open:` |
+| 39-04 | No tom_calendar edit, no third override, no skip; CSRF tests use the enforcing client | test | ✓ the AnonymousCsrfFailureWriteTest source has `enforce_csrf_checks=True` and no `self.client.post` |
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `solsys_code/calendar_access.py` | two guard decorators | ✓ VERIFIED | 78 lines, both decorators with `calendar_guard` markers; imported by calendar_urls.py |
-| `solsys_code/calendar_urls.py` | five guarded write routes | ✓ VERIFIED | exact wrappings incl. `write_requires_login(require_POST(...))` on the three destructive routes |
-| `solsys_code/tests/test_calendar_write_access.py` | ACCESS-01 proof | ✓ VERIFIED | 3 classes, 25 tests, all pass |
-| `src/templates/tom_calendar/partials/event_form.html` | six-item header + auth branches | ✓ VERIFIED | `cal-event-card`, `cal-todos-readonly`, 2 `is_authenticated` branches |
-| `src/templates/tom_calendar/partials/calendar.html` | create targets for logged-in only; BS5 names | ✓ VERIFIED | `cal-header-spacer`; 3 event-row hx-gets intact |
-| `solsys_code/tests/test_calendar_template.py` | ACCESS-02, header, BS5 tests | ✓ VERIFIED | 5 new classes; module passes |
-| `solsys_code/tests/test_bootstrap5_rendering.py` | browser proofs | ✓ VERIFIED | anonymous card, inert cell, editor round trip — all re-run OK |
-| `docs/runbooks/telescope_runs_calendar.rst` | read-only paragraph | ⚠ PRESENT, one false sentence | gap 1 |
-| 37.1-REVIEW-DISPOSITION.md / 33-REVIEW.md | WR-05 recorded fixed | ✓ VERIFIED | ledger script passes |
+| `solsys_code/tests/test_calendar_write_access.py` | CalendarRowSnapshotMixin and AnonymousCsrfFailureWriteTest | ✓ VERIFIED | 5 new tests, all passing; the mixin holds the only `snapshot()` |
+| `solsys_code/calendar_access.py` | docstring scoped to the guard; CSRF path named | ✓ VERIFIED | Lines 8-19; code unchanged |
+| `docs/runbooks/telescope_runs_calendar.rst` | both paths described; self-registration acceptance | ✓ VERIFIED | Lines 2586-2605 |
+| `src/templates/tom_calendar/partials/event_form.html` | upstream label; item 3; snapshot named | ✓ VERIFIED | Lines 9-21 and 105 |
+| `solsys_code/tests/test_calendar_template.py` | label test, pinned-snapshot test and non-vacuity test | ✓ VERIFIED | Module passes |
+| `solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff` | pinned diff | ✓ VERIFIED | Tracked; 10 regions; `+...>Save and Edit</button>` |
+| `39-SECURITY.md` / `39-REVIEW-DISPOSITION.md` | CR-01 accepted | ✓ VERIFIED | See N9 and N10 |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| calendar_urls.py | calendar_access.py | import of both decorators | ✓ WIRED | `from solsys_code.calendar_access import read_open_write_requires_login, write_requires_login` |
-| calendar_urls.py | tom_calendar.views.delete_event | guard → require_POST → upstream | ✓ WIRED | `write_requires_login(require_POST(delete_event))`; unwrap test |
-| src/fomo/urls.py | calendar_urls.py | include before tom_common.urls | ✓ WIRED | line 30 precedes `include('tom_common.urls')`; resolve() test reports app 'calendar' |
-| event_form.html | request.user | `request.user.is_authenticated` | ✓ WIRED | two branches; request context processor |
-| calendar.html | calendar:update-event | event-row hx-get + inner container modal handler | ✓ WIRED | 3 hx-gets; anonymous browser test opens modal with the cell's hx-* absent |
-| test_calendar_template.py | installed upstream event_form.html | `tom_calendar.__file__` | ✓ WIRED | `_upstream_lines()` asserts the file exists |
-| test_bootstrap5_rendering.py | calendar_urls.py | signed-in hx-post through the guards | ✓ WIRED | round-trip test changes DB rows |
+| test_calendar_write_access.py | tom_common Raise403Middleware | `Client(enforce_csrf_checks=True)` | ✓ WIRED | Middleware line 88 builds `reverse('login') + '?next=' + request.path`; the tests assert exactly that |
+| runbook | test_calendar_write_access.py | "fails the CSRF check" / "passes the CSRF check" | ✓ WIRED | Each runbook path corresponds to one test class's assertions |
+| test_calendar_template.py | the snapshot `.diff` | `EventFormHeaderMatchesUpstreamTest.SNAPSHOT` | ✓ WIRED | The test reads it, and it matches `current_diff()` |
+| 39-SECURITY.md | 39-REVIEW-DISPOSITION.md | verbatim rationale | ✓ WIRED | Exact string in both |
+| Previous links (calendar_urls → calendar_access, the include order, `request.user` branches) | — | — | ✓ WIRED | Files unchanged since 798dfe9; tests pass |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| event_form.html card | `event.*`, `event.todos.all` | upstream `update_event` GET passes the CalendarEvent instance | Yes (tests render real fixture values) | ✓ FLOWING |
-| event_form.html decorations | `campaign_decoration event` | CalendarEventMeta.run at request time | Yes | ✓ FLOWING |
+| event_form.html card | `event.*`, `event.todos.all` | upstream `update_event` GET | Yes | ✓ FLOWING (unchanged) |
+| event_form.html decorations | `campaign_decoration event` | CalendarEventMeta.run | Yes | ✓ FLOWING (unchanged) |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Phase unit tests | `python manage.py test solsys_code.tests.test_calendar_write_access solsys_code.tests.test_calendar_template solsys_code.tests.test_urls` | Ran 123 tests, OK | ✓ PASS |
-| Browser proofs | `--tag functional` six named TestBootstrap5Rendering tests (editor round trip, two signed-in create targets, anonymous card, inert cell, attributed modal) | Found 6, OK | ✓ PASS |
-| WR-01 reproduction | scratch test (outside repo) POSTing anonymously with `Client(enforce_csrf_checks=True)` to all 5 routes, plain and htmx, then replaying `next` as a signed-in GET | 302 → `/accounts/login/?next=<refused path>` (htmx: HX-Redirect same); replay 405 ×3, 200 form fragment ×2; no row changed | ✓ no write / ✗ doc claim |
-| CR-01 reproduction | `manage.py shell`: settings + `TomAccountAdapter().is_open_for_signup()` + GET `/accounts/signup/` (host 127.0.0.1) | `open`, `none`, True, 200 with `password1` field | reproduced |
-| Guard structure | AST allowlist check | AST OK | ✓ PASS |
+| Phase unit modules | `python manage.py test --noinput solsys_code.tests.test_calendar_write_access solsys_code.tests.test_calendar_template solsys_code.tests.test_urls` | Ran 131 tests, OK | ✓ PASS |
+| Browser proofs | `--tag functional`: editor round trip, anonymous card, inert day cell, New Event modal | Found 4, OK | ✓ PASS |
+| 39-04 Task 1 structural check | plan script, re-run | `OK: docstring-only guard change, behaviour files untouched, ...` | ✓ PASS |
+| 39-04 Task 2 structural check | plan script, re-run | 10 region headers; `OK: one form line differs ...` | ✓ PASS |
+| Stale tab after logout (the runbook's first path, review IN-03) | scratch test outside the repo: enforcing client, force_login, read token, POST to `logout`, POST to all 5 routes with the old token | CSRF cookie kept; 5 × 302 → `/accounts/login/?next=/calendar/`; rows unchanged | ✓ PASS (note: Django's test `Client.logout()` clears all cookies and gives a false CSRF-path result; only the real logout view reproduces a browser) |
+| WR-01 landing page | scratch: signed-in GET of create-event | `<form hx-post="/calendar/create/" hx-target="#calendar-partial">`; no `<html>`, no htmx script | facts confirmed; nothing written |
+| Anonymous surfaces | scratch: anonymous GET of the month view and pop-up | card: no form/input/hx-post/write URL; month: only the `utc_offset` display select (hx-get /calendar/), no "New Event" | ✓ PASS |
 | Vendored integrity | RECORD hash check | 22 files, 0 mismatches | ✓ PASS |
 
 ### Probe Execution
 
-Step 7c: SKIPPED (no probe scripts declared in the phase; no `scripts/*/tests/probe-*.sh` relevant).
+Step 7c: SKIPPED. The phase declares no probe scripts, and no `scripts/*/tests/probe-*.sh` is relevant.
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|-------------|--------|----------|
-| ACCESS-01 | 39-01, 39-03 | anonymous POST to any of the five write routes changes nothing; test per endpoint | ✓ SATISFIED | R1, A1-A11; tests per route; probe confirms the CSRF path too. Who may write = D-01 (see CR-01 decision) |
-| ACCESS-02 | 39-02, 39-03 | month-view create/update click targets hidden from anonymous users | ✓ SATISFIED | R3, B1-B14 |
-| WARN-01 | 39-02, 39-03 | event_form.html header states accurately which blocks differ | ✓ SATISFIED (warning) | R4; WR-02 label-case precision is human item 2 |
+| ACCESS-01 | 39-01, 39-03, 39-04 | an anonymous POST to any of the five write routes changes nothing; a test per endpoint | ✓ SATISFIED | R1, A1-A11, N1-N6. Both refusal paths are now covered by tests. Who may write is set by D-01; self-registration is an accepted risk (CR-01) |
+| ACCESS-02 | 39-02, 39-03 | month-view create/update targets hidden from anonymous users | ✓ SATISFIED | R3, B1-B14 |
+| WARN-01 | 39-02, 39-03, 39-04 | the event_form.html header states accurately which blocks differ | ✓ SATISFIED | R4, N11-N13. The test-enforcement sentence overstates what the test enforces (advisory WR-02) |
 
-No orphaned requirements: REQUIREMENTS.md maps exactly ACCESS-01, ACCESS-02, WARN-01 to Phase 39, all claimed by plans.
+No orphaned requirements: REQUIREMENTS.md maps exactly ACCESS-01, ACCESS-02 and WARN-01 to Phase 39, and plans claim all three.
 
-### Code Review Findings (39-REVIEW.md) — Classification
+### Code Review Findings after 39-04 (39-REVIEW.md) — Classification
 
 | Finding | Classification | Reasoning |
 |---------|----------------|-----------|
-| CR-01 open self-registration | **Human decision** (not a must-have gap as written) | Reproduced. Goal and ACCESS-01 are about "anyone not logged in", which holds; D-01 locked "any logged-in user" and 39-01 forbids narrowing. But D-01's premise ("the same accounts as today", T-39-10 "accounts are issued by the operator") is contradicted by these settings, so the security gate's accepted risk rests on a false assumption. Top-priority decision before shipping (human item 1) |
-| WR-01 CSRF-failure redirect | **Must-have gap** (paired doc, gap 1) + flagged prohibition | Reproduced; no data is written on any path; the runbook sentence is false; anonymous tests rely on CSRF-disabled client (coincidental-reliance advisory) |
-| WR-02 header omits label change; test can't detect omissions | **Human decision** (warning) | SC4 / the 39-02 WARN-01 must-have hold as worded (every region has an anchor; every anchor in a region and its item); label case change lies inside item 3's block. Precision plus test robustness (human item 2) |
-| IN-01 "UTC" label without `|utc` | Out of scope (info) | `TIME_ZONE = 'UTC'`, no `timezone.activate` anywhere in FOMO; correct today, latent only |
-| IN-02 whitespace-only todo 500 | Out of scope (info) | Upstream bug that predates the phase; upstream view must not be edited; candidate for Phase 41 triage |
-| IN-03 day-cell hover tint for visitors | Human item 3 (tied to the judgment-tier prohibition) | 39-02 deliberately declined it; cell is functionally inert (browser test), so the runbook's "does nothing when clicked" is true |
-| IN-04 `--light/--secondary/--primary` | Out of scope | D-11 explicitly says keep them because upstream 3.1.0 uses them; verified identical at upstream lines 8, 9, 33 |
-
-### Executor Deviations
-
-| Deviation | Disposition |
-|-----------|-------------|
-| 39-01: CSRF test changed from 403 to 302 | Truth A7 FAILED as worded, intent met; override suggested (gap 2). Behaviour correctly reflects tom_common's Raise403Middleware |
-| 39-03: edit step counts `form[hx-post*="/calendar/update/"]` instead of `#cal-modal-body form` | Acceptable. Upstream's saved-event pop-up also holds the add-todo form, so a plain count would be 2. No must-have depends on the plain count; the test also asserts no `#cal-event-card`. R2 VERIFIED |
+| WR-01: the CSRF-path landing page is a bare form whose Save sends a GET with the token | 📋 Advisory (security, follow-up) | I confirmed the facts. The finding does not affect the goal: no anonymous write is possible, and on the CSRF path no write is possible either. "Only show a form" is literally true. The exposure needs a logged-in user to click Save on an unstyled fragment, and that fragment is upstream's form markup, which this phase did not introduce; any signed-in direct visit to `/calendar/update/<id>/` reaches the same page. A one-sentence runbook warning or `method="post"` would close it. Worth doing before shipping, but it does not block the phase |
+| WR-02: the header overstates the snapshot guard | 📋 Advisory (follow-up) | The goal asks for a truthful account of how the override differs, and the six-item list is exact. This sentence is about the drift check, and it overclaims for one case (regenerating the snapshot without touching the list). One-line reword |
+| WR-03: the 3.1.0 snapshot is checked against an unpinned upstream | 📋 Advisory (follow-up) | The check fails closed; the message is misleading. It is true for the installed 3.1.0. A good candidate for Phase 41 triage |
+| IN-01: HX-Redirect attributed to Raise403Middleware | ℹ️ Info | HTMXRedirectMiddleware (middleware.py lines 100-117) does the rewrite. The behaviour described is right; the middleware named is not |
+| IN-02: runbook omits the login-page flash on the CSRF path | ℹ️ Info | 39-04 chose not to document it, and the reason is on record in its flagged-assumptions table. Can be added together with the WR-01 sentence |
+| IN-03: no CSRF-enforcing test for the stale-tab example | ℹ️ Info | The behaviour holds today (verifier probe above), but no repository test pins it. Adding the probe as a test would guard against a future `CSRF_USE_SESSIONS = True` |
+| IN-04: tests use `settings.LOGIN_URL`, code uses `reverse('login')` | ℹ️ Info | Both are `/accounts/login/` today. Only test robustness is affected |
+| IN-05: calendar_urls.py docstring has the one-path wording | ℹ️ Info | It describes the guard's own redirect, which is true. It is a code docstring, not the paired runbook, and 39-04 deliberately left the file untouched |
+| CR-01: open self-registration | Accepted risk (not a gap) | Developer decision recorded in the runbook, AR-39-01 / T-39-22 and the ledger, with the rationale verbatim |
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| src/templates/tom_calendar/partials/event_form.html | 242 | "TBD" | ℹ️ Info | Descriptive ("a TBD run", undated run), pre-existing (2026-07-31), not a debt marker |
-| docs/runbooks/telescope_runs_calendar.rst | ~2586-2589 | over-broad claim | 🛑 Blocker (paired-docs rule) | gap 1 |
+| src/templates/tom_calendar/partials/event_form.html | 245 | "TBD" | ℹ️ Info | Describes an undated run ("a TBD run"); pre-existing, not a debt marker |
 
-No TODO/FIXME/XXX/placeholder or stub patterns in the phase's code files.
-
-### Suggested Override (gap 2)
-
-**This looks intentional.** To accept this deviation, add to VERIFICATION.md frontmatter:
-
-```yaml
-overrides:
-  - must_have: "CSRF unchanged: a signed-in POST to calendar:create-event without a CSRF token through Client(enforce_csrf_checks=True) returns 403 and creates nothing"
-    reason: "tom_common's Raise403Middleware rewrites every browser 403 into a 302 to login (next=/calendar/create/); the request is still refused and nothing is created, and the distinct next proves the CSRF layer refused it, not the guard"
-    accepted_by: "{name}"
-    accepted_at: "{ISO timestamp}"
-```
+No TODO, FIXME, XXX, placeholder or stub patterns appear in the lines 39-04 added.
 
 ### Human Verification Required
 
-1. **CR-01 registration strategy (decision, highest priority).** Decide whether D-01 stands while `TOM_REGISTRATION_STRATEGY='open'` and `ACCOUNT_EMAIL_VERIFICATION='none'` let anyone self-register and write immediately. Options are `approval_required` or None, a staff/permission gate, or an explicit acceptance. Then correct AR-39-01/T-39-10 in 39-SECURITY.md either way.
-2. **WR-02 label.** Restore "Save and Edit" or list the case change under header item 3; optionally harden EventFormHeaderMatchesUpstreamTest.
-3. **Visitor affordance (judgment prohibition).** Open /calendar/ logged out and confirm nothing looks editable; decide on the day-cell hover tint (IN-03).
-4. **Concurrency backstop truth.** Accept the AST structural evidence or request a concurrency test.
+1. **Visitor affordance (judgment-tier prohibition, 39-02).** Open /calendar/ logged out, click an entry and hover over the day cells. Confirm that nothing looks editable or prompts a login, and decide whether the `.cal-day:hover` tint should apply only to logged-in users.
+2. **Concurrency backstop truth (A12).** Accept the structural evidence (guard code AST-identical, no module state) or ask for a concurrency test.
+3. **Runbook paragraph readability (39-04 Task 1 human-check).** Read lines 2576-2605. The SUMMARY reports this was approved at the Task 1 checkpoint. At the same time, decide whether to add the WR-01 sentence ("the create and edit addresses show a bare copy of the form; go back to the calendar page instead") and the IN-02 sentence about the flash message.
 
 ### Gaps Summary
 
-Both gaps come from one root cause. A write that fails the CSRF check never reaches FOMO's guard: tom_common's Raise403Middleware turns the 403 into a login redirect whose `next` is the refused path.
+No gaps remain.
 
-- **Gap 1 (needs work):** the runbook paragraph, the paired doc for this phase, claims the browser "never" returns to the refused write. That is false for tokenless writes, including the "script" example the sentence itself names. The anonymous tests cannot see this path because the default test Client disables CSRF checks. No data is written on this path (verified), so the fix is small: correct the sentence and add a CSRF-enforced anonymous test, or add a `CSRF_FAILURE_VIEW` so the behaviour matches the doc.
-- **Gap 2 (needs no code):** the 39-01 must-have expected a 403 that FOMO's middleware stack never returns. Accept the override above or reword the must-have.
+- **Gap 1 (paired runbook):** closed. The paragraph now separates the guard's refusal (returns to the calendar page) from the CSRF-failure refusal (returns to the refused address, where a GET writes nothing). Tests now pin the CSRF-failure path for every route: plain, htmx, repeated, missing id, and replay. My probe also confirmed the first path's real-browser example.
+- **Gap 2 (the 403 wording):** closed by the accepted override.
 
-CR-01 is not counted as a gap. As written, the goal holds for anyone not logged in, and the phase was bound by D-01. Even so, it is the most important finding here: in this configuration "logged in" is not a barrier, and the developer must decide on it before the security gate is treated as closed.
+The new review raises three warnings, and none of them touches the goal's two halves:
+
+- No anonymous request writes or is offered a write control.
+- The header's list of differences is exact.
+
+They are recorded as advisories for a follow-up. WR-01's one-sentence runbook warning is the most worthwhile of them before shipping.
+
+The status is `human_needed` only because of the judgment-tier prohibition, the backstop truth and the planned readability check.
 
 ---
 
-_Verified: 2026-10-08T16:55:00Z_
+_Verified: 2026-10-08T21:11:50Z_
 _Verifier: Claude (gsd-verifier)_
