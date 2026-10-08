@@ -4,12 +4,12 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 38
 current_phase_name: Sync with main
-status: executing
+status: verification human_needed
 stopped_at: Completed 38-07-PLAN.md
-last_updated: "2026-10-08T02:28:49.868Z"
+last_updated: "2026-10-08T02:49:34.000Z"
 last_activity: 2026-10-07
 last_activity_desc: Phase 38 execution started
-state_head: 63bd305a7d60c8edafd706da21ba69c3ec37b6cc
+state_head: c478bfd4b3d7bc385287c19259d0c860d082b630
 progress:
   total_phases: 5
   completed_phases: 39
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-06 — v2.5 milestone started)
 
 Phase: 38 (Sync with main) — EXECUTING
 Plan: 7 of 7 complete
-Status: All plans executed (gap closure 38-07 done); ready for verification
+Status: verification human_needed (re-verified 2026-10-08 after 38-07: 53/53 must-haves, G-38-1 closed; UAT test 4 = WR-01 keep-or-fix decision)
 Last activity: 2026-10-08 — Completed 38-07 (G-38-1 docs; PR #43 body updated)
 
 Progress: [██████████] 100%
@@ -122,4 +122,5 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Operator Next Steps
 
-- Discuss Phase 38 with /gsd-discuss-phase 38 (settle the PR #43 head-branch question there)
+- Run /gsd-verify-work 38 — UAT test 4 (keep or fix the PR #58 sentence in docs/installation.rst:111-112, review WR-01) then phase completion
+- Follow-ups carried from 38-07: next issue37-code-only snapshot refresh (D-11) to carry the docs onto PR #43; CLAUDE.md:106 path-less `local_settings.py`; keep the absolute `fomo.local_settings` import when PR #58's settings.py conflict is resolved (review WR-02 advisory)
