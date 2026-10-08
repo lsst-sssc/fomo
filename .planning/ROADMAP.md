@@ -143,7 +143,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 **Milestone Goal:** Bring the long-running `issue37-telescope-runs-calendar` branch back in step with `main` — same dependency floors, same tooling, same CI runner — and clear the debt v2.4 carried forward (or give it a written decision), so the next feature milestone starts from a current, clean base.
 
-- [ ] **Phase 38: Sync with main** - Merge `origin/main` into the branch and adopt exactly what `main` requires (tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9, LINCC template v2.2.0, the Django runner in CI), drop the dead pytest setup, get the full suite green, and rewrite draft PR #43's description for v2.4
+- [x] **Phase 38: Sync with main** - Merge `origin/main` into the branch and adopt exactly what `main` requires (tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9, LINCC template v2.2.0, the Django runner in CI), drop the dead pytest setup, get the full suite green, and rewrite draft PR #43's description for v2.4 (completed 2026-10-07)
 - [ ] **Phase 39: Calendar Write Access** - An anonymous visitor can no longer create, change or delete a calendar event, the month view stops offering them the controls, and the event pop-up template's header comment says truthfully how it differs from upstream
 - [ ] **Phase 40: Notebook Isolation & Attribution Page** - Every pre-executed demo notebook runs on its own scratch database with a guard that catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3, closing the last six Phase 37.1 review warnings
 - [ ] **Phase 41: Todo Triage & Seed Notes** - Every pending todo and backlog Phase 999.1 gets a fix-now / drop / park decision with a reason, fix-now items are set up as an inserted phase, and the Proposal-record seed records upstream's multi-proposal direction
@@ -193,7 +193,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
   4. A push to the branch runs the Django test runner with coverage in CI, as `main` does, and no pytest job; `[tool.pytest.ini_options]`, the pytest dev extras and `tests/` are gone, CLAUDE.md's Testing section describes only the Django runner, and the LINCC template v2.2.0 files are present with every FOMO-specific file from the branch still in place
   5. Draft PR #43 is still a draft, and its description says what the branch delivers as of v2.4 — the observation projector, the allocation layer, unattended operation and the public tallies — and links `docs/runbooks/telescope_runs_calendar.rst`
 
-**Plans**: 7/7 plans executed (38-05 and 38-06 close the CR-01 verification gap; 38-07 closes UAT gap G-38-1)
+**Plans**: 7/7 plans complete (38-05 and 38-06 close the CR-01 verification gap; 38-07 closes UAT gap G-38-1)
 
 Plans:
 **Wave 1**
@@ -355,7 +355,7 @@ Plans:
 | 36. Unattended Operation | v2.4 | 9/9 | Complete    | 2026-09-18 |
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
 | 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 17/17 | Complete    | 2026-10-06 |
-| 38. Sync with main | v2.5 | 7/7 | In Progress | - |
+| 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 0/TBD | Not started | - |
 | 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |

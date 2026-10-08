@@ -2,39 +2,39 @@
 gsd_state_version: "1.0"
 milestone: v2.5
 milestone_name: Main Sync & Consolidation
-current_phase: 38
-current_phase_name: Sync with main
-status: verification human_needed
-stopped_at: Completed 38-07-PLAN.md
-last_updated: "2026-10-08T02:49:34.000Z"
+current_phase: 39
+current_phase_name: Calendar Write Access
+status: planning
+stopped_at: Phase 38 complete, ready to plan Phase 39
+last_updated: "2026-10-08T03:08:14.390Z"
 last_activity: 2026-10-07
-last_activity_desc: Phase 38 execution started
-state_head: c478bfd4b3d7bc385287c19259d0c860d082b630
+last_activity_desc: Phase 38 complete, transitioned to Phase 39
+state_head: e057045e53ff3658fbe9f4742e8f8929422e0805
 progress:
   total_phases: 5
-  completed_phases: 39
+  completed_phases: 40
   total_plans: 7
   completed_plans: 7
-  percent: 100
+  percent: 89
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-06 — v2.5 milestone started)
+See: .planning/PROJECT.md (updated 2026-10-08 — Phase 38 complete)
 
 **Core value:** The `issue37-telescope-runs-calendar` branch is back in step with `main` — same dependency floors, same tooling, same CI runner — and the debt v2.4 carried forward is either fixed or has a written decision, so the next feature milestone starts from a current, clean base.
-**Current focus:** Phase 38 — Sync with main
+**Current focus:** Phase 39 — Calendar Write Access
 
 ## Current Position
 
-Phase: 38 (Sync with main) — EXECUTING
-Plan: 7 of 7 complete
-Status: verification human_needed (re-verified 2026-10-08 after 38-07: 53/53 must-haves, G-38-1 closed; UAT test 4 = WR-01 keep-or-fix decision)
-Last activity: 2026-10-08 — Completed 38-07 (G-38-1 docs; PR #43 body updated)
+Phase: 39 — Calendar Write Access
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-07 — Phase 38 complete, transitioned to Phase 39
 
-Progress: [██████████] 100%
+Progress: [████████████████████] 7/7 plans (100%)
 
 ## Performance Metrics
 
@@ -76,7 +76,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 
 ### Blockers/Concerns
 
-- [Phase 38]: PR #43's head is `issue37-code-only`, last synced "through v2.2" (2026-09-01). A v2.4 description (SYNC-08) only matches the PR's diff if that branch is refreshed (e.g. `/gsd-pr-branch`) — decide in discuss-phase.
+- [Phase 39+]: PR #58 (`production-deploy` → `main`) switches `main`'s `settings.py` to `from .local_settings import *`. At the next sync with `main`, keep the branch's absolute `from fomo.local_settings import *` — its `ImportError` guard tolerates only that module name, and the relative form crashes every checkout without the file under `manage.py` (38-REVIEW WR-02).
+- [Phase 38 follow-ups]: the next `issue37-code-only` snapshot refresh (D-11 recipe) carries 38-07's two docs commits onto PR #43's diff; `CLAUDE.md:106` names `local_settings.py` without a path (PR #58 rewrites that line on `main`); REQUIREMENTS.md traceability table lacks PROP-01, SITE-10, DEP-01 (phase.complete warning).
 - [Phase 40]: WARN-05 names `docs/notebooks/pre_executed/README`; the real file is `docs/notebooks/README.md`.
 - [Phase 42]: REVERIFY-02 routes fixes into "the TRIAGE-02 gap-closure phase", which runs before Phase 42. A re-verification gap fixed this milestone needs a further phase inserted after 42, then a re-run of that report.
 - [Phase 41]: TRIAGE-03 needs the TOM Toolkit Slack "multi proposal support" thread content from the developer.
@@ -116,11 +117,11 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-08T02:28:49.758Z
-**Stopped at:** Completed 38-07-PLAN.md
+**Last session:** 2026-10-08T03:09:42.000Z
+**Stopped at:** Phase 38 complete, ready to plan Phase 39
 **Resume file:** None
 
 ## Operator Next Steps
 
-- Run /gsd-verify-work 38 — UAT test 4 (keep or fix the PR #58 sentence in docs/installation.rst:111-112, review WR-01) then phase completion
-- Follow-ups carried from 38-07: next issue37-code-only snapshot refresh (D-11) to carry the docs onto PR #43; CLAUDE.md:106 path-less `local_settings.py`; keep the absolute `fomo.local_settings` import when PR #58's settings.py conflict is resolved (review WR-02 advisory)
+- Discuss Phase 39 with /gsd-discuss-phase 39 (calendar write access: who may still write — any logged-in user or staff only — and whether the todo URLs are guarded too)
+- Carried from Phase 38: next `issue37-code-only` snapshot refresh (D-11) for PR #43; `CLAUDE.md:106` path; keep `fomo.local_settings` import at the next main sync (PR #58)

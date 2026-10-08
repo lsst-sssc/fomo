@@ -494,12 +494,13 @@ Every run expands into per-night (or per-day) events; a classical TAC-awarded ru
 - ✓ **UNUSED-01**: an allocation night still standing after it has passed renders as visibly unused on the calendar (`unused_night_decoration()`), sharing `campaign_tally`'s classifier so the pop-up, the campaign table and the month grid agree by construction — v2.4 (Phase 37)
 - ✓ **GAPB-01**: `campaign_gap.claimed_dates()` also counts observed/scheduled observation blocks on the campaign calendar, so classical and queue time of a campaign's own target reads as covered before anyone works the attribution queue; an unresolvable-site count is surfaced rather than silently dropped — v2.4 (Phase 37)
 
+- ✓ **SYNC-01..SYNC-07**: `origin/main` merged into the branch (merge, not rebase) with `main`'s floors — tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9 via `ruff-pre-commit`, LINCC python-project-template v2.2.0, the Django runner + coverage in CI; the dead pytest configuration removed; FOMO's three `tom_calendar` overrides compared against 3.1.0 (no upstream drift); full suite green on the merged tree (2137 + 40 tests, 2026-10-08) — v2.5 (Phase 38)
+- ✓ **SYNC-08**: draft PR #43's body rewritten for v2.4 (D-12 sections) and its head `issue37-code-only` re-snapshotted (846be34, CI green on 3.10–3.12); after UAT gap G-38-1 the body and `docs/installation.rst` also tell a host upgraded from `main` to move `local_settings.py` to `src/fomo/` — v2.5 (Phase 38)
+
 ### Active
 
 v2.5 Main Sync & Consolidation (defined 2026-10-06; REQ-IDs in `.planning/REQUIREMENTS.md`):
 
-- [ ] The branch is merged with `origin/main` and carries `main`'s dependency floors and tooling (tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9, LINCC template 2.2.0, Django runner in CI); the dead pytest configuration is gone; the full suite passes on the new versions.
-- [ ] Draft PR #43's description reflects v2.4.
 - [ ] The seven open Phase 37.1 review warnings are closed (WR-05 first).
 - [ ] The 19 pending todos and backlog Phase 999.1 are triaged; fix-now items are fixed.
 - [ ] The five stale v2.4 verification reports are re-run against HEAD and refreshed; the v2.4 known-gap entry records the outcome.
@@ -689,6 +690,10 @@ Without the `sys.path` fix, imports fail with `ModuleNotFoundError: No module na
 | FOMO owns the rule for which portal block gives a record its times (`observation_blocks.select_schedule_block()`, used through `FomoLCOFacility`/`FomoSOARFacility`): a block that started and took data — including one the portal reports `FAILED` with `time_completed` above 0 — gives the record its times and retires the allocation night; a request that never got a block keeps its night (D-05) | TOM Toolkit's rule returns no times for a block that ran and stopped early, and TOM Toolkit is never edited or monkeypatched; the first fix assumed such blocks read `ABORTED`, which the real portal payload disproved | Phase 37.1: live Didymos `--recheck-unscheduled` re-run found 4 blocks and `ALLOC:1:*` events went 14 → 10 (UAT test 11) |
 | The observed-telescope lookup reads the block whose start is the record's stored scheduled start, and falls back to FOMO's block rule only when no listed block starts then | The telescope shown on the calendar must belong to the block the record's times came from, whichever rule stored them (review WR-21) | Phase 37.1: `resolve_placement_block()`; 152 live records checked with no mismatch (UAT test 12) |
 | Every pre-executed demo notebook runs on its own scratch database under `/tmp/fomo-notebook-db-*` (the projector demo on a read-only snapshot of the developer database) and removes it afterwards; a guard test fails otherwise | Four notebooks had been opening `src/fomo_db.sqlite3` directly, and the paired-docs rule would have re-run them against it on every future change (UAT gap G-37.1-3) | Phase 37.1: `solsys_code/tests/test_pre_executed_notebooks.py`, `test_projector_demo_notebook.py` |
+| Sync with `main` by `git merge` (a910c17), hooks skipped on the merge commit itself so no reformat rides in it; adopt exactly `main`'s floors, nothing speculative (D-02) | A rebase would rewrite ~1800 published commits; a reformatting merge commit hides the real resolution | Phase 38: nine conflicts resolved by hand, full suite 2178 OK on tomtoolkit 3.1.0 |
+| Take `main`'s side for the `alerts/` include (delete the four lines) rather than re-adding `tom_alerts` to `INSTALLED_APPS` | The uninstalled app's URL space was reachable (38-REVIEW CR-01); `main` had already removed it (ada2000) | Phase 38 (38-05): `test_urls.py` pins the route set; D-03 not reopened |
+| PR #43 is refreshed by re-snapshotting `issue37-code-only` (v2.5 tree minus `.planning/`, `merge -s ours` of `origin/main`) with plain fast-forward pushes, only after a blocking-human `publish`; it stays a draft | The PR's diff must match a v2.4 description without exposing planning artifacts or rewriting published history | Phase 38 (38-04, 38-06): 846be34, CI green; PR #43 still a draft |
+| `src/fomo/local_settings.py` is the canonical host-settings location; the fix for hosts set up for `main` is documentation only (installation guide section + PR body), `settings.py` unchanged — decision (a) at 38-UAT test 1 | The branch's `from fomo.local_settings import *` pins the location while `main` (until PR #58 merges) resolved a bare import via `sys.path`; accepting both locations would reintroduce the silent fallback | Phase 38 (38-07): G-38-1 closed; keep the absolute import when PR #58's `settings.py` conflict is resolved (38-REVIEW WR-02) |
 
 ## Evolution
 
@@ -708,4 +713,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-06 after starting milestone v2.5 (Main Sync & Consolidation: merge main, adopt its tooling floors, clear the 37.1 review warnings, triage the carried-forward todos).*
+*Last updated: 2026-10-08 after Phase 38 (Sync with main complete: merged with `main`, tooling floors adopted, PR #43 refreshed; next Phase 39 Calendar Write Access).*
