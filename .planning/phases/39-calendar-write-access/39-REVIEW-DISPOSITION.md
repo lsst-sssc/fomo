@@ -3,59 +3,74 @@ phase: 39
 review: 39-REVIEW.md
 titles: json
 findings:
+  - id: WR-02
+    severity: warning
+    disposition: open
+    title: "The header says the snapshot \"fails until this list and that file are updated together\", but regenerating the snapshot alone turns the test green; nothing checks the header list (carried forward)"
+  - id: WR-03
+    severity: warning
+    disposition: open
+    title: "The snapshot is named and described as \"vs tomtoolkit 3.1.0\", but the test diffs against whatever tomtoolkit is installed, and CI installs `tomtoolkit>=3.1.0` unpinned (carried forward)"
+  - id: WR-04
+    severity: warning
+    disposition: open
+    title: "No behavioural test keeps the edit-form hint from a signed-in non-staff user; 39-05 rewrote that gate, and weakening it is caught only by the regenerable snapshot"
+  - id: IN-01
+    severity: info
+    disposition: open
+    title: "The docstrings credit the HX-Redirect to `Raise403Middleware`; it comes from `HTMXRedirectMiddleware` (carried forward)"
+  - id: IN-02
+    severity: info
+    disposition: open
+    title: "The runbook's CSRF paragraph still omits the misleading flash the CSRF path puts on the login page (carried forward)"
+  - id: IN-03
+    severity: info
+    disposition: open
+    title: "The runbook's \"passes the CSRF check\" example (a tab left open after logging out) is not pinned by any CSRF-enforcing test (carried forward)"
+  - id: IN-04
+    severity: info
+    disposition: open
+    title: "The CSRF-path tests build the expected Location from `settings.LOGIN_URL`, but the code under test uses `reverse('login')` (carried forward)"
+  - id: IN-05
+    severity: info
+    disposition: open
+    title: "`calendar_urls.py`'s module docstring still states the single refusal path (carried forward)"
+  - id: IN-06
+    severity: info
+    disposition: open
+    title: "The staff \"Save and Edit\" path -- the third way `create_event` renders `event_form.html` -- is untested"
+  - id: IN-07
+    severity: info
+    disposition: open
+    title: "The runbook's \"pop-up does not open\" troubleshooting does not cover the \"opens empty\" symptom G-39-4 actually produced"
   - id: WR-01
     severity: warning
     disposition: open
     title: "The CSRF path's post-login landing page is a live, script-less form whose Save submits a GET carrying the CSRF token; the new runbook text calls it \"only a form\""
-  - id: WR-02
-    severity: warning
-    disposition: open
-    title: "The header says the snapshot \"fails until this list and that file are updated together\", but regenerating the snapshot alone turns the test green; nothing checks the header list"
-  - id: WR-03
-    severity: warning
-    disposition: open
-    title: "The snapshot is named and described as \"vs tomtoolkit 3.1.0\", but the test diffs against whatever tomtoolkit is installed, and CI installs `tomtoolkit>=3.1.0` unpinned"
-  - id: IN-01
-    severity: info
-    disposition: open
-    title: "The docstrings credit the HX-Redirect to `Raise403Middleware`; it comes from `HTMXRedirectMiddleware`"
-  - id: IN-02
-    severity: info
-    disposition: open
-    title: "The new runbook paragraph omits the misleading flash the CSRF path puts on the login page"
-  - id: IN-03
-    severity: info
-    disposition: open
-    title: "The runbook's \"passes the CSRF check\" example (a tab left open after logging out) is not pinned by any CSRF-enforcing test"
-  - id: IN-04
-    severity: info
-    disposition: open
-    title: "The CSRF-path tests build the expected Location from `settings.LOGIN_URL`, but the code under test uses `reverse('login')`"
-  - id: IN-05
-    severity: info
-    disposition: open
-    title: "`calendar_urls.py`'s module docstring still states the single refusal path that 39-04 corrected everywhere else"
   - id: CR-01
     severity: critical
     disposition: skipped
     title: "Open self-registration lets anyone through the login guard, so any internet user can still create, edit and delete any calendar event"
-open: 8
-total: 9
-recorded: 2026-10-08T21:03:16.580Z
+open: 11
+total: 12
+recorded: 2026-10-08T23:08:19.143Z
 ---
 
 # Phase 39: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
 | WR-02 | warning | open | - |
 | WR-03 | warning | open | - |
+| WR-04 | warning | open | - |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
 | IN-04 | info | open | - |
 | IN-05 | info | open | - |
+| IN-06 | info | open | - |
+| IN-07 | info | open | - |
+| WR-01 | warning | open | - (not in the current review) |
 | CR-01 | critical | skipped | accepted risk (won't fix), Tim Lister 2026-10-08: "Self-signup is wanted; collaborators should be able to join without an operator; calendar edits are visible, attributable and easily reverted." TOM_REGISTRATION_STRATEGY, D-01 and the guard unchanged; see 39-SECURITY.md AR-39-01 and T-39-22 (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
