@@ -314,7 +314,7 @@ urlpatterns = [
     path('todo/update/<int:todo_id>/', write_requires_login(require_POST(update_todo)), name='update-todo'),
 ]
 ```
-(`require_POST` shown for the recommended hardening; drop it if Open Question 1 is answered "no". Guard outermost so an anonymous caller always gets the login redirect, never a `405`.)
+(`require_POST` shown for the recommended hardening; Open Question 1 is resolved "yes", so 39-01 keeps it. Guard outermost so an anonymous caller always gets the login redirect, never a `405`.)
 
 ### ACCESS-01 test skeleton (Django `TestCase`, anonymous client)
 ```python
@@ -395,15 +395,21 @@ Also `.sr-only` / `form-group` / `form-inline` appear in upstream's own `todos.h
 | A3 | A `GET`-only restriction (`require_POST`) on delete/todo routes does not break any current caller | Code Examples / Open Question 1 | Low: repo-wide grep for the five URL names (this session) found only `hx-post`/`hx-get` uses in `calendar.html`, `event_form.html`, `todos.html` (upstream) and tests that GET `update-event` |
 | A4 | ASVS L1 mapping: access control (V4 — enforce on a trusted server layer) and anti-CSRF (V4.2/V13-style) are the applicable categories | Security Domain | Low: category numbering varies by ASVS version; planner should cite by name |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Add `require_POST` to `delete-event`, `create-todo`, `update-todo`?**
+All four were settled at planning time; each disposition below names the plan that adopts it.
+
+1. **Add `require_POST` to `delete-event`, `create-todo`, `update-todo`?** -- RESOLVED (adopted in 39-01)
    - What we know: upstream acts on any method; a signed-in user's `GET /calendar/delete/<id>/` deletes (a top-level navigation `GET` sends the session cookie even under `SameSite=Lax`, so a crafted link is a CSRF-style delete). The UI uses `hx-post` only.
    - What's unclear: whether the user counts this as in scope ("exactly as before" for editors; the requirement is about anonymous writes).
    - Recommendation: include it (one decorator per route, `405` for non-POST by a signed-in user, tests for each). If declined, the `next=/calendar/` redirect (Pitfall 2) alone is still required.
-2. **D-08 wording versus `next=/calendar/`.** D-08 says "`login_required` semantics: 302 to `LOGIN_URL` with `?next=`". The recommended wrapper keeps that shape but sets `next` to the calendar page. A test written literally against `?next=<write URL>` would not match. Recommendation: tests assert `startswith(settings.LOGIN_URL)` and that `next` is the calendar page; record the reason in the plan.
-3. **URL row on the anonymous card for non-web values.** The projectors store `ALLOC:<run>:<night>` / `RUN:<pk>` namespace keys in `CalendarEvent.url`. D-05 says "URL (with the existing `is_web_url`-gated View link)". Recommendation: show the link for http(s) URLs and, for a non-web value, show only the "(not a web link)" note without echoing the raw key (internal identifier; the editor form still shows it). Planner/executor choice; `EventFormUrlLinkTest` has the cases to mirror.
-4. **Todo text visibility.** D-05 locks showing todos read-only to anonymous visitors (they could already read them in the old form's todo include). No change, but the runbook sentence should say so.
+   - **Resolution:** 39-01 adds `require_POST` inside the guard on all three routes. A signed-in `GET` to each returns `405` and changes no row (`SignedInCalendarWriteTest.test_get_on_destructive_routes_is_405_and_changes_nothing`). 39-01 Task 2's source check proves every template line naming these URLs uses `hx-post=` (assumption A3).
+2. **D-08 wording versus `next=/calendar/`.** -- RESOLVED (adopted in 39-01) D-08 says "`login_required` semantics: 302 to `LOGIN_URL` with `?next=`". The recommended wrapper keeps that shape but sets `next` to the calendar page. A test written literally against `?next=<write URL>` would not match. Recommendation: tests assert `startswith(settings.LOGIN_URL)` and that `next` is the calendar page; record the reason in the plan.
+   - **Resolution:** 39-01 sets `next` to `reverse('calendar:calendar')`. That is still a 302 to `LOGIN_URL` with `?next=`, as D-08 requires; D-08 does not say what the `next` value must be. 39-01's tests assert the exact Location `/accounts/login/?next=/calendar/`, which is stricter than `startswith`. They assert the htmx `HX-Redirect` value the same way. The reason (no login replay of the refused write, Pitfall 2) is in 39-01's objective and must_haves.
+3. **URL row on the anonymous card for non-web values.** -- RESOLVED (adopted in 39-02) The projectors store `ALLOC:<run>:<night>` / `RUN:<pk>` namespace keys in `CalendarEvent.url`. D-05 says "URL (with the existing `is_web_url`-gated View link)". Recommendation: show the link for http(s) URLs and, for a non-web value, show only the "(not a web link)" note without echoing the raw key (internal identifier; the editor form still shows it). Planner/executor choice; `EventFormUrlLinkTest` has the cases to mirror.
+   - **Resolution:** 39-02 Task 1's read-only card shows a `View ↗` link (`rel="noopener noreferrer"`) only when `is_web_url` passes. Any other stored value shows only "(not a web link)", and the raw value is never output. `EventCardUrlLinkTest` mirrors `EventFormUrlLinkTest`'s five cases and asserts the `ALLOC:`/`RUN:` key and a `javascript:` value are absent (threat T-39-12).
+4. **Todo text visibility.** -- RESOLVED (adopted in 39-02, per D-05) D-05 locks showing todos read-only to anonymous visitors (they could already read them in the old form's todo include). No change, but the runbook sentence should say so.
+   - **Resolution:** 39-02 Task 1 lists each todo read-only for visitors (`<ul ... id="cal-todos-readonly">`, description plus "(done)" or "(not done)", no inputs). The runbook paragraph that task adds to `docs/runbooks/telescope_runs_calendar.rst` says visitors see "the entry's todos marked done or not done".
 
 ## Environment Availability
 
