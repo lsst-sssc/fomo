@@ -57,10 +57,13 @@ created: "2026-10-07"
 | 38-06-01 | 06 | 6 | SYNC-04 | T-38-26, T-38-30 | snapshot tree = v2.5 tree minus `.planning/`; leak grep over `ls-files`; changed paths exactly the two 38-05 files; no edit in the worktree | integration (git) | 2 `<automated>` blocks: one snapshot commit on the PR head with parent = pre-push tip, tree equality, origin/main contained; leak check + no tom_alerts in the snapshot's urls.py + test_urls.py present | ✅ | ✅ green |
 | 38-06-02 | 06 | 6 | SYNC-04, SYNC-08 | T-38-27 | blocking-human decision before anything leaves the machine; `ls-remote` still at the recorded tips while waiting | manual (checkpoint:decision) | — (developer answered `publish`; recorded in 38-06-SUMMARY.md) | — | ✅ green |
 | 38-06-03 | 06 | 6 | SYNC-04, SYNC-05, SYNC-08 | T-38-27, T-38-28, T-38-29 | plain fast-forward pushes only; `isDraft` re-checked, no `gh pr edit`; branch guard before each push; worktree removed | integration | 4 `<automated>` blocks: both remotes equal local and descend from the recorded tips, PR head tree = v2.5 tree minus `.planning/`, no tom_alerts in the PR's urls.py diff; `gh pr view` draft + D-12 body; three CI runs success on 846be34 with the coverage step and no pytest; worktree gone | ✅ | ✅ green |
+| 38-07-01 | 07 | 7 | SYNC-08 | T-38-31, T-38-32, T-38-35 | installation guide, FOMO_BASE_URL note, runbook step 2 and PR body file name `src/fomo/local_settings.py`; docs checked against the live `settings.py` import; no home path or key in added lines; nothing pushed | docs + integration (docutils, `manage.py shell`) | 5 `<automated>` blocks: placement/phrase assertions vs `from fomo.local_settings import *`; docutils parse of both rst files at warning level; `manage.py shell -c "import fomo.local_settings"` prints `.../src/fomo/local_settings.py`; PR-body Settings-line assertions + D-12 sections intact; docs-only diff in the three planned files, numstat 1/1 ×2, ≤120 cols, no `$HOME`/`api_key`, `ls-remote` tips unchanged | ✅ | ✅ green |
+| 38-07-02 | 07 | 7 | SYNC-08 | T-38-33, T-38-34 | blocking-human decision before any `gh pr edit`; live body re-compared with the pre-plan file at every stop | manual (checkpoint:decision) | — (developer answered `revise` then `apply`; recorded verbatim in 38-07-SUMMARY.md) | — | ✅ green |
+| 38-07-03 | 07 | 7 | SYNC-08 | T-38-33, T-38-34 | exactly one body-only `gh pr edit 43 --body-file`; `isDraft`, head and base re-read afterwards; `settings.py` unchanged; nothing pushed | integration (gh) | 2 `<automated>` blocks: `gh pr view 43` body equals 38-PR43-BODY.md, isDraft true, head `issue37-code-only`, base `main`, required elements present; `settings.py` unchanged vs BASE and `ls-remote` tips equal the recorded ones | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
-All 52 automated verify commands across the fourteen executed tasks (36 in 38-01..38-04, 16 in the gap-closure plans 38-05 and 38-06) carry a `<fails_when>` direction (`gsd_run check verify-failure-directions 38` → status ok, 0 non-ok) and every SUMMARY reports `Self-Check: PASSED`.
+All 59 automated verify commands across the seventeen executed tasks (36 in 38-01..38-04, 23 in the gap-closure plans 38-05, 38-06 and 38-07) carry a `<fails_when>` direction (`gsd_run check verify-failure-directions 38` → status ok, 0 non-ok) and every SUMMARY reports `Self-Check: PASSED`.
 
 ---
 
@@ -75,7 +78,7 @@ Existing infrastructure covers all phase requirements.
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
 | CI runs the Django test runner with coverage on a push | SYNC-05 | GitHub Actions runs remotely; the workflows trigger only on `push` to `main` and `pull_request` to `main` | Done in 38-04 Task 3 (automated via `gh run list/view` against snapshot `1a68a76`): "Unit test and code coverage" ran `build (3.10/3.11/3.12)` + `functional-tests` with the `Run Django unit tests with coverage` step, no pytest job; "Run pre-commit hooks" and "Build documentation" also succeeded. Repeated in 38-06 Task 3 against the gap-closure re-snapshot `846be34` (same three workflows, all success; first CI run of `test_urls.py` on Python 3.10/3.12). To re-check by hand: open the Actions tab for PR #43's head commit |
-| Developer approval of the staged merge resolution and of publishing PR #43 | SYNC-01, SYNC-08 | blocking-human checkpoints (D-01, D-11) — a judgment, not a test | Answers recorded verbatim in 38-01-SUMMARY.md (`approve`), 38-04-SUMMARY.md (`publish`) and 38-06-SUMMARY.md (`publish`, the gap-closure re-snapshot) |
+| Developer approval of the staged merge resolution and of publishing PR #43 | SYNC-01, SYNC-08 | blocking-human checkpoints (D-01, D-11) — a judgment, not a test | Answers recorded verbatim in 38-01-SUMMARY.md (`approve`), 38-04-SUMMARY.md (`publish`), 38-06-SUMMARY.md (`publish`, the gap-closure re-snapshot) and 38-07-SUMMARY.md (`revise`, then `apply`, for the PR #43 body edit) |
 
 ---
 
@@ -88,7 +91,7 @@ Existing infrastructure covers all phase requirements.
 - [x] Feedback latency < 600s (targeted runs ≤ 60 s; the full suite ran 457–550 s)
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** validated 2026-10-07 by the execute-phase verify:post hook (State A audit; 0 gaps, 0 escalations); re-audited 2026-10-07 after the gap-closure run (38-05, 38-06 added to the map; 0 gaps, 0 escalations)
+**Approval:** validated 2026-10-07 by the execute-phase verify:post hook (State A audit; 0 gaps, 0 escalations); re-audited 2026-10-07 after the gap-closure run (38-05, 38-06 added to the map; 0 gaps, 0 escalations); re-audited 2026-10-08 after the G-38-1 gap-closure plan (38-07 added to the map, docs-only; 0 gaps, 0 escalations)
 
 ## Validation Audit 2026-10-07
 
@@ -111,3 +114,14 @@ Existing infrastructure covers all phase requirements.
 | Automated commands | 52 |
 | Executed tasks | 14 |
 | Checkpoint tasks | 3 |
+
+## Validation Audit 2026-10-08
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Automated commands | 59 |
+| Executed tasks | 17 |
+| Checkpoint tasks | 4 |
