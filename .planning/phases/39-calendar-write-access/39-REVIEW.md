@@ -1,179 +1,121 @@
 ---
 phase: 39-calendar-write-access
-reviewed: 2026-10-08T21:01:27Z
+reviewed: 2026-10-08T23:06:45Z
 depth: deep
-scope: incremental (gap-closure plan 39-04; commits bc73bfd, 65ba57c; diff base d0440c3)
-files_reviewed: 6
+scope: incremental (gap-closure plan 39-05; commits 917a895, c71b7b0; diff base d9132fc)
+files_reviewed: 5
 files_reviewed_list:
-  - solsys_code/calendar_access.py
+  - docs/runbooks/telescope_runs_calendar.rst
+  - solsys_code/templatetags/attribution_display_extras.py
   - solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff
   - solsys_code/tests/test_calendar_template.py
-  - solsys_code/tests/test_calendar_write_access.py
   - src/templates/tom_calendar/partials/event_form.html
-  - docs/runbooks/telescope_runs_calendar.rst
 findings:
   critical: 0
   warning: 3
-  info: 5
-  total: 8
+  info: 7
+  total: 10
 status: issues_found
 ---
 
-# Phase 39: Code Review Report (incremental, after gap-closure plan 39-04)
+# Phase 39: Code Review Report (incremental, after gap-closure plan 39-05)
 
-**Reviewed:** 2026-10-08T21:01:27Z
+**Reviewed:** 2026-10-08T23:06:45Z
 **Depth:** deep
-**Files Reviewed:** 6
+**Files Reviewed:** 5
 **Status:** issues_found
 
 ## Summary
 
-This review covers what gap-closure plan 39-04 changed since the first Phase 39 review at d0440c3:
+This round covers gap-closure plan 39-05 since the previous review at d9132fc:
 
-- bc73bfd: the CSRF-failure refusal path. This adds `AnonymousCsrfFailureWriteTest`, the
-  `CalendarRowSnapshotMixin` refactor, the `calendar_access.py` module docstring and the runbook
-  paragraph.
-- 65ba57c: restores the "Save and Edit" label, adds the pinned body-diff snapshot, and adds the
-  `normalized_upstream_diff` helper and its two tests.
+- 917a895: the `isinstance` guard in `high_band_attribution_candidates`, the action-first `elif` on the
+  staff hint in `event_form.html`, header item 4, the regenerated snapshot and six new tests.
+- c71b7b0: the runbook's bare-form warning (G-39-3).
 
-The hunks were judged against the whole of each file and cross-checked against the code they depend on:
+How the changes were checked:
 
-- the guard in `solsys_code/calendar_access.py`
-- the URL conf in `solsys_code/calendar_urls.py`
-- tom_common's `Raise403Middleware` / `HTMXRedirectMiddleware` and their order in
-  `TOMTOOLKIT_MIDDLEWARE`
-- Django's `login()` / `logout()` CSRF rotation
-- the installed tomtoolkit 3.1.0 `tom_calendar/partials/event_form.html`
+- I read each hunk against its whole file. I traced the callers into `campaign_attribution.py`,
+  `campaign_views.py`, the installed tomtoolkit 3.1.0 `tom_calendar/views.py` and the sibling tags in
+  `calendar_display_extras.py`.
+- I ran the new tests on HEAD: 17/17 pass.
+- I ran the same tests against a scratch export with `event_form.html` and
+  `attribution_display_extras.py` reverted to d9132fc: 15 of 17 fail, including every new
+  staff/superuser/invalid-POST/tag/gate test. So the new tests catch G-39-4 and are not tautological.
+- I ran a mutation check: swapping `request.user.is_staff` for `request.user.is_authenticated` in the
+  new `elif`. Across `test_calendar_template` and `test_calendar_write_access` (133 tests), only the two
+  snapshot tests fail. See WR-04.
+- Pinned ruff (pre-commit `ruff` and `ruff-format`) is clean on both Python files.
 
-What checks out:
+**What checks out:**
 
-- **Snapshot.** I recomputed the normalized diff statically from the installed upstream file and
-  the current template. It matches the committed snapshot byte for byte (10 regions).
-- **CSRF-failure tests.** The Locations they assert match what the middleware chain actually
-  produces. `CsrfViewMiddleware.process_view` returns a 403; on the way out, `Raise403Middleware`
-  turns it into a 302 to `reverse('login') + '?next=' + request.path`, and `HTMXRedirectMiddleware`
-  then turns that into a 200 with `HX-Redirect`.
-- **Runbook stale-tab claim.** "A tab left open after logging out passes the CSRF check" is
-  accurate: Django's `login()` calls `rotate_token`, `logout()` does not, and `CSRF_USE_SESSIONS`
-  is unset.
-- **Label fix.** The restored label matches upstream's `bootstrap_button "Save and Edit"`.
+- **The guard and the other callers.** The `isinstance` guard is the same guard used by
+  `campaign_decoration`, `run_tally`, `unused_night_decoration` and `observation_series_decoration`
+  (`calendar_display_extras.py:544, 633, 702, 824`). No other caller hands a non-event to
+  `campaign_attribution.candidates_for_event`:
+  - `event_attribution_backlog` (`campaign_attribution.py:787`) and `unattributable_orphan_count`
+    (`:871`) iterate an `orphan_calendar_events()` queryset.
+  - `is_offered_candidate` (`:902`) and `campaign_views._is_sole_high_candidate` (`:1331`) pass the
+    result of `CalendarEvent.objects.get(...)` behind a `DoesNotExist` catch. Their pk comes through
+    `_as_pk_or_none` (`campaign_views.py:1373, 1469`), so a non-integer can't reach `.get()`.
+  - The template tag is the only template caller.
+- **The `elif` gate.** Django's smartif `and` short-circuits, so on the create form (`action ==
+  "create"`, no `event` in context) the hint branch is never evaluated. Staff and plain users now get
+  identical create forms, apart from the CSRF token. The test proves this by comparing the full
+  response bodies.
+- **No staff-only leak.** Nothing staff-only reaches a non-staff viewer: `is_staff` is still a
+  conjunct, and the create form renders no hint for anyone. The anonymous `{% else %}` card is
+  unreachable on create, because `write_requires_login(create_event)` redirects first.
+- **The third create-form render path.** `create_event`'s `save_and_edit` branch renders with
+  `action="update"` and a real, saved event, so the hint path stays safe there too. It is untested
+  (IN-06).
+- **The snapshot.** It matches the current body (still 10 regions), and header item 4 now says "edit
+  form only". The header, the anchors and the snapshot agree.
+- **The runbook's new sentence.** It is accurate. The bare fragment loads no htmx, and its `<form>`
+  has no `method`/`action`, so Save and "Save and Edit" do a native GET to the same address:
+  - `create_event` GET finds no `date` key and renders an empty `EventForm()`.
+  - `update_event` GET re-renders the stored instance.
 
-No blocker was found: no path writes a row, and the guard code is unchanged. The remaining
-problems are in the new safety nets and the new documentation:
+  Either way nothing is saved and what was typed is discarded, as the runbook now says.
 
-- The documented post-login landing for the CSRF path is a script-less form fragment. Its Save
-  button submits as a GET and puts a valid CSRF token in the URL.
-- The snapshot guard's header claims more than the test enforces.
-- The snapshot is pinned to 3.1.0 by name only, while CI installs whatever `tomtoolkit>=3.1.0`
-  resolves to.
+**Status of the previous round's findings:**
 
-CR-01 (open self-registration) is a recorded accepted risk (39-SECURITY.md AR-39-01 / T-39-22) and
-is not re-reported.
+| ID | Status after 39-05 |
+|----|--------------------|
+| WR-01 | **Resolved by documentation** (c71b7b0, the developer's UAT decision). The runbook no longer calls the landing page "only a form", and tells the operator not to use it. Residual risk, recorded rather than re-raised because the `method="post"` hardening was offered at UAT and declined: if the operator clicks Save anyway, the CSRF token still goes into the query string (browser history, access logs), and the runbook gives "saves nothing" as its reason not to use that copy, but not the token exposure. |
+| WR-02 | **Remains** (header lines 9-12 unchanged). 39-05 did update item 4 and the snapshot together, but only by discipline. The mutation run shows that the snapshot is now the only thing pinning the staff gate, and its own failure message prints the one-liner that turns it green. |
+| WR-03 | **Remains** (installed 3.1.0, `pyproject.toml:20` still `>=3.1.0`). |
+| IN-01, IN-03, IN-04, IN-05 | **Remain.** Their files (`calendar_access.py`, `test_calendar_write_access.py`, `calendar_urls.py`) were not touched by 39-05. |
+| IN-02 | **Remains.** 39-05 rewrote this very paragraph, but it still does not mention the "contact your PI" flash. |
+| CR-01 | Accepted risk (AR-39-01 / T-39-22); not re-reported. |
+
+New in this round: WR-04 (no behavioural test keeps the edit-form hint from signed-in non-staff),
+IN-06 (staff "Save and Edit" path untested) and IN-07 (the runbook's pop-up troubleshooting paragraph
+does not cover the "opens empty" symptom that G-39-4 produced).
 
 ## Narrative Findings (AI reviewer)
 
 ## Warnings
 
-### WR-01: The CSRF path's post-login landing page is a live, script-less form whose Save submits a GET carrying the CSRF token; the new runbook text calls it "only a form"
+### WR-02: The header says the snapshot "fails until this list and that file are updated together", but regenerating the snapshot alone turns the test green; nothing checks the header list (carried forward)
 
-**File:** `docs/runbooks/telescope_runs_calendar.rst:2596-2605`; `solsys_code/calendar_access.py:15-19`; `solsys_code/tests/test_calendar_write_access.py:349-370`; `src/templates/tom_calendar/partials/event_form.html:40-45`
+**File:** `src/templates/tom_calendar/partials/event_form.html:9-12`; `solsys_code/tests/test_calendar_template.py:2162-2177`
 
-**Issue:**
+**Issue:** This is unchanged from the previous round.
 
-What the new text says:
+- `test_body_diff_matches_pinned_snapshot` compares the body diff against a file that
+  `T.SNAPSHOT.write_text(T.current_diff())` regenerates from the body alone.
+- The failure message prints that exact command.
+- `test_every_differing_region_is_listed_and_every_item_differs` cannot see a change inside an
+  already-anchored region.
 
-- The runbook paragraph ends: "after logging in the browser simply opens that address, which
-  changes nothing -- ... the create and edit addresses only show a form."
-- `test_replaying_the_refused_path_as_a_signed_in_get_changes_nothing` pins those two GETs as
-  `200`.
+So a header that was not updated survives a snapshot regeneration with a green suite. 39-05 shows the
+risk is live, not hypothetical: after its change, the snapshot is the only test that fails when the
+staff gate in that anchored region is weakened (see WR-04).
 
-What the browser actually gets:
-
-- `create_event` / `update_event` on GET render `tom_calendar/partials/event_form.html` on its own,
-  with no base page. So the full-page navigation after login (plain, or the `HX-Redirect` case)
-  shows a bare fragment with no htmx, no Bootstrap and no layout.
-- The form in that fragment is `<form hx-post=... hx-target="#calendar-partial">`, with no `method`
-  and no `action`, and it contains `{% csrf_token %}`.
-- With htmx not loaded, clicking **Save** (or **Save and Edit**) does a native submit. That is a GET
-  to the same address, carrying every field plus `csrfmiddlewaretoken=<valid token>` in the query
-  string.
-
-The consequences:
-
-- The upstream GET branch ignores those parameters and re-renders an empty or unchanged form, so
-  whatever the operator typed is silently thrown away. "Changes nothing" is true, but the operator
-  gets no sign that the save didn't happen.
-- The session's CSRF token, freshly rotated by the login that just happened, ends up in browser
-  history and server access logs. A masked Django token unmasks to the cookie secret, so anyone who
-  can read those logs can forge cross-site POSTs for that session until the next login. The
-  default `SECURE_REFERRER_POLICY='same-origin'` stops a cross-origin Referer leak, so the exposure
-  is limited to history and logs.
-
-The first review (WR-01 item 2) noted the bare fragment. The developer chose to fix that with docs
-and tests rather than a `CSRF_FAILURE_VIEW`. But the replacement text presents the landing page as
-inert, and neither the docs nor the tests record that its Save button "works" as a token-leaking
-GET.
-
-**Fix:** This stays within the developer's no-behaviour-change decision for the redirect itself.
-
-1. Correct the runbook sentence, for example: "the create and edit addresses show a bare, unstyled
-   copy of the form; do not use it: go back to the calendar page and make the change there."
-2. Optionally harden the FOMO-owned template so a script-less submit can never become a GET. This
-   adds one line to the header's item 3 and to the pinned snapshot:
-
-```html
-<form method="post"
-      {% if action == "create" %}
-        action="{% url 'calendar:create-event' %}" hx-post="{% url 'calendar:create-event' %}"
-      {% else %}
-        action="{% url 'calendar:update-event' event.id %}" hx-post="{% url 'calendar:update-event' event.id %}"
-      {% endif %}
-        hx-target="#calendar-partial">
-```
-
-With `method="post"`, a script-less submit is an authenticated, token-valid POST through the guard.
-The token never appears in the URL. A test such as
-`self.assertNotIn('csrfmiddlewaretoken=', replay.request['QUERY_STRING'])` is not meaningful on a
-GET, so instead assert that the rendered fragment's `<form` tag carries `method="post"`.
-
-### WR-02: The header says the snapshot "fails until this list and that file are updated together", but regenerating the snapshot alone turns the test green; nothing checks the header list
-
-**File:** `src/templates/tom_calendar/partials/event_form.html:9-12`; `solsys_code/tests/test_calendar_template.py:2058-2073`
-
-**Issue:** 39-REVIEW WR-02 was about an unlisted change that sits inside a region an anchor already
-covers. The anchor rule cannot see such a change. The snapshot catches it only until someone runs
-the regeneration one-liner that the failure message itself prints:
-`T.SNAPSHOT.write_text(T.current_diff())`.
-
-That command rewrites the snapshot from the current body. Nothing ties the snapshot to the header's
-numbered list:
-
-- `test_every_differing_region_is_listed_and_every_item_differs` still passes, because the new line
-  sits inside an anchored region.
-- `test_body_diff_matches_pinned_snapshot` passes after the rewrite.
-
-So the WR-02 class of omission (an unlisted line inside the merged card/decoration insert) can come
-back with a green suite. The only defence left is a reviewer reading the `.diff` file in the PR.
-The header comment, which is the operative documentation for this drift guard, states a guarantee
-("fails until this list and that file are updated together") that the code does not provide. The
-failure message's "update the header's numbered list, then regenerate" is advice, and nothing
-enforces it.
-
-**Fix:** Either reword the header to say what is actually enforced, or bind the header to the
-snapshot so one cannot be regenerated without the other.
-
-Reworded header:
-
-```text
-   ... and pins the full diff in solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff, so any
-   new difference fails until that file is regenerated; review the regenerated file against this
-   list before committing it.
-```
-
-Or the binding, for example: make the snapshot's first line a SHA-256 of `_header()` text and have
-`current_diff()` emit it. Then a regenerated snapshot also changes visibly whenever the header
-changes, and a header that did not change shows up as an unchanged hash next to a changed body
-diff:
+**Fix:** As before, either reword the header to say what is enforced ("any new difference fails until
+that file is regenerated; review the regenerated file against this list before committing it"), or
+bind the header into the snapshot so the two cannot drift silently:
 
 ```python
 @classmethod
@@ -182,31 +124,21 @@ def current_diff(cls) -> str:
     return f'# header-sha256 {header_hash}\n' + normalized_upstream_diff(cls._upstream_lines(), cls._body_lines())
 ```
 
-### WR-03: The snapshot is named and described as "vs tomtoolkit 3.1.0", but the test diffs against whatever tomtoolkit is installed, and CI installs `tomtoolkit>=3.1.0` unpinned
+### WR-03: The snapshot is named and described as "vs tomtoolkit 3.1.0", but the test diffs against whatever tomtoolkit is installed, and CI installs `tomtoolkit>=3.1.0` unpinned (carried forward)
 
-**File:** `solsys_code/tests/test_calendar_template.py:1951, 1976-1985, 2058-2073`; `solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff`; `pyproject.toml:20`
+**File:** `solsys_code/tests/test_calendar_template.py:2055, 2080-2085, 2162-2177`; `solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff`; `pyproject.toml:20`
 
-**Issue:** `_upstream_lines()` reads the installed `tom_calendar` partial. The only version check
-in the class is `test_header_names_the_pinned_upstream`, and it checks that the header text
-contains `'tomtoolkit 3.1.0'`, not that 3.1.0 is installed. `pyproject.toml` requires
-`tomtoolkit>=3.1.0`, and every CI workflow (`testing-and-coverage.yml`, `pre-commit-ci.yml`, the
-daily smoke test) runs `pip install -e .[dev]`.
+**Issue:** This is unchanged from the previous round. `_upstream_lines()` reads the installed
+`tom_calendar` partial. `test_header_names_the_pinned_upstream` only checks that the header text says
+`'tomtoolkit 3.1.0'`. Any upstream release that touches this partial has three effects:
 
-The first tomtoolkit release that touches this partial, even whitespace, has these effects:
+- CI turns red with no FOMO change.
+- The failure message blames FOMO's body.
+- The advice it prints regenerates a file still named `..._3_1_0.diff`, under a header that still
+  says 3.1.0.
 
-1. It turns CI red with no FOMO change.
-2. The failure message blames FOMO ("event_form.html's body now differs from tomtoolkit 3.1.0 in a
-   way the pinned snapshot does not record"), which is wrong on both counts.
-3. The suggested fix regenerates the snapshot against the new upstream, but leaves it in a file
-   named `..._3_1_0.diff` and under a header that still says "compared with tomtoolkit 3.1.0".
-   After that, the filename and header describe a comparison the file no longer records.
-
-The T-27-20 tripwire ("re-diff on every tomtoolkit upgrade") is wanted. The defect is that this
-test detects an upgrade only indirectly, and then gives the wrong diagnosis and remedy.
-
-**Fix:** Check the installed version first and fail with an upgrade-specific message. Then a drift
-in FOMO's body and an upstream upgrade are reported separately, and the regeneration hint only
-appears for the former:
+**Fix:** Assert the installed version first, with an upgrade-specific message, before the snapshot
+comparison:
 
 ```python
 from importlib.metadata import version
@@ -224,87 +156,161 @@ def test_body_diff_matches_pinned_snapshot(self):
     ...
 ```
 
-Alternatively, pin `tomtoolkit==3.1.0` (or `<3.2`) in `pyproject.toml` so an upgrade is a
-deliberate change.
+Or pin `tomtoolkit<3.2` in `pyproject.toml`.
+
+### WR-04: No behavioural test keeps the edit-form hint from a signed-in non-staff user; 39-05 rewrote that gate, and weakening it is caught only by the regenerable snapshot
+
+**File:** `src/templates/tom_calendar/partials/event_form.html:284`; `solsys_code/tests/test_calendar_template.py:839-842, 889-895, 979-992`; `.planning/phases/39-calendar-write-access/39-05-SUMMARY.md` (coverage D5)
+
+**Issue:** 39-05 rewrote the condition that keeps the "Possible campaign run match" hint staff-only:
+
+```
+{% elif action == "update" and request.user.is_staff and not event.telescope_label_meta.run %}
+```
+
+The template comment states the security intent (lines 290-293): "an offered candidate run may not
+yet be publicly visible, so this hint must never reach an anonymous or non-staff visitor". Since
+39-01, every self-registered account (CR-01, accepted) is a signed-in non-staff user who can open the
+edit pop-up.
+
+The tests for that intent:
+
+- `EventModalAttributionHintTest` covers anonymous (`test_anonymous_does_not_see_hint`), staff and
+  superuser.
+- 39-05 added `cls.plain_user` (line 842) but only uses it for the create-form equivalence test, where
+  the action gate hides the hint whatever the staff test is.
+- `test_hint_is_gated_on_the_edit_form` renders only as `staff_user`.
+- No test in the repository GETs the update pop-up as a signed-in non-staff user and asserts that
+  the hint is absent.
+
+The 39-05 summary's coverage item D5 claims "non-staff and anonymous still never see it", and cites
+only the staff-rendering gate test and the superuser test.
+
+Verified by mutation: replace `request.user.is_staff` with `request.user.is_authenticated` on line 284
+and run `test_calendar_template` plus `test_calendar_write_access` (133 tests). The only failures are
+`test_body_diff_matches_pinned_snapshot` and
+`test_snapshot_detects_an_unlisted_line_inside_an_anchored_region`. Running the regeneration one-liner
+that the failure message prints (WR-02) makes the suite fully green. The template would then show a
+not-yet-public candidate run's name and score to every signed-in user.
+
+**Fix:** Add a behavioural test for the non-staff case, and a non-staff row to the gate test:
+
+```python
+def test_signed_in_non_staff_does_not_see_hint(self):
+    """T-27-21: the hint is staff-only; any signed-in non-staff account (open sign-up) must not see it."""
+    response = self._signed_in_client(self.plain_user).get(self._modal_url(self.unlinked_event_with_candidate))
+    self.assertEqual(response.status_code, 200)
+    content = response.content.decode()
+    self.assertIn('<form', content)  # the edit form did render, so the absence below is meaningful
+    self.assertNotIn('Possible campaign run match', content)
+    self.assertNotIn(f'{reverse("campaigns:attribution")}?band=high', content)
+```
+
+In `test_hint_is_gated_on_the_edit_form`, iterate over
+`(user, action, shown) in ((staff, 'update', True), (staff, 'create', False), (plain, 'update', False))`.
 
 ## Info
 
-### IN-01: The docstrings credit the HX-Redirect to `Raise403Middleware`; it comes from `HTMXRedirectMiddleware`
+### IN-01: The docstrings credit the HX-Redirect to `Raise403Middleware`; it comes from `HTMXRedirectMiddleware` (carried forward)
 
 **File:** `solsys_code/calendar_access.py:15-17`; `solsys_code/tests/test_calendar_write_access.py:277-278`
 
-**Issue:** Both say `Raise403Middleware` "turns the 403 into a login redirect ... (htmx:
-`HX-Redirect`)". In fact:
-
-- `Raise403Middleware` (`tom_common/middleware.py:167-185`) only produces the 302.
-- `HTMXRedirectMiddleware` (`tom_common/middleware.py:100-117`) sits outside it in
-  `TOMTOOLKIT_MIDDLEWARE`. It is what rewrites the 302 to `200` + `HX-Redirect`, for this path and
-  for the guard's own redirect alike.
-
-Anyone debugging a missing `HX-Redirect` would look in the wrong middleware.
+**Issue:** This is unchanged. `Raise403Middleware` only produces the 302.
+`HTMXRedirectMiddleware`, which sits outside it, rewrites the 302 to `200` + `HX-Redirect`.
 
 **Fix:** "... `Raise403Middleware` turns the 403 into a login redirect whose `next` is the refused
 path, and `HTMXRedirectMiddleware` turns that redirect into an `HX-Redirect` for an htmx request."
 
-### IN-02: The new runbook paragraph omits the misleading flash the CSRF path puts on the login page
+### IN-02: The runbook's CSRF paragraph still omits the misleading flash the CSRF path puts on the login page (carried forward)
 
-**File:** `docs/runbooks/telescope_runs_calendar.rst:2596-2605`
+**File:** `docs/runbooks/telescope_runs_calendar.rst:2596-2607`
 
-**Issue:** `Raise403Middleware` calls `messages.error(request, 'You do not have permission to access
-this page. Please login as a user with the correct permissions or contact your PI.')` before it
-redirects. So the operator who hits the CSRF path sees "contact your PI" on the login page for what
-is really a stale form token. The first review recorded this (WR-01 item 2), but the corrected
-paragraph, which is now the operator's description of this exact path, does not mention it.
+**Issue:** `Raise403Middleware` flashes "You do not have permission to access this page. Please login
+as a user with the correct permissions or contact your PI." before redirecting. 39-05 rewrote the
+ending of this exact paragraph and left the flash undocumented. So an operator who meets a stale form
+token is still told to contact their PI.
 
-**Fix:** Add a sentence such as: "The login page may show 'You do not have permission to access this
-page ... contact your PI'; that message comes from the TOM Toolkit and here only means the form had
-expired. Log in and make the change again from the calendar page."
+**Fix:** Add: "The login page may say 'You do not have permission to access this page ... contact your
+PI'; that message comes from the TOM Toolkit and here only means the form had expired."
 
-### IN-03: The runbook's "passes the CSRF check" example (a tab left open after logging out) is not pinned by any CSRF-enforcing test
+### IN-03: The runbook's "passes the CSRF check" example (a tab left open after logging out) is not pinned by any CSRF-enforcing test (carried forward)
 
-**File:** `solsys_code/tests/test_calendar_write_access.py:90-97`; `docs/runbooks/telescope_runs_calendar.rst:2597-2599`
+**File:** `solsys_code/tests/test_calendar_write_access.py:90-106`; `docs/runbooks/telescope_runs_calendar.rst:2597-2599`
 
-**Issue:** `AnonymousCalendarWriteTest` uses the default test client, which skips CSRF entirely. So
-the claim that a real stale-after-logout tab still reaches the guard rests on two Django details
-that no test exercises: `logout()` does not call `rotate_token`, and `CSRF_USE_SESSIONS` is unset.
-If either changes (for example `CSRF_USE_SESSIONS = True` in a `local_settings.py`), that tab moves
-to the CSRF path, and the runbook's first branch becomes wrong with the suite still green.
+**Issue:** This is unchanged. `AnonymousCalendarWriteTest` uses the default (CSRF-exempt) client, so
+the claim that a stale-after-logout tab reaches the guard rests on two untested Django details:
 
-**Fix:** Add one end-to-end case to `AnonymousCsrfFailureWriteTest`'s neighbour:
+- `logout()` does not rotate the token.
+- `CSRF_USE_SESSIONS` is unset.
 
-1. Use `Client(enforce_csrf_checks=True)`, `force_login`, then GET the update-event pop-up and
-   extract the token from it.
-2. `client.logout()`.
-3. POST with that token.
-4. Assert the Location is `?next=/calendar/` and that no row changed.
+**Fix:** Add one end-to-end case:
 
-### IN-04: The CSRF-path tests build the expected Location from `settings.LOGIN_URL`, but the code under test uses `reverse('login')`
+1. Use `Client(enforce_csrf_checks=True)` and `force_login`.
+2. GET the update pop-up and extract its token.
+3. `logout()`, then POST with that token.
+4. Assert `Location == '...?next=/calendar/'` and that no row changed.
+
+### IN-04: The CSRF-path tests build the expected Location from `settings.LOGIN_URL`, but the code under test uses `reverse('login')` (carried forward)
 
 **File:** `solsys_code/tests/test_calendar_write_access.py:291-293, 457`
 
-**Issue:** `Raise403Middleware` builds `reverse('login') + '?next=' + request.path`, while
-`refused_login_url()` uses `settings.LOGIN_URL`. Today both are `/accounts/login/`
-(`tom_common/urls.py:48`, `src/fomo/settings.py:123`), but only by coincidence. Change
-`LOGIN_URL`, and these tests fail for a reason unrelated to calendar access, while still
-describing the guard's own path (which does use `LOGIN_URL` via `redirect_to_login`) correctly.
+**Issue:** This is unchanged. The two values agree only by coincidence (`/accounts/login/`).
 
-**Fix:** `return f'{reverse("login")}?next={path}'` in `refused_login_url()`, and the same in
-`SignedInCalendarWriteTest.test_post_without_csrf_token_is_refused`.
+**Fix:** `return f'{reverse("login")}?next={path}'` in `refused_login_url()`, and the same at line 457.
 
-### IN-05: `calendar_urls.py`'s module docstring still states the single refusal path that 39-04 corrected everywhere else
+### IN-05: `calendar_urls.py`'s module docstring still states the single refusal path (carried forward)
 
 **File:** `solsys_code/calendar_urls.py:7-10`
 
-**Issue:** "an anonymous caller is redirected to login with next set to the calendar page" is the
-same unqualified claim that 39-REVIEW WR-01 flagged and that 39-04 fixed in `calendar_access.py`
-and the runbook. Plan 39-04 deliberately did not touch `calendar_urls.py`. That leaves a third copy
-of the old wording at the first place a reader of the URL conf looks.
+**Issue:** This is unchanged. The docstring still says "an anonymous caller is redirected to login with
+next set to the calendar page", without the CSRF-path qualification.
 
-**Fix:** At the next edit to that file, add "(by the guard; a write that fails the CSRF check is
-refused earlier, see `calendar_access.py`)".
+**Fix:** At the next edit, add "(by the guard; a write that fails the CSRF check is refused earlier,
+see `calendar_access.py`)".
+
+### IN-06: The staff "Save and Edit" path -- the third way `create_event` renders `event_form.html` -- is untested
+
+**File:** `solsys_code/tests/test_calendar_template.py:922-998`
+
+**Issue:** Upstream `create_event` renders the partial in three ways:
+
+- GET, with `action="create"`.
+- An invalid POST, with `action="create"`.
+- A valid POST carrying `save_and_edit`, with `action="update"` and the new event (`tom_calendar/views.py:154-163`).
+
+The new tests cover the first two for staff. The third is the one path out of the New Event pop-up
+where the hint branch is still evaluated for staff, and it is never exercised: no test in the
+repository POSTs `save_and_edit`. Today it is safe, because the event is a saved `CalendarEvent`.
+But G-39-4 reached users through exactly this kind of untested staff-only render path.
+
+**Fix:** Add a staff htmx POST of a valid create form with `save_and_edit=1`. Assert:
+
+- `200`
+- `HX-Retarget == '#cal-modal-body'`
+- `hx-post` points at the new event's update URL
+- exactly one new row
+
+### IN-07: The runbook's "pop-up does not open" troubleshooting does not cover the "opens empty" symptom G-39-4 actually produced
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:2609-2620`
+
+**Issue:** The paragraph names two faults:
+
+- A pop-up that opens with no attribution block.
+- A pop-up that "does not open at all ... on a day cell or the '+ New Event' button", which it calls
+  a client-side JavaScript fault.
+
+G-39-4 was a third case. The pop-up opened as an empty box, because the server answered 500 and htmx
+did not swap the body. An operator who follows this paragraph would look in the browser console for a
+JavaScript fault rather than in the server log for a 500. This is the operator runbook for the very
+surface 39-05 fixed (CLAUDE.md paired-docs rule, scoped to `docs/runbooks/`).
+
+**Fix:** Add a sentence: "A pop-up that opens but stays empty (no form, no card) usually means the
+server answered with an error; check the server log for a 500 on `/calendar/create/` or
+`/calendar/update/<id>/` before looking at the browser console."
 
 ---
 
-_Reviewed: 2026-10-08T21:01:27Z_
+_Reviewed: 2026-10-08T23:06:45Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
