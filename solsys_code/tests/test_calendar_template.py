@@ -20,13 +20,15 @@ import tom_calendar
 from django.contrib.auth.models import User
 from django.db import connection
 from django.db.models.signals import m2m_changed, post_save
-from django.test import Client, SimpleTestCase, TestCase
+from django.template.loader import render_to_string
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.html import escape
 from tom_calendar.models import CalendarEvent, EventTodo
+from tom_calendar.views import EventForm
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
@@ -35,6 +37,7 @@ from solsys_code.allocation_projector import ALLOC_URL_NAMESPACE
 from solsys_code.campaign_reconciler import RUN_URL_NAMESPACE
 from solsys_code.models import NO_CAMPAIGN_LABEL, CalendarEventMeta, CampaignRun
 from solsys_code.observation_projector import receiver_on_group_membership_changed, receiver_on_record_save
+from solsys_code.templatetags.attribution_display_extras import high_band_attribution_candidates
 from solsys_code.templatetags.calendar_display_extras import (
     observation_status_legend,
     proposal_color,
@@ -784,6 +787,10 @@ class EventModalAttributionHintTest(TestCase):
     the event_form.html modal for an unlinked event with a HIGH-band attribution-queue
     candidate now surfaces a staff-only "Possible campaign run match" hint naming the
     candidate and linking to the attribution queue filtered to band=high.
+
+    G-39-4 (39-UAT.md, .planning/debug/blank-new-event-popup.md): the create form has no
+    ``event``, so for a staff viewer the hint branch used to raise and the New Event pop-up came
+    back as a 500.
     """
 
     @classmethod
@@ -829,8 +836,27 @@ class EventModalAttributionHintTest(TestCase):
         )
         CalendarEventMeta.objects.create(event=cls.linked_event, is_verified=True, run=cls.matched_run)
 
+        cls.superuser = User.objects.create_superuser(
+            username='attrmodalsuper', email='attrmodalsuper@example.com', password='pw'
+        )
+        cls.plain_user = User.objects.create_user(username='attrmodalplain', password='pw')
+
     def _modal_url(self, event):
         return reverse('calendar:update-event', args=[event.id])
+
+    def _signed_in_client(self, user) -> Client:
+        """A client signed in as ``user`` that does not re-raise server errors.
+
+        A 500 must surface as a status the test asserts on (a FAIL), not as an exception
+        re-raised into the test (an ERROR).
+        """
+        client = Client(raise_request_exception=False)
+        client.force_login(user)
+        return client
+
+    def _masked(self, html: str) -> str:
+        """``html`` with the CSRF token value blanked (the token is per request, the rest must match)."""
+        return re.sub(r'(name="csrfmiddlewaretoken" value=")[^"]*(")', r'\1\2', html)
 
     def test_staff_sees_high_band_hint_for_unlinked_event(self):
         self.client.force_login(self.staff_user)
@@ -892,6 +918,84 @@ class EventModalAttributionHintTest(TestCase):
         )
         content = template_path.read_text()
         self.assertNotIn('no production code writes CalendarEventMeta.run yet', content)
+
+    def test_staff_and_superuser_get_the_create_form(self):
+        """G-39-4 / D-01 / D-07: a staff or superuser GET of the create form gets the form, not a 500."""
+        create_url = reverse('calendar:create-event')
+        for user in (self.staff_user, self.superuser):
+            client = self._signed_in_client(user)
+            for query in ('', '?date=2026-07-16'):
+                for headers in ({'HX-Request': 'true'}, {}):
+                    with self.subTest(user=user.username, query=query, htmx=bool(headers)):
+                        response = client.get(create_url + query, headers=headers)
+                        self.assertEqual(response.status_code, 200)
+                        body = response.content.decode()
+                        self.assertIn('<form', body)
+                        self.assertIn(f'hx-post="{create_url}"', body)
+                        self.assertIn('>Save and Edit</button>', body)
+                        if query:
+                            self.assertIn('2026-07-16', body)
+                        self.assertNotIn('Possible campaign run match', body)
+
+    def test_staff_create_form_matches_the_plain_users_apart_from_the_csrf_token(self):
+        """G-39-4: the staff create form equals a plain user's, so the non-staff browser test speaks for staff."""
+        create_url = reverse('calendar:create-event')
+        plain = self._signed_in_client(self.plain_user).get(create_url, headers={'HX-Request': 'true'})
+        staff = self._signed_in_client(self.staff_user).get(create_url, headers={'HX-Request': 'true'})
+        self.assertEqual(plain.status_code, 200)
+        self.assertEqual(staff.status_code, 200)
+        plain_body = plain.content.decode()
+        staff_body = staff.content.decode()
+        self.assertIn('<form', plain_body)
+        self.assertIn('>Save and Edit</button>', plain_body)
+        self.assertEqual(self._masked(staff_body), self._masked(plain_body))
+
+    def test_staff_invalid_create_post_re_renders_the_form(self):
+        """G-39-4: a staff htmx POST of an invalid create form re-renders the form and creates nothing."""
+        title = 'Staff invalid create'
+        before = CalendarEvent.objects.count()
+        response = self._signed_in_client(self.staff_user).post(
+            reverse('calendar:create-event'), {'title': title}, headers={'HX-Request': 'true'}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['HX-Retarget'], '#cal-modal-body')
+        self.assertIn('<form', response.content.decode())
+        self.assertEqual(CalendarEvent.objects.count(), before)
+        self.assertFalse(CalendarEvent.objects.filter(title=title).exists())
+
+    def test_attribution_tag_returns_empty_list_for_a_non_event(self):
+        """G-39-4 (a): the tag's docstring promises it never raises; the create form hands it '' for a missing event."""
+        for value in ('', None):
+            with self.subTest(value=value):
+                try:
+                    result = high_band_attribution_candidates(value)
+                except Exception as exc:
+                    self.fail(
+                        f'high_band_attribution_candidates({value!r}) raised {type(exc).__name__}: {exc}; '
+                        'its docstring promises it never raises'
+                    )
+                self.assertEqual(result, [])
+
+    def test_hint_is_gated_on_the_edit_form(self):
+        """G-39-4 (b): the hint shows for action update and never for create (the update subTest proves
+        the same render path can show the hint at all)."""
+        event = self.unlinked_event_with_candidate
+        request = RequestFactory().get(reverse('calendar:update-event', args=[event.pk]))
+        request.user = self.staff_user
+        for action, shown in (('update', True), ('create', False)):
+            with self.subTest(action=action):
+                html = render_to_string(
+                    'tom_calendar/partials/event_form.html',
+                    {'form': EventForm(instance=event), 'event': event, 'action': action},
+                    request=request,
+                )
+                self.assertEqual('Possible campaign run match' in html, shown)
+
+    def test_superuser_sees_high_band_hint_for_unlinked_event(self):
+        """G-39-4: the superuser neighbour of test_staff_sees_high_band_hint_for_unlinked_event."""
+        response = self._signed_in_client(self.superuser).get(self._modal_url(self.unlinked_event_with_candidate))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Possible campaign run match', response.content.decode())
 
 
 class TemplateCommentSyntaxSweepTest(SimpleTestCase):

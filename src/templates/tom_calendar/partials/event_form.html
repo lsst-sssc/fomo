@@ -22,7 +22,7 @@
       laid-out Delete button.
    4. Between the form's end and the Todo list heading: the observation_series_decoration
       block, the campaign_decoration block (with its run_tally line) and the staff-only
-      high_band_attribution_candidates hint, with their reason comments.
+      high_band_attribution_candidates hint (edit form only), with their reason comments.
    5. Around the form (Phase 39, ACCESS-02, D-05): a request.user.is_authenticated branch; a
       visitor who is not logged in gets the read-only cal-event-card (labelled text, no form
       controls) instead of the form.
@@ -281,7 +281,7 @@
         {% endif %}
       </div>
     </div>
-{% elif not event.telescope_label_meta.run and request.user.is_staff %}
+{% elif action == "update" and request.user.is_staff and not event.telescope_label_meta.run %}
     {% comment %}
        27-07 gap closure (27-UAT.md Test 9, T-27-21): `not run` is true both when
        event.telescope_label_meta has no companion row at all and when the companion row
@@ -291,6 +291,9 @@
        request, not client input, matching campaign_list.html's nav-banner gate
        convention) -- an offered candidate run may not yet be publicly visible, so this
        hint must never reach an anonymous or non-staff visitor.
+       G-39-4 (39-UAT.md): the action test comes first, so the create form -- rendered by
+       tom_calendar's create_event with no `event` in its context -- never evaluates this
+       hint; before that gate a staff viewer's New Event pop-up was a 500, shown as an empty box.
     {% endcomment %}
     {% high_band_attribution_candidates event as attribution_candidates %}
     {% if attribution_candidates %}
