@@ -4,18 +4,18 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 39
 current_phase_name: Calendar Write Access
-status: executing
-stopped_at: Completed 39-02-PLAN.md
-last_updated: "2026-10-08T15:53:58.290Z"
+status: verifying
+stopped_at: Completed 39-03-PLAN.md
+last_updated: "2026-10-08T16:26:12.530Z"
 last_activity: 2026-10-08
 last_activity_desc: Plan 39-02 complete (read-only calendar for visitors)
-state_head: 99b60b169e66440985d09debf1d3e3192476ce17
+state_head: 798dfe98b3d03ed10917a6a14e181015458ba535
 progress:
   total_phases: 5
   completed_phases: 40
   total_plans: 10
-  completed_plans: 9
-  percent: 90
+  completed_plans: 10
+  percent: 100
 ---
 
 # Project State
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-10-08 — Phase 38 complete)
 
 Phase: 39 (Calendar Write Access) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-10-08 — Plan 39-02 complete (read-only calendar for visitors)
+Status: Phase complete — ready for verification
+Last activity: 2026-10-08 — Plan 39-03 complete (editor browser proof, phase gate, WR-05 ledgers)
 
-Progress: [████████████████████] 7/7 plans ([█████████░] 90%)
+Progress: [████████████████████] 7/7 plans ([██████████] 100%)
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Progress: [████████████████████] 7/7 pla
 | Phase 38 P07 | 80min elapsed | 3 tasks | 3 files |
 | Phase 39 P01 | 34 min | 2 tasks | 5 files |
 | Phase 39 P02 | 36 min | 3 tasks | 7 files |
+| Phase 39 P03 | 45 min | 2 tasks | 3 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -74,6 +75,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39]: 39-01: any logged-in user may write the calendar (D-01); five routes guarded at FOMO's URL conf, require_POST on delete-event/create-todo/update-todo, login next=/calendar/
 - [Phase 39]: 39-01: CSRF failure on a signed-in calendar POST surfaces as 302 to login (tom_common Raise403Middleware), not 403; nothing is written
 - [Phase 39]: 39-02: read-only visitor card lives inside event_form.html (one file, series/campaign blocks render once); a non-web URL value is never echoed on the anonymous card; todos stay readable to visitors
+- [Phase 39]: 39-03: edit step counts form[hx-post*='/calendar/update/'] because the saved-event pop-up also holds upstream's add-a-todo form
 
 ### Pending Todos
 
@@ -122,8 +124,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-08T15:53:58.263Z
-**Stopped at:** Completed 39-02-PLAN.md
+**Last session:** 2026-10-08T16:26:12.502Z
+**Stopped at:** Completed 39-03-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps

@@ -20,12 +20,12 @@ Requirements for this milestone. Each maps to a roadmap phase.
 
 ### Calendar write access (ACCESS)
 
-- [ ] **ACCESS-01**: An anonymous `POST` to any write endpoint wired in `solsys_code/calendar_urls.py` — `create-event`, `update-event`, `delete-event`, `create-todo`, `update-todo` — does not create, change or delete a row; the request is redirected to login (or refused), and a test per endpoint asserts the row count and the targeted row are unchanged. Which signed-in users may still write (any, or staff only) is decided in discuss-phase. (Phase 33 review WR-05, never fixed.)
-- [ ] **ACCESS-02**: The month-view template's create/update click targets (`src/templates/tom_calendar/partials/calendar.html`) are hidden from anonymous users, so the public calendar does not advertise a write it will refuse.
+- [x] **ACCESS-01**: An anonymous `POST` to any write endpoint wired in `solsys_code/calendar_urls.py` — `create-event`, `update-event`, `delete-event`, `create-todo`, `update-todo` — does not create, change or delete a row; the request is redirected to login (or refused), and a test per endpoint asserts the row count and the targeted row are unchanged. Which signed-in users may still write (any, or staff only) is decided in discuss-phase. (Phase 33 review WR-05, never fixed.)
+- [x] **ACCESS-02**: The month-view template's create/update click targets (`src/templates/tom_calendar/partials/calendar.html`) are hidden from anonymous users, so the public calendar does not advertise a write it will refuse.
 
 ### Review warnings (WARN) — Phase 37.1 ledger, all still `open`
 
-- [ ] **WARN-01** (WR-05): The header comment on `src/templates/tom_calendar/partials/event_form.html` states accurately which blocks differ from the upstream `tom_calendar` template, instead of claiming it is an exact copy apart from one block.
+- [x] **WARN-01** (WR-05): The header comment on `src/templates/tom_calendar/partials/event_form.html` states accurately which blocks differ from the upstream `tom_calendar` template, instead of claiming it is an exact copy apart from one block.
 - [ ] **WARN-02** (WR-13): The pre-executed-notebook guard fails a notebook whose *current source* routes Django to the developer database, regardless of whether its committed output is stale.
 - [ ] **WARN-03** (WR-14): No pre-executed notebook relies on `assert` to protect the resolved database path before running `migrate`; the check raises an ordinary exception that survives `python -O`.
 - [ ] **WARN-04** (WR-15): The attribution page (`src/templates/campaigns/attribution_queue.html` and partials) uses Bootstrap 5.3 class names only; the High-band row marker renders again, and a template test asserts it is present in the rendered HTML.
@@ -87,9 +87,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SYNC-06 | Phase 38 | Complete |
 | SYNC-07 | Phase 38 | Complete |
 | SYNC-08 | Phase 38 | Complete |
-| ACCESS-01 | Phase 39 | Pending |
-| ACCESS-02 | Phase 39 | Pending |
-| WARN-01 | Phase 39 | Pending |
+| ACCESS-01 | Phase 39 | Complete |
+| ACCESS-02 | Phase 39 | Complete |
+| WARN-01 | Phase 39 | Complete |
 | WARN-02 | Phase 40 | Pending |
 | WARN-03 | Phase 40 | Pending |
 | WARN-04 | Phase 40 | Pending |
