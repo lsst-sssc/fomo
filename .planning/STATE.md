@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 39
-current_phase_name: calendar-write-access
+current_phase_name: Calendar Write Access
 status: executing
-stopped_at: Completed 39-03-PLAN.md
-last_updated: "2026-10-08T17:27:18.793Z"
+stopped_at: Completed 39-04-PLAN.md
+last_updated: "2026-10-08T20:43:29.859Z"
 last_activity: 2026-10-08
-last_activity_desc: Plan 39-02 complete (read-only calendar for visitors)
-state_head: 38d3f94f5d39d2219f756b996fa040e10cd20277
+last_activity_desc: Plan 39-04 complete (gap closure)
+state_head: a8548ea79f22c26235dbf23f906d6a2e306d6d72
 progress:
   total_phases: 5
   completed_phases: 40
   total_plans: 11
-  completed_plans: 10
-  percent: 91
+  completed_plans: 11
+  percent: 100
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-08 — Phase 38 complete)
 
 ## Current Position
 
-Phase: 39 (calendar-write-access) — READY TO EXECUTE
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-10-08 — Plan 39-03 complete (editor browser proof, phase gate, WR-05 ledgers)
+Phase: 39 (Calendar Write Access) — EXECUTING
+Plan: 4 of 4
+Status: Plan 39-04 complete; ready for phase re-verification
+Last activity: 2026-10-08 — Plan 39-04 complete (gap closure: CSRF refusal path, CR-01 accepted, Save and Edit label)
 
-Progress: [████████████████████] 7/7 plans ([█████████░] 91%)
+Progress: [████████████████████] 7/7 plans ([██████████] 100%)
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [████████████████████] 7/7 pla
 | Phase 39 P01 | 34 min | 2 tasks | 5 files |
 | Phase 39 P02 | 36 min | 3 tasks | 7 files |
 | Phase 39 P03 | 45 min | 2 tasks | 3 files |
+| Phase 39 P04 | 2h | 3 tasks | 9 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -76,6 +77,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39]: 39-01: CSRF failure on a signed-in calendar POST surfaces as 302 to login (tom_common Raise403Middleware), not 403; nothing is written
 - [Phase 39]: 39-02: read-only visitor card lives inside event_form.html (one file, series/campaign blocks render once); a non-web URL value is never echoed on the anonymous card; todos stay readable to visitors
 - [Phase 39]: 39-03: edit step counts form[hx-post*='/calendar/update/'] because the saved-event pop-up also holds upstream's add-a-todo form
+- [Phase 39]: 39-04: gap 1 closed by docs and tests, not a CSRF_FAILURE_VIEW; CR-01 open self-registration recorded as an accepted risk (Tim Lister 2026-10-08); upstream Save and Edit label restored with a pinned body diff snapshot
 
 ### Pending Todos
 
@@ -143,8 +145,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-08T16:26:12.502Z
-**Stopped at:** Completed 39-03-PLAN.md
+**Last session:** 2026-10-08T20:43:29.831Z
+**Stopped at:** Completed 39-04-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
