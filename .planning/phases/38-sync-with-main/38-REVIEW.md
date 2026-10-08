@@ -1,130 +1,186 @@
 ---
 phase: 38-sync-with-main
-reviewed: 2026-10-08T00:06:19Z
+reviewed: 2026-10-08T02:39:40Z
 depth: deep
 files_reviewed: 2
 files_reviewed_list:
-  - solsys_code/tests/test_urls.py
-  - src/fomo/urls.py
+  - docs/installation.rst
+  - docs/runbooks/telescope_runs_calendar.rst
 findings:
   critical: 0
-  warning: 0
-  info: 2
-  total: 2
+  warning: 2
+  info: 6
+  total: 8
 status: issues_found
 ---
 
-# Phase 38: Code Review Report (re-review after gap-closure plans 38-05 and 38-06)
+# Phase 38: Code Review Report
 
-**Reviewed:** 2026-10-08T00:06:19Z
+**Reviewed:** 2026-10-08T02:39:40Z
 **Depth:** deep
 **Files Reviewed:** 2
 **Status:** issues_found
 
 ## Summary
 
-This is an incremental re-review. It covers only the source changes made since the previous review
-(`9d916d1`): commits `32dafa2` (test) and `a4d77f2` (fix) from plan 38-05. Plan 38-06 changed no
-source files. The previous review's other findings (WR-01, WR-02, IN-01 to IN-04) concern files
-outside this scope. They are not re-reported here and remain as recorded in
-`38-REVIEW-DISPOSITION.md`. The new findings are numbered from IN-05 so they do not reuse an ID that
-already has a disposition row.
+This is an incremental review of gap-closure plan 38-07 (`git diff b07109a HEAD -- docs`). The plan adds a
+`.. _local-settings:` section to `docs/installation.rst`, adds `src/fomo/local_settings.py` and
+`:ref:`local-settings`` to the `FOMO_BASE_URL` note, and changes one line in step 2 of the runbook's "Setting it up
+on a fresh host".
 
-**CR-01 is fixed.** I checked this against the installed tomtoolkit 3.1.0 / Django 5.2.17
-environment as well as the diff:
+I checked the text against the code that actually runs: `src/fomo/settings.py:414-423` (the import plus its
+`exc.name` guard), `.gitignore:61`, `manage.py`, the editable-install `.pth` (which puts `src/` on `sys.path`),
+`origin/main` and every other remote branch's `settings.py`, and PR #58 (`origin/production-deploy`: its
+`settings.py`, `deploy/gunicorn.conf.py` and `deploy/install_service.sh`).
 
-- `src/fomo/urls.py` no longer contains the `alerts/` include or its incorrect comment. Every
-  remaining shadow route (`targets/`, `targets/export/`, `calendar/`, `campaigns/`,
-  `users/<pk>/delete/`) still comes before `path('', include('tom_common.urls'))`.
-- No `alerts:` or `tom_alerts:` reversal is left that could now raise `NoReverseMatch`. I searched
-  `src/templates`, `solsys_code` and every installed site-package outside `tom_alerts` itself.
-  tomtoolkit 3.1.0's `tom_common.urls` does not register `tom_alerts`. `tom_alerts` is not
-  installed, so the plugin loop (`include_url_paths`) cannot add it either.
-- `python manage.py test solsys_code.tests.test_urls` passes (4 tests). The committed red evidence
-  (`38-05-red-evidence.json`) shows all three alerts tests failing for the right reasons against
-  the unfixed urlconf (`Resolver404 not raised`, `NoReverseMatch not raised`, `500 != 404`), while
-  the route-order test passed.
-- `pre-commit run ruff` and `ruff-format` pass on both files.
+The rst is structurally sound. I parsed `installation.rst` with docutils (`:ref:` stubbed out) and got zero system
+messages:
+- The section underline is 46 characters, matching its 46-character title.
+- Both `.. code-block:: console` blocks and the trailing paragraph sit inside the `.. warning::` node.
+- The label is defined once (`installation.rst:79`) and referenced from `installation.rst:150` and
+  `telescope_runs_calendar.rst:2048`.
+- No added line is over 120 columns.
+- The added text contains no credential and no absolute local path.
+- The `>>` prompt and `python3 manage.py` conventions are followed.
+- Both `mv` commands are correct when run from the repository root.
 
-**How I tested the new tests.** I ran `solsys_code.tests.test_urls` against three mutated copies of
-the urlconf, built in the session scratchpad and loaded through `ROOT_URLCONF`. No source file was
-touched.
+I checked the `shell -c` check with a scratch module. When the file is missing, the guard in `settings.py`
+swallows the error during settings import. The `-c` import then retries, because Python does not cache failed
+imports, and raises `ModuleNotFoundError: No module named 'fomo.local_settings'`. So the check works as described
+for the plain "file is missing" case.
 
-| Mutation | Result |
-|----------|--------|
-| `path('alerts/', include('tom_alerts.urls'))` restored with no `namespace=` | Caught by 2 of 3 alerts tests; the namespace test passes without testing anything (IN-06) |
-| `path('brokers/', include('tom_alerts.urls', namespace='alerts'))` | Caught by the namespace test only |
-| `targets/export/` shadow moved after `tom_common.urls` | **Not caught** by this module (IN-05) |
-
-Both gaps are Info rather than Warning. A restored `alerts/` route is caught in every form a merge
-would plausibly produce, and the export shadow route is already checked by behaviour elsewhere
-(`solsys_code/tests/test_scout_views.py:350-357`).
+The real defects are in two factual claims. The closing sentence of the warning is false today. It also calls
+PR #58's relative import "the same change", but under `manage.py` that import gives the module a different name,
+and that name breaks this branch's WR-32 guard. That matters for exactly this phase, which syncs with `main`.
 
 ## Narrative Findings (AI reviewer)
 
+## Warnings
+
+### WR-01: "`src/fomo/local_settings.py` is the location on every current FOMO branch" is false, and PR #58 is not merged
+
+**File:** `docs/installation.rst:111-112`
+**Issue:** The sentence says, in the present tense, that "`main` makes the same change through pull request #58". It
+then concludes that `src/fomo/local_settings.py` "is the location on every current FOMO branch". Both statements
+are untrue right now:
+- `gh pr view 58` reports the PR as `OPEN` (not merged).
+- `git show origin/main:src/fomo/settings.py:366` is still `from local_settings import *`.
+- So are the `v1.6` tag and 11 other remote branches (`origin/feature/*`, `origin/experiment/*`,
+  `origin/eso-paf-example`, `origin/issue27-geocenter-ephem`, `origin/scout-kafka-bridge-feasibility`).
+
+An operator running a `main`-based host (or a v1.x release) who reads this page, for example on the branch's
+GitHub view or a PR docs preview, is told that `src/fomo/` is correct for their checkout too. If they move the
+file there, the warning's own text describes the result: the committed `SECRET_KEY`, `DEBUG = True`, the console
+email backend and empty API keys, all silently. The sentence is also built to go stale: "pull request #58" is a
+bare, unlinked number whose meaning changes once it merges.
+
+**Fix:** Say what is true and limit it to versions:
+```rst
+   From this release on, FOMO reads the file only from ``src/fomo/local_settings.py``. Releases before it,
+   including ``main`` until `pull request #58 <https://github.com/<org>/fomo/pull/58>`_ is merged, still read
+   the top-level ``local_settings`` module described above.
+```
+Or drop the sentence: the rest of the warning already holds without it.
+
+### WR-02: PR #58's `from .local_settings import *` is not "the same change"; under `manage.py` it breaks the WR-32 guard this page relies on
+
+**File:** `docs/installation.rst:88`, `docs/installation.rst:111` (cross-ref `src/fomo/settings.py:415-423`,
+`origin/production-deploy:src/fomo/settings.py:373-376`)
+**Issue:** Line 88 says `settings.py` "imports it as ``fomo.local_settings``". Line 111 says PR #58's relative
+import is "the same change". The file is the same, but the module name is not.
+- `manage.py` sets `DJANGO_SETTINGS_MODULE=src.fomo.settings`. Under it, `from .local_settings import *` resolves
+  to `src.fomo.local_settings`.
+- Only the WSGI entry point (`fomo.settings`) gets `fomo.local_settings`.
+- I confirmed this with a scratch package. A missing file raises `ImportError` with `exc.name ==
+  'src.fomo.local_settings'` under the `src.fomo.settings` import path, and `'fomo.local_settings'` under
+  `fomo.settings`.
+
+This branch's guard re-raises anything except `exc.name == 'fomo.local_settings'`. If the phase-38 merge takes
+PR #58's import line and keeps this branch's guard, every checkout without a `local_settings.py` crashes at
+settings import for every `manage.py` command (`migrate`, `test`, the cron runner). That breaks the first sentence
+of this section ("A development checkout needs no settings file of its own"). If the merge takes PR #58's whole
+block (`except ImportError: pass`), it quietly undoes WR-32 instead.
+
+The doc tells whoever resolves that conflict that the two are equivalent. Line 88 is also only accurate while the
+absolute spelling survives.
+
+**Fix:** Don't call them the same. Either:
+- Drop the PR #58 sentence (see WR-01), or
+- Note that the merge must keep the absolute `from fomo.local_settings import *` spelling, because the
+  `exc.name` guard in `settings.py` compares against that exact name.
+
+Also record the merge constraint in the phase's sync plan so the `settings.py` conflict is not resolved toward
+`.local_settings`.
+
 ## Info
 
-### IN-05: `TestProjectRoutesStillResolve` does not check the `targets/export/` shadow route, though its docstring says it checks the routes that come before `tom_common.urls`
+### IN-01: The check's "`ModuleNotFoundError` means the file is not where FOMO looks" also catches a missing dependency inside the file
 
-**File:** `solsys_code/tests/test_urls.py:38-56` (route at `src/fomo/urls.py:19`)
-**Issue:** The class docstring says "Routes registered before tom_common.urls still win over
-tom_common's own". The test checks `/targets/`, `/calendar/` and `/users/1/delete/`, which are real
-shadows of tom_common routes. It also checks `/scout/rubin-too*` and `/campaigns/`, which have no
-tom_common counterpart, so no ordering mistake could affect them. It does not check
-`/targets/export/`. That route shadows `tom_targets.urls`' `export` and is the one named in the
-comment at `src/fomo/urls.py:14-17`.
+**File:** `docs/installation.rst:104-109`
+**Issue:** Suppose the file is in the right place but imports a package that is missing from this venv (for
+example, a moved production file that imports `whitenoise`). The `settings.py` guard re-raises it
+(`exc.name != 'fomo.local_settings'`). `manage.py shell` then dies before `-c` runs, with `ModuleNotFoundError: No
+module named 'whitenoise'`. The text as written sends the operator looking for a misplaced file. The check also
+never tells them to confirm that the printed path is `.../src/fomo/local_settings.py`. That matters if a
+non-editable install has a stale copy under `site-packages/fomo/`.
+**Fix:** "A ``ModuleNotFoundError: No module named 'fomo.local_settings'`` means the file is not where FOMO looks;
+any other missing module is an import inside the file itself. The printed path should end in
+``src/fomo/local_settings.py``."
 
-When I moved the `targets/export/` line below `tom_common.urls`, this module still passed. The
-reorder is caught today only by the behaviour test
-`TestScoutTargetFilter.test_export_honours_scout_filter` in `test_scout_views.py`, which this
-module's docstring does not mention. Separately, all six checks sit in one test method, so the
-first failure hides the rest.
+### IN-02: "nothing reports it" is overstated; `check_unattended` (and `check --deploy`) do flag the effects
 
-**Fix:** Add the missing shadow route, and use `subTest` so each route is reported on its own:
+**File:** `docs/installation.rst:94`
+**Issue:** `solsys_code/management/commands/check_unattended.py:298` flags the console `EMAIL_BACKEND`, and `:529-536`
+flags an unset LCO/SOAR `api_key`. Django's `manage.py check --deploy` flags `DEBUG = True`. Nothing reports the
+*misplaced file*, but the upgrade path has detection tools, and the warning doesn't point to them.
+**Fix:** Change it to "nothing reports the misplaced file itself" and add: "After moving it, run ``python3
+manage.py check_unattended`` (and ``python3 manage.py check --deploy``) to confirm the production values took
+effect."
 
-```python
-from solsys_code.scout_views import ScoutTargetExportView, ScoutTargetListView
+### IN-03: The upgrade warning doesn't cover what already ran against the development defaults
 
-    def test_project_routes_resolve_to_fomo_and_main_views(self) -> None:
-        cases = [
-            ('/targets/', ScoutTargetListView),
-            ('/targets/export/', ScoutTargetExportView),
-            ('/campaigns/', CampaignListView),
-            ('/users/1/delete/', ProtectedUserDeleteView),
-        ]
-        for path_, view_class in cases:
-            with self.subTest(path=path_):
-                self.assertIs(resolve(path_).func.view_class, view_class)
-        self.assertIs(resolve('/calendar/').func, fomo_render_calendar)
-```
+**File:** `docs/installation.rst:91-97`
+**Issue:** On an upgraded host, anything run between the `git pull` and the `mv` used the default SQLite file
+`src/fomo_db.sqlite3` and the console mail backend. That includes a `migrate`, which the page later tells
+upgraders to re-run (line 191), and any cron `run_unattended` tick. After the move, the production database may
+be missing those migrations, and those ticks' writes and notices went to the dev database and stdout.
+**Fix:** Add one sentence: "If ``migrate`` or the unattended runner ran before the move, run ``python3 manage.py
+migrate`` again afterwards; anything those runs wrote went to the default SQLite file, not this host's database."
 
-Alternatively, narrow the docstring so it does not claim to cover every shadow route.
+### IN-04: The location rule in the parentheses is a guess, and `mv` overwrites silently
 
-### IN-06: The namespace test only checks the `alerts` instance namespace, not the `tom_alerts` app namespace that `tom_alerts` itself uses
+**File:** `docs/installation.rst:92-102`
+**Issue:**
+- The parentheses ("repository root (when ... `manage.py`) or in `src/` (when ... gunicorn or WSGI)") don't match
+  how the old bare import resolved. Under `manage.py`, both the repo root (`sys.path[0]`) and `src/` (the
+  editable-install `.pth`) were searched. PR #58's own `deploy/gunicorn.conf.py` `chdir`s to the repo root.
+- Both `mv` commands sit in one console block and run without `-n`/`-i`. Pasting both on a host that has two
+  copies replaces the copy that was actually in effect (the root one, which is first on `sys.path`) with the
+  `src/` one. Either command also clobbers an existing `src/fomo/local_settings.py`.
 
-**File:** `solsys_code/tests/test_urls.py:24-26`
-**Issue:** `tom_alerts/urls.py` declares `app_name = 'tom_alerts'`, and its own views reverse
-`tom_alerts:list`, `tom_alerts:run` and so on. `reverse('alerts:list')` only fails while there is no
-*instance* namespace called `alerts`. If a later merge restores the include without
-`namespace='alerts'` (for example `include('tom_alerts.urls')`), the app namespace `tom_alerts` comes
-back, but this test still passes because it is not testing the right name. I confirmed this with
-mutation 1 above.
+**Fix:** "Check both places (``ls local_settings.py src/local_settings.py``); if both exist, the repository-root
+copy was the one in effect." Use `mv -n` (or `mv -i`) in both commands.
 
-The path tests at lines 20-35 still catch that case at the `/alerts/` prefix. So the only form of
-restoration that nothing catches is an include with no namespace under a different prefix. The gap
-is small, but the test's stated purpose ("the alerts/ include ... must stay gone") covers it.
+### IN-05: "anything set there replaces the default" contradicts the runbook's FOMO_STATE_DIR trap
 
-**Fix:** Assert that neither namespace reverses:
+**File:** `docs/installation.rst:88-89` (vs `docs/runbooks/telescope_runs_calendar.rst:1986-1991`)
+**Issue:** The new sentence promises that any setting in `local_settings.py` overrides the default. The runbook
+explains that `FOMO_STATE_DIR` takes its default from `FOMO_LOCK_DIR` *before* the import. So overriding
+`FOMO_LOCK_DIR` alone does not move `FOMO_STATE_DIR`, and `LCO_API_KEY` is folded in *after* the import. The import
+is also not literally "at the end of the file": `settings.py:429-444` comes after it.
+**Fix:** "...so a name assigned there replaces that setting (defaults derived from another setting are not
+recomputed -- see the runbook's FOMO_STATE_DIR note), near the end of the file."
 
-```python
-    def test_alerts_namespace_cannot_be_reversed(self) -> None:
-        for name in ('alerts:list', 'tom_alerts:list'):
-            with self.subTest(name=name), self.assertRaises(NoReverseMatch):
-                reverse(name)
-```
+### IN-06: Lines edited in place break the surrounding wrap width
+
+**File:** `docs/runbooks/telescope_runs_calendar.rst:2048`, `docs/installation.rst:150`
+**Issue:** Runbook line 2048 is 110 columns in a paragraph wrapped at about 70. Installation line 150 is 116 columns
+in a note wrapped at about 85. Both are under 120, so this is cosmetic, but the raw-source diffs and later reflows
+look uneven.
+**Fix:** Re-wrap both paragraphs to their existing widths.
 
 ---
 
-_Reviewed: 2026-10-08T00:06:19Z_
+_Reviewed: 2026-10-08T02:39:40Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
