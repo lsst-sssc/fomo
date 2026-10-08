@@ -3,60 +3,60 @@ phase: 38
 review: 38-REVIEW.md
 titles: json
 findings:
+  - id: WR-01
+    severity: warning
+    disposition: open
+    title: "\"`src/fomo/local_settings.py` is the location on every current FOMO branch\" is false, and PR #58 is not merged"
+  - id: WR-02
+    severity: warning
+    disposition: open
+    title: "PR #58's `from .local_settings import *` is not \"the same change\"; under `manage.py` it breaks the WR-32 guard this page relies on"
+  - id: IN-01
+    severity: info
+    disposition: open
+    title: "The check's \"`ModuleNotFoundError` means the file is not where FOMO looks\" also catches a missing dependency inside the file"
+  - id: IN-02
+    severity: info
+    disposition: open
+    title: "\"nothing reports it\" is overstated; `check_unattended` (and `check --deploy`) do flag the effects"
+  - id: IN-03
+    severity: info
+    disposition: open
+    title: "The upgrade warning doesn't cover what already ran against the development defaults"
+  - id: IN-04
+    severity: info
+    disposition: open
+    title: "The location rule in the parentheses is a guess, and `mv` overwrites silently"
   - id: IN-05
     severity: info
     disposition: open
-    title: "`TestProjectRoutesStillResolve` does not check the `targets/export/` shadow route, though its docstring says it checks the routes that come before `tom_common.urls`"
+    title: "\"anything set there replaces the default\" contradicts the runbook's FOMO_STATE_DIR trap"
   - id: IN-06
     severity: info
     disposition: open
-    title: "The namespace test only checks the `alerts` instance namespace, not the `tom_alerts` app namespace that `tom_alerts` itself uses"
+    title: "Lines edited in place break the surrounding wrap width"
   - id: CR-01
     severity: critical
     disposition: fixed
     title: "The merge restores main's deleted `alerts/` route for an app that is no longer installed. Every page view 500s."
-  - id: WR-01
-    severity: warning
-    disposition: open
-    title: "The `local_settings.py` import path differs from main's. A host set up for main would silently fall back to dev settings."
-  - id: WR-02
-    severity: warning
-    disposition: open
-    title: "No CI job runs `TestEphemeris` any more. The core ephemeris view loses the CI coverage it had on main."
-  - id: IN-01
-    severity: info
-    disposition: open
-    title: "`suppress_warnings = ['toc.excluded']` is kept even though the reason for it is gone"
-  - id: IN-02
-    severity: info
-    disposition: open
-    title: "Stale stack lines remain in CLAUDE.md beside lines this phase updated"
-  - id: IN-03
-    severity: info
-    disposition: open
-    title: "The ruff `exclude` list does not apply under the enforced pre-commit gate"
-  - id: IN-04
-    severity: info
-    disposition: open
-    title: "The `setuptools>=62` build floor is too low for a PEP 639 `license` string"
 open: 8
 total: 9
-recorded: 2026-10-08T00:07:04.039Z
+recorded: 2026-10-08T02:41:06.570Z
 ---
 
 # Phase 38: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
+| WR-01 | warning | open | - |
+| WR-02 | warning | open | - |
+| IN-01 | info | open | - |
+| IN-02 | info | open | - |
+| IN-03 | info | open | - |
+| IN-04 | info | open | - |
 | IN-05 | info | open | - |
 | IN-06 | info | open | - |
-| CR-01 | critical | fixed | fixed by 38-05 (test 32dafa2, fix a4d77f2, docs db3ae7c; published to PR #43 by 38-06 snapshot 846be34); the 2026-10-08 re-review of src/fomo/urls.py and solsys_code/tests/test_urls.py confirms the include is gone and nothing reverses `alerts:` |
-| WR-01 | warning | open | - (not in the current review) |
-| WR-02 | warning | open | - (not in the current review) |
-| IN-01 | info | open | - (not in the current review) |
-| IN-02 | info | open | - (not in the current review) |
-| IN-03 | info | open | - (not in the current review) |
-| IN-04 | info | open | - (not in the current review) |
+| CR-01 | critical | fixed | fixed by 38-05 (test 32dafa2, fix a4d77f2, docs db3ae7c; published to PR #43 by 38-06 snapshot 846be34); the 2026-10-08 re-review of src/fomo/urls.py and solsys_code/tests/test_urls.py confirms the include is gone and nothing reverses `alerts:` (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
