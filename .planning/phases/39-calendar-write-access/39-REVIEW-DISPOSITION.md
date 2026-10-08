@@ -3,50 +3,60 @@ phase: 39
 review: 39-REVIEW.md
 titles: json
 findings:
+  - id: WR-01
+    severity: warning
+    disposition: open
+    title: "The CSRF path's post-login landing page is a live, script-less form whose Save submits a GET carrying the CSRF token; the new runbook text calls it \"only a form\""
+  - id: WR-02
+    severity: warning
+    disposition: open
+    title: "The header says the snapshot \"fails until this list and that file are updated together\", but regenerating the snapshot alone turns the test green; nothing checks the header list"
+  - id: WR-03
+    severity: warning
+    disposition: open
+    title: "The snapshot is named and described as \"vs tomtoolkit 3.1.0\", but the test diffs against whatever tomtoolkit is installed, and CI installs `tomtoolkit>=3.1.0` unpinned"
+  - id: IN-01
+    severity: info
+    disposition: open
+    title: "The docstrings credit the HX-Redirect to `Raise403Middleware`; it comes from `HTMXRedirectMiddleware`"
+  - id: IN-02
+    severity: info
+    disposition: open
+    title: "The new runbook paragraph omits the misleading flash the CSRF path puts on the login page"
+  - id: IN-03
+    severity: info
+    disposition: open
+    title: "The runbook's \"passes the CSRF check\" example (a tab left open after logging out) is not pinned by any CSRF-enforcing test"
+  - id: IN-04
+    severity: info
+    disposition: open
+    title: "The CSRF-path tests build the expected Location from `settings.LOGIN_URL`, but the code under test uses `reverse('login')`"
+  - id: IN-05
+    severity: info
+    disposition: open
+    title: "`calendar_urls.py`'s module docstring still states the single refusal path that 39-04 corrected everywhere else"
   - id: CR-01
     severity: critical
     disposition: skipped
     title: "Open self-registration lets anyone through the login guard, so any internet user can still create, edit and delete any calendar event"
-  - id: WR-01
-    severity: warning
-    disposition: open
-    title: "A request that fails the CSRF check is redirected to the refused URL, not the calendar page. The docs say the opposite, and no anonymous test covers it"
-  - id: WR-02
-    severity: warning
-    disposition: open
-    title: "The WARN-01 header still leaves out a difference from upstream, and EventFormHeaderMatchesUpstreamTest cannot detect omissions like it"
-  - id: IN-01
-    severity: info
-    disposition: open
-    title: "The card prints \"UTC\" after the active timezone's time instead of converting to UTC"
-  - id: IN-02
-    severity: info
-    disposition: open
-    title: "A whitespace-only todo returns a 500 for signed-in users through the guarded create-todo route"
-  - id: IN-03
-    severity: info
-    disposition: open
-    title: "Anonymous day cells still highlight on hover, suggesting they can be clicked"
-  - id: IN-04
-    severity: info
-    disposition: open
-    title: "The Bootstrap 5 rename in calendar.html is incomplete, and its test covers only `--white`"
-open: 6
-total: 7
-recorded: 2026-10-08T16:39:18.859Z
+open: 8
+total: 9
+recorded: 2026-10-08T21:03:16.580Z
 ---
 
 # Phase 39: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-01 | critical | skipped | accepted risk (won't fix), Tim Lister 2026-10-08: "Self-signup is wanted; collaborators should be able to join without an operator; calendar edits are visible, attributable and easily reverted." TOM_REGISTRATION_STRATEGY, D-01 and the guard unchanged; see 39-SECURITY.md AR-39-01 and T-39-22 |
 | WR-01 | warning | open | - |
 | WR-02 | warning | open | - |
+| WR-03 | warning | open | - |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
 | IN-04 | info | open | - |
+| IN-05 | info | open | - |
+| CR-01 | critical | skipped | accepted risk (won't fix), Tim Lister 2026-10-08: "Self-signup is wanted; collaborators should be able to join without an operator; calendar edits are visible, attributable and easily reverted." TOM_REGISTRATION_STRATEGY, D-01 and the guard unchanged; see 39-SECURITY.md AR-39-01 and T-39-22 (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
