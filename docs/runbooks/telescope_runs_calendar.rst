@@ -2045,7 +2045,7 @@ Setting it up on a fresh host
 2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
    the LCO/SOAR API key (from the LCO Observation Portal and the
    'Profile' link under your username in the top right corner) in this
-   host's ``local_settings.py`` file. This should never be in the crontab
+   host's ``src/fomo/local_settings.py`` file (see :ref:`local-settings`). This should never be in the crontab
    line, never in an environment variable, and never committed to git.
    Write the API key as a flat, top-level assignment --
    ``LCO_API_KEY = '<your key>'`` -- because ``settings.py`` imports

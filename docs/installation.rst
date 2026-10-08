@@ -76,6 +76,35 @@ Notes:
    the Python Project Template documentation on
    `Sphinx and Python Notebooks <https://lincc-ppt.readthedocs.io/en/latest/practices/sphinx.html#python-notebooks>`_.
 
+.. _local-settings:
+
+Host-specific settings (``local_settings.py``)
+----------------------------------------------
+
+A development checkout needs no settings file of its own: without one, FOMO runs on the development defaults in
+``src/fomo/settings.py``. A real deployment puts everything specific to the host -- a real ``SECRET_KEY``,
+``DEBUG = False``, ``ALLOWED_HOSTS``, a database other than the default SQLite file, an ``EMAIL_BACKEND`` and the
+facility API keys -- in ``src/fomo/local_settings.py``, next to ``settings.py``. The file is gitignored, so it is never
+committed. ``settings.py`` imports it as ``fomo.local_settings`` at the end of the file, so anything set there replaces
+the default. Create it before running ``migrate`` below, so that the database it names is the one ``migrate`` sets up.
+
+.. warning::
+   Earlier versions of FOMO imported a top-level ``local_settings`` module, so a host set up for one of them usually
+   keeps the file at the repository root. A ``local_settings.py`` there is no longer read, and nothing reports it: FOMO
+   starts on every development default, including the committed ``SECRET_KEY``, ``DEBUG = True``, the console email
+   backend and empty facility API keys. When upgrading such a host, move the file, from the repository root:
+
+   .. code-block:: console
+
+      >> mv local_settings.py src/fomo/local_settings.py
+
+   To confirm FOMO reads it, print the path of the module it imports. A ``ModuleNotFoundError`` instead means the file
+   is not where FOMO looks:
+
+   .. code-block:: console
+
+      >> python3 manage.py shell -c "import fomo.local_settings as m; print(m.__file__)"
+
 Initializing FOMO and the database
 -------------------------------------
 
@@ -112,7 +141,7 @@ Log in as the admin user you created earlier using the `Login` button in the top
 .. note::
    For a real deployment (not just ``runserver`` on localhost), set ``FOMO_BASE_URL``
    to this host's real externally-reachable URL -- ideally once, in this host's
-   ``local_settings.py``, so both the web server process and any cron-scheduled
+   ``src/fomo/local_settings.py`` (see :ref:`local-settings`), so both the web server process and any cron-scheduled
    management commands (see :ref:`unattended-operation`) pick up the same value.
    ``FOMO_BASE_URL`` is what FOMO uses to build absolute admin/calendar/approval-queue
    links in emailed notices; left at its ``http://localhost:8000`` default, every such
