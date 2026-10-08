@@ -69,7 +69,12 @@ Verified 2026-10-07 by the execute-phase `verify:post` hook at L1 evidence depth
 | T-38-28 | Elevation of privilege | PR #43 draft state (38-06) | high | mitigate | only `gh pr view` was run (no `gh pr edit`, ready-for-review or merge); `gh pr view 43 --json isDraft` → true (re-checked), D-12 body sections intact | closed |
 | T-38-29 | Tampering | branch-implicit commands across two checkouts (38-06) | medium | mitigate | every block started with `git branch --show-current` / `git -C /home/tlister/git/fomo_code_only branch --show-current`; the primary checkout never switched; `/home/tlister/git/fomo_code_only` removed (`git worktree list` shows one entry) | closed |
 | T-38-30 | Tampering | snapshot drifting from the corrected branch tree (38-06) | medium | mitigate | no edit in the worktree; hooks passed with no rewrite; `git diff --quiet issue37-telescope-runs-calendar origin/issue37-code-only -- . ':(exclude).planning'` holds before and after the push | closed |
-| T-38-SC | Tampering | pip/npm installs (38-05, 38-06) | low | accept | no package installed or upgraded in either gap-closure plan; the package-legitimacy gate ran at 38-01 Task 2 — see AR-38-02 | closed (accepted) |
+| T-38-31 | Information disclosure | a host upgraded from main whose root- or src/-level local_settings.py is silently ignored, so it runs on the committed SECRET_KEY, DEBUG=True and empty facility keys (38-07) | high | mitigate | `docs/installation.rst` `local-settings` section + warning (`5421abb`, revised `a060f9d`/`82a097c`) names `src/fomo/local_settings.py`, says a file at the repository root or in `src/` is no longer read, gives both `mv` commands and the `manage.py shell` check; FOMO_BASE_URL note and runbook fresh-host step 2 path-qualified; PR #43 live body Settings line applied on `apply` (Task 3). Code-level silent fallback kept by the developer's decision (a) at UAT Test 1 | closed |
+| T-38-32 | Tampering | documentation drifting from the code — a doc naming a location settings.py does not import (38-07) | medium | mitigate | Task 1 verify asserts `from fomo.local_settings import *` in `src/fomo/settings.py` (still at line 415) and runs the documented check, which printed `.../src/fomo/local_settings.py`; `git diff a003a36 HEAD -- src/fomo/settings.py` empty | closed |
+| T-38-33 | Elevation of privilege | PR #43 draft state or body changed without the developer's approval (38-07) | high | mitigate | blocking-human checkpoint (Task 2) answered `revise` then `apply` before any PR command; the only PR-changing command was `gh pr edit 43 --body-file` (no ready-for-review, merge, close, title, label or reviewer command); read-back `isDraft` true, head `issue37-code-only`, base `main` (38-07-SUMMARY.md) | closed |
+| T-38-34 | Tampering | overwriting an edit someone made to the PR body on GitHub since 38-04 (38-07) | medium | mitigate | live body compared with `git show a003a36:...38-PR43-BODY.md` (CRLF→LF, ends stripped) at Task 1, at both Task 2 presentations and in Task 3's precondition — all four matched, so nothing was overwritten | closed |
+| T-38-35 | Information disclosure | a local absolute path or credential leaking into committed docs or the public PR body (38-07) | medium | mitigate | Task 1 verify rejects added lines in `docs/` and 38-PR43-BODY.md containing `$HOME` or `api_key` (re-checked at audit: 0 such lines in `a003a36..82a097c`); the check command's module path stayed in `$HOME/tmp/phase38-07-check.txt`, not in any committed file | closed |
+| T-38-SC | Tampering | pip/npm installs (38-05, 38-06, 38-07) | low | accept | no package installed or upgraded in any gap-closure plan; the package-legitimacy gate ran at 38-01 Task 2 — see AR-38-02 | closed (accepted) |
 
 *Status: open · closed · open — below high threshold (non-blocking)*
 *Severity: critical > high > medium > low — only open threats at or above workflow.security_block_on count toward threats_open*
@@ -82,7 +87,7 @@ Verified 2026-10-07 by the execute-phase `verify:post` hook at L1 evidence depth
 | Risk ID | Threat Ref | Rationale | Accepted By | Date |
 |---------|------------|-----------|-------------|------|
 | AR-38-01 | T-38-04 | Open self-registration is the policy the branch already had through `tom_registration`; tomtoolkit 3.1.0 now owns it (`TOM_REGISTRATION_STRATEGY = 'open'` arrived from main by automatic merge). FOMO does not re-add `ModelBackend` or `tom_registration`. Shown to the developer at the 38-01 Task 2 checkpoint, answered `approve`. | developer (38-01 checkpoint) | 2026-10-07 |
-| AR-38-02 | T-38-SC | 38-05 and 38-06 install or upgrade no package; their supply-chain row is carried from the plans as an accepted no-op because the only install this phase made (38-01 Task 3, `.[dev]` at origin/main's floors) was legitimacy-checked at the 38-01 checkpoint and `pip check` was clean in both venvs. | execute-phase verify:post hook (gap-closure re-audit) | 2026-10-07 |
+| AR-38-02 | T-38-SC | 38-05, 38-06 and 38-07 install or upgrade no package; their supply-chain row is carried from the plans as an accepted no-op because the only install this phase made (38-01 Task 3, `.[dev]` at origin/main's floors) was legitimacy-checked at the 38-01 checkpoint and `pip check` was clean in both venvs. | execute-phase verify:post hook (gap-closure re-audit) | 2026-10-07 |
 
 *Accepted risks do not resurface in future audit runs.*
 
@@ -108,4 +113,12 @@ Verified 2026-10-07 by the execute-phase `verify:post` hook at L1 evidence depth
 |---|---|
 | Threats found | 31 |
 | Closed | 31 |
+| Open | 0 |
+
+## Security Audit 2026-10-08
+
+| Metric | Count |
+|---|---|
+| Threats found | 36 |
+| Closed | 36 |
 | Open | 0 |
