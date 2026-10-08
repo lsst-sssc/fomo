@@ -239,7 +239,7 @@ Plans:
   3. An anonymous visitor to `/calendar/` sees no create or update click target in the month view, yet can still open an event's pop-up and read it, including its attributed-run link; a logged-in editor still sees the click targets
   4. The header comment of `src/templates/tom_calendar/partials/event_form.html` names the blocks that actually differ from tomtoolkit 3.1.0's upstream template, and a diff against that upstream file matches the list
 
-**Plans**: 4/4 plans executed (39-04 closes verification gap 1 and records the CR-01 and WR-02 decisions)
+**Plans**: 4/5 plans executed (39-04 closes verification gap 1 and records the CR-01 and WR-02 decisions; 39-05 closes UAT gaps G-39-3 and G-39-4)
 
 Plans:
 **Wave 1**
@@ -251,6 +251,9 @@ Plans:
 
 **Wave 3** *(gap closure, blocked on Wave 2 completion)*
 - [x] 39-04-PLAN.md — Gap closure (tracer: the CSRF-failure refusal path): anonymous tokenless-write tests for all five routes (plain, htmx, repeat, missing id, post-login replay), the runbook paragraph and calendar_access.py docstring made true for both refusal paths, CSRF-passing precondition declared on the existing anonymous tests; "Save and Edit" label restored and the header test pinned to a diff snapshot (WR-02); CR-01 open self-registration recorded as an accepted risk in the runbook, 39-SECURITY.md (AR-39-01/T-39-10 premise corrected, T-39-22) and the review ledger; phase gate (ACCESS-01, WARN-01)
+
+**Wave 4** *(gap closure, blocked on Wave 3 completion)*
+- [ ] 39-05-PLAN.md — Gap closure (tracer: a staff "+ New Event" click): RED tests as staff and superuser, then high_band_attribution_candidates guarded against a non-event and the staff hint gated on the edit form, header item 4 and the pinned snapshot kept in step (G-39-4); runbook warns the post-login create and edit addresses show a bare copy of the event form, go back to the calendar page (G-39-3, 39-REVIEW WR-01); phase gate (ACCESS-01, ACCESS-02, WARN-01)
 
 **UI hint**: yes
 
