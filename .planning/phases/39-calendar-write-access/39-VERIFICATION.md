@@ -23,6 +23,11 @@ covered_files:
 covered_digest: "v3:sha256:32cc64f243aa0dda510814243e92e5500775cf0d13db20c777b66b1cdb40acbc"
 behavior_unverified: 0
 overrides_applied: 0
+overrides:
+  - must_have: "CSRF unchanged: a signed-in POST to calendar:create-event without a CSRF token through Client(enforce_csrf_checks=True) returns 403 and creates nothing (the guards do not exempt CSRF)."
+    reason: "tom_common's Raise403Middleware rewrites every browser 403 into a 302 to login (next=/calendar/create/); the request is still refused and nothing is created, and the distinct next proves the CSRF layer refused it, not the guard"
+    accepted_by: "Tim Lister"
+    accepted_at: "2026-10-08T17:04:52Z"
 gaps:
   - truth: "Paired doc (CLAUDE.md paired-docs rule): the runbook's 'Not logged in, the calendar is read-only.' paragraph describes what happens to a logged-out write attempt truthfully"
     status: failed
