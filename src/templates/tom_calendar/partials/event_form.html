@@ -25,6 +25,7 @@
    new block inserted after </form> and before the Todo list heading (D-08).
 {% endcomment %}
 {% load django_bootstrap5 attribution_display_extras calendar_display_extras %}
+{% if request.user.is_authenticated %}
 <form {% if action == "create" %}
         hx-post="{% url 'calendar:create-event' %}"
       {% else %}
@@ -101,6 +102,54 @@
             class="btn btn-danger">Delete</button>
     {% endif %}
 </form>
+{% else %}
+<div id="cal-event-card">
+  <dl class="row mb-2">
+    <dt class="col-sm-3">Title</dt>
+    <dd class="col-sm-9">{{ event.title }}</dd>
+    <dt class="col-sm-3">Start</dt>
+    <dd class="col-sm-9">{{ event.start_time|date:'Y-m-d H:i' }} UTC</dd>
+    <dt class="col-sm-3">End</dt>
+    <dd class="col-sm-9">{{ event.end_time|date:'Y-m-d H:i' }} UTC</dd>
+    {% if event.description %}
+    <dt class="col-sm-3">Description</dt>
+    <dd class="col-sm-9">{{ event.description|linebreaksbr }}</dd>
+    {% endif %}
+    {% if event.url %}
+    <dt class="col-sm-3">URL</dt>
+    <dd class="col-sm-9">
+      {% if event.url|is_web_url %}
+      <a href="{{ event.url }}" target="_blank" rel="noopener noreferrer">View ↗</a>
+      {% else %}
+      <span class="text-muted">(not a web link)</span>
+      {% endif %}
+    </dd>
+    {% endif %}
+    {% if event.target_list %}
+    <dt class="col-sm-3">Target list</dt>
+    <dd class="col-sm-9">
+      <a href="{% url 'targets:list' %}?targetlist__name={{ event.target_list.id }}" target="_blank">{{ event.target_list.name }} ↗</a>
+    </dd>
+    {% endif %}
+    {% if event.user %}
+    <dt class="col-sm-3">User</dt>
+    <dd class="col-sm-9">{{ event.user }}</dd>
+    {% endif %}
+    {% if event.proposal %}
+    <dt class="col-sm-3">Proposal</dt>
+    <dd class="col-sm-9">{{ event.proposal }}</dd>
+    {% endif %}
+    {% if event.telescope %}
+    <dt class="col-sm-3">Telescope</dt>
+    <dd class="col-sm-9">{{ event.telescope }}</dd>
+    {% endif %}
+    {% if event.instrument %}
+    <dt class="col-sm-3">Instrument</dt>
+    <dd class="col-sm-9">{{ event.instrument }}</dd>
+    {% endif %}
+  </dl>
+</div>
+{% endif %}
 {% comment %}
    D-08: event.telescope_label_meta is CalendarEventMeta's reverse one-to-one accessor
    (related_name, unchanged by the Phase 27 rename). A reverse one-to-one miss raises
@@ -253,9 +302,23 @@
 <h6 class="mb-2">Todo list</h6>
 <hr>
 <div id="cal-todos">
+{% if request.user.is_authenticated %}
 {% if action == "update" %}
   {% include 'tom_calendar/partials/todos.html' with event=event %}
 {% else %}
   <p>Save the event to add TODOs</p>
+{% endif %}
+{% else %}
+  <ul class="list-unstyled mb-0" id="cal-todos-readonly">
+  {% for todo in event.todos.all %}
+    {% if todo.is_completed %}
+    <li><span class="text-decoration-line-through">{{ todo.description }}</span> <small class="text-muted">(done)</small></li>
+    {% else %}
+    <li>{{ todo.description }} <small class="text-muted">(not done)</small></li>
+    {% endif %}
+  {% empty %}
+    <li class="text-muted small">No todos yet.</li>
+  {% endfor %}
+  </ul>
 {% endif %}
 </div>

@@ -23,7 +23,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.html import escape
-from tom_calendar.models import CalendarEvent
+from tom_calendar.models import CalendarEvent, EventTodo
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
@@ -1594,7 +1594,9 @@ class EventModalSeriesDecorationTest(TestCase):
 
 
 class EventFormUrlLinkTest(TestCase):
-    """UAT G-37.1-1-allocurl: the event pop-up's URL label links only http(s) addresses.
+    """UAT G-37.1-1-allocurl: the signed-in editor's event form links only http(s) addresses.
+
+    An anonymous visitor gets the read-only card instead of the form (see EventCardUrlLinkTest).
 
     The allocation layer (``ALLOC:{run.pk}:{night}``) and the campaign reconciler (``RUN:{pk}``)
     keep namespace keys in ``CalendarEvent.url``; those must show as plain values, never as a
@@ -1603,7 +1605,12 @@ class EventFormUrlLinkTest(TestCase):
 
     PORTAL_URL = 'https://observe.lco.global/requests/4229878'
 
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.editor = User.objects.create_user(username='urlcase-editor', password='pw')
+
     def _form_html(self, url: str) -> str:
+        self.client.force_login(self.editor)
         event = CalendarEvent.objects.create(
             title='URL case',
             start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
@@ -1641,3 +1648,260 @@ class EventFormUrlLinkTest(TestCase):
         content = self._form_html('')
         self.assertNotIn('not a web link', content)
         self.assertNotIn(self.PORTAL_URL, content)
+
+
+class CalendarMonthViewReadOnlyTest(TestCase):
+    """ACCESS-02 / D-07: the month view offers create click targets only to a signed-in user."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.event = CalendarEvent.objects.create(
+            title='Month Event',
+            start_time=datetime(2026, 8, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 4, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.editor = User.objects.create_user(username='month-editor', password='pw')
+
+    def _month(self, client=None, **extra) -> str:
+        response = (client or self.client).get(reverse('calendar:calendar'), {'year': 2026, 'month': 8}, **extra)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_anonymous_month_view_has_no_create_target(self):
+        content = self._month()
+        self.assertNotIn('/calendar/create/', content)
+        self.assertNotIn('+ New Event', content)
+        self.assertIn(reverse('calendar:update-event', args=[self.event.pk]), content)
+        self.assertIn('bootstrap.Modal.getOrCreateInstance', content)
+        self.assertIn('cal-header-spacer', content)
+
+    def test_signed_in_month_view_keeps_both_create_targets(self):
+        self.client.force_login(self.editor)
+        content = self._month()
+        self.assertIn('+ New Event', content)
+        self.assertIn('/calendar/create/?date=2026-08-01', content)
+        self.assertNotIn('cal-header-spacer', content)
+
+    def test_anonymous_month_partial_offers_no_login_prompt(self):
+        content = self._month(headers={'HX-Request': 'true'})
+        lowered = content.lower()
+        self.assertNotIn('log in', lowered)
+        self.assertNotIn('login', lowered)
+        self.assertNotIn('/accounts/login/', content)
+
+
+class EventModalReadOnlyCardTest(TestCase):
+    """ACCESS-02 / D-04 / D-05: an anonymous visitor's pop-up is a read-only card, not the form."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.target_list = TargetList.objects.create(name='Card Target List')
+        cls.campaign = TargetList.objects.create(name='Card Campaign')
+        cls.card_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 8, 4),
+            window_end=date(2026, 8, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.event = CalendarEvent.objects.create(
+            title='Card Event',
+            description='Line one\nLine two',
+            start_time=datetime(2026, 8, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 4, 21, 0, tzinfo=dt_timezone.utc),
+            url='https://observe.lco.global/requests/4229878',
+            target_list=cls.target_list,
+            user='tlister',
+            proposal='KEY2026B-004',
+            telescope='FTN',
+            instrument='MuSCAT3',
+        )
+        CalendarEventMeta.objects.create(event=cls.event, run=cls.card_run)
+        cls.done_todo = EventTodo.objects.create(event=cls.event, description='Check guider', is_completed=True)
+        cls.open_todo = EventTodo.objects.create(event=cls.event, description='Reduce frames', is_completed=False)
+        cls.bare_event = CalendarEvent.objects.create(
+            title='Bare Event',
+            start_time=datetime(2026, 8, 5, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 5, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.markup_event = CalendarEvent.objects.create(
+            title='Card <b>bold</b> title',
+            description='Line one\nLine two <script>alert(1)</script>',
+            start_time=datetime(2026, 8, 6, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 6, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.editor = User.objects.create_user(username='card-editor', password='pw')
+
+    def _popup_url(self, event) -> str:
+        return reverse('calendar:update-event', args=[event.pk])
+
+    def _popup(self, event, client=None) -> str:
+        response = (client or self.client).get(self._popup_url(event))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_anonymous_card_has_no_form_controls(self):
+        content = self._popup(self.event)
+        for forbidden in ('<form', '<input', '<select', '<textarea', '<button', 'hx-post', 'csrfmiddlewaretoken'):
+            self.assertNotIn(forbidden, content)
+        pk = self.event.pk
+        for url in (
+            reverse('calendar:delete-event', args=[pk]),
+            reverse('calendar:update-event', args=[pk]),
+            reverse('calendar:create-todo', args=[pk]),
+            reverse('calendar:update-todo', args=[self.done_todo.pk]),
+            reverse('calendar:update-todo', args=[self.open_todo.pk]),
+        ):
+            self.assertNotIn(url, content)
+
+    def test_anonymous_card_shows_every_field_as_text(self):
+        content = self._popup(self.event)
+        self.assertIn('id="cal-event-card"', content)
+        for label in (
+            'Title',
+            'Start',
+            'End',
+            'Description',
+            'URL',
+            'Target list',
+            'User',
+            'Proposal',
+            'Telescope',
+            'Instrument',
+        ):
+            self.assertIn(f'<dt class="col-sm-3">{label}</dt>', content)
+        for value in (
+            'Card Event',
+            '2026-08-04 20:00 UTC',
+            '2026-08-04 21:00 UTC',
+            'Line one<br>Line two',
+            'tlister',
+            'KEY2026B-004',
+            'FTN',
+            'MuSCAT3',
+            'Card Target List',
+            f'{reverse("targets:list")}?targetlist__name={self.target_list.id}',
+        ):
+            self.assertIn(value, content)
+
+    def test_anonymous_card_omits_empty_fields(self):
+        content = self._popup(self.bare_event)
+        for label in ('Title', 'Start', 'End'):
+            self.assertIn(f'<dt class="col-sm-3">{label}</dt>', content)
+        for label in ('Description', 'URL', 'Target list', 'User', 'Proposal', 'Telescope', 'Instrument'):
+            self.assertNotIn(f'<dt class="col-sm-3">{label}</dt>', content)
+
+    def test_anonymous_card_renders_attributed_run_block_once(self):
+        content = self._popup(self.event)
+        self.assertEqual(content.count('Attributed campaign run'), 1)
+        self.assertIn('FTN/MuSCAT3', content)
+        self.assertIn(f'{reverse("campaigns:table", args=[self.campaign.pk])}#run-{self.card_run.pk}', content)
+
+    def test_anonymous_card_lists_todos_read_only(self):
+        content = self._popup(self.event)
+        self.assertIn('id="cal-todos-readonly"', content)
+        self.assertRegex(content, r'Check guider</span>\s*<small[^>]*>\(done\)')
+        self.assertRegex(content, r'Reduce frames\s*<small[^>]*>\(not done\)')
+        self.assertNotIn('type="checkbox"', content)
+
+    def test_anonymous_card_with_no_todos_says_so(self):
+        content = self._popup(self.bare_event)
+        self.assertIn('No todos yet.', content)
+
+    def test_anonymous_card_escapes_markup(self):
+        content = self._popup(self.markup_event)
+        self.assertIn(escape(self.markup_event.title), content)
+        self.assertNotIn('<b>bold</b>', content)
+        self.assertIn('&lt;script&gt;', content)
+        self.assertNotIn('<script>alert(1)', content)
+        self.assertIn('Line one<br>Line two', content)
+
+    def test_anonymous_card_offers_no_login_prompt(self):
+        lowered = self._popup(self.event).lower()
+        self.assertNotIn('log in', lowered)
+        self.assertNotIn('login', lowered)
+
+    def test_signed_in_user_gets_the_editable_form(self):
+        self.client.force_login(self.editor)
+        content = self._popup(self.event)
+        self.assertIn('<form', content)
+        self.assertIn('csrfmiddlewaretoken', content)
+        self.assertIn('>Save</button>', content)
+        self.assertIn(reverse('calendar:delete-event', args=[self.event.pk]), content)
+        self.assertIn(reverse('calendar:create-todo', args=[self.event.pk]), content)
+        self.assertNotIn('cal-event-card', content)
+        self.assertEqual(content.count('Attributed campaign run'), 1)
+
+    def _row_counts(self) -> tuple[int, int, int]:
+        return (CalendarEvent.objects.count(), EventTodo.objects.count(), CalendarEventMeta.objects.count())
+
+    def test_anonymous_reads_write_nothing(self):
+        before_counts = self._row_counts()
+        before_modified = CalendarEvent.objects.get(pk=self.event.pk).modified
+        for _ in range(2):
+            self.assertEqual(self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 8}).status_code, 200)
+            self._popup(self.event)
+        self.assertEqual(self._row_counts(), before_counts)
+        self.assertEqual(CalendarEvent.objects.get(pk=self.event.pk).modified, before_modified)
+
+    def test_editor_then_anonymous_render_share_no_output(self):
+        self.client.force_login(self.editor)
+        editor_month = self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 8}).content.decode()
+        editor_popup = self._popup(self.event)
+        self.assertIn('/calendar/create/', editor_month)
+        self.assertIn('<form', editor_popup)
+
+        visitor = Client()
+        visitor_month = visitor.get(reverse('calendar:calendar'), {'year': 2026, 'month': 8}).content.decode()
+        visitor_popup = self._popup(self.event, client=visitor)
+        self.assertNotIn('/calendar/create/', visitor_month)
+        self.assertNotIn('<form', visitor_popup)
+        self.assertIn('cal-event-card', visitor_popup)
+
+
+class EventCardUrlLinkTest(TestCase):
+    """ACCESS-02 / D-05: the anonymous card links only http(s) addresses and never echoes other values."""
+
+    PORTAL_URL = 'https://observe.lco.global/requests/4229878'
+
+    def _card_html(self, url: str) -> str:
+        event = CalendarEvent.objects.create(
+            title='URL card case',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+            url=url,
+        )
+        response = self.client.get(reverse('calendar:update-event', args=[event.id]))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_allocation_key_is_not_a_link_and_not_echoed(self):
+        key = f'{ALLOC_URL_NAMESPACE}1:2026-07-07'
+        content = self._card_html(key)
+        self.assertNotIn(f'href="{ALLOC_URL_NAMESPACE}', content)
+        self.assertIn('not a web link', content)
+        self.assertNotIn(key, content)
+
+    def test_campaign_run_key_is_not_a_link_and_not_echoed(self):
+        key = f'{RUN_URL_NAMESPACE}5'
+        content = self._card_html(key)
+        self.assertNotIn(f'href="{RUN_URL_NAMESPACE}', content)
+        self.assertIn('not a web link', content)
+        self.assertNotIn(key, content)
+
+    def test_portal_url_links_with_noopener(self):
+        content = self._card_html(self.PORTAL_URL)
+        self.assertIn(f'href="{self.PORTAL_URL}"', content)
+        self.assertIn('rel="noopener noreferrer"', content)
+        self.assertIn('View', content)
+        self.assertNotIn('not a web link', content)
+
+    def test_javascript_url_is_never_a_link_and_not_echoed(self):
+        content = self._card_html('javascript:alert(1)')
+        self.assertNotIn('href="javascript:', content)
+        self.assertNotIn('javascript:alert(1)', content)
+
+    def test_empty_url_shows_no_url_row(self):
+        content = self._card_html('')
+        self.assertNotIn('<dt class="col-sm-3">URL</dt>', content)
+        self.assertNotIn('not a web link', content)

@@ -215,6 +215,7 @@
     </div>
     <h4 class="mb-0">{{ month_name }}</h4>
     {# UAT G-33-2: tomtoolkit 3.x base loads Bootstrap 5, htmx and Alpine and no jQuery -- modal is opened via the Bootstrap 5 API. #}
+    {% if request.user.is_authenticated %}
     <button class="btn btn-outline-secondary btn-sm"
             hx-get="{% url 'calendar:create-event' %}"
             hx-target="#cal-modal-body"
@@ -222,6 +223,7 @@
     >
       + New Event
     </button>
+    {% else %}<span class="cal-header-spacer" aria-hidden="true"></span>{% endif %}
   </div>
 
   <div class="cal-grid border-top border-left">
@@ -232,9 +234,11 @@
     {% for week in weeks %}
       {% for day in week %}
         <div class="cal-day{% if day.date.month == month %} is-current-month{% endif %}{% if day.date == today %} today{% endif %} border-right border-bottom p-1"
+             {% if request.user.is_authenticated %}
              hx-get="{% url 'calendar:create-event' %}?date={{ day.date|date:'Y-m-d' }}"
              hx-target="#cal-modal-body"
              hx-on::after-request="bootstrap.Modal.getOrCreateInstance(document.getElementById('cal-modal')).show();"
+             {% endif %}
         >
           <span class="day-num">{{ day.date.day }}</span>
           <span class="moon-phase" title="{% widthratio day.moon.illumination 1 100 %}% illuminated">{{ day.moon.emoji }}</span>

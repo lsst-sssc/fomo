@@ -2573,6 +2573,22 @@ the page is drawn -- it is never written into the entry's own title or
 description -- so nothing that rewrites those fields (a base-layer
 re-projection, a hand edit, anything) can erase it.
 
+**Not logged in, the calendar is read-only.** A visitor who is not logged
+in sees a month view with no "+ New Event" button, and a day cell does
+nothing when clicked. Clicking an entry still opens the pop-up, but as a
+read-only card: title, start and end (UTC), description, URL (a "View ↗"
+link only for a web address; a stored allocation or run key shows only
+"(not a web link)"), target list, user, proposal, telescope and
+instrument, and the entry's todos marked done or not done -- with no
+form, no Save or Delete button and no todo controls. The Attributed
+campaign run block and its tally show exactly as they do for a logged-in
+visitor, while the Observation series block stays logged-in only (see
+"Observation series" above). Any logged-in user, staff or not, can create,
+edit and delete entries and add and tick todos exactly as before. A write
+attempt while logged out (a stale browser tab, a script) is sent to the
+login page and changes nothing; after logging in, the browser returns to
+the calendar page, never to the refused write.
+
 Before chasing a missing attribution, first confirm the pop-up opens at
 all: clicking a calendar entry opens the pop-up through the Bootstrap 5
 modal API, because the TOM Toolkit 3.x base page this site is built on
@@ -2580,9 +2596,9 @@ loads the Bootstrap 5 bundle, htmx and Alpine and no jQuery. These are two
 different faults with two different fixes. A pop-up that opens but shows
 no Attributed campaign run block means the entry carries no attribution
 link -- the situation the rest of this section covers. A pop-up that does
-not open at all, on any entry, on a day cell, or on the "+ New Event"
-button, is a client-side JavaScript fault in the calendar page, not a
-missing attribution. Exactly that fault was found and fixed in Phase 33
+not open at all, on any entry, or -- when logged in -- on a day cell or the "+ New Event" button,
+is a client-side JavaScript fault in the calendar page, not a missing
+attribution. Exactly that fault was found and fixed in Phase 33
 (UAT G-33-2); if it recurs, report it as a front-end regression and check
 the browser console, rather than looking for a missing campaign link.
 
