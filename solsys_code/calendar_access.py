@@ -5,10 +5,18 @@ an anonymous request could create, change or delete a calendar event or todo. FO
 own URL conf (``solsys_code/calendar_urls.py``) with the two decorators below; the vendored package is never
 edited and no upstream view body is re-implemented here. The decorators only decide allow-or-redirect.
 
-Decisions: any logged-in user may write (D-01); the event pop-up is the GET of update-event, so that route
-stays open for reading (D-04); a refused write is a redirect to the login page, never a 403 (D-08). The
-login ``next`` is the calendar page, not the refused URL: delete-event and update-todo act on a plain GET
-upstream, so a ``next`` pointing at them would replay the write as soon as the visitor logged in.
+Decisions: any logged-in user may write (D-01), including an account self-registered through the site's
+sign-up page while ``TOM_REGISTRATION_STRATEGY`` is 'open' -- an accepted risk, not an oversight (39-REVIEW
+CR-01); the event pop-up is the GET of update-event, so that route stays open for reading (D-04); a refused
+write is a redirect to the login page, never a 403 (D-08). The guard's own login redirect sets ``next`` to the
+calendar page, not the refused URL: delete-event and update-todo act on a plain GET upstream, so a ``next``
+pointing at them would replay the write as soon as the visitor logged in.
+
+A write that fails Django's CSRF check never reaches these decorators: ``CsrfViewMiddleware`` refuses it first
+and tom_common's ``Raise403Middleware`` turns the 403 into a login redirect whose ``next`` is the refused path
+(htmx: ``HX-Redirect``). A GET of that path writes nothing (``require_POST`` answers 405 on delete-event,
+create-todo and update-todo; create-event and update-event only render a form on GET). Both refusal paths are
+pinned by ``AnonymousCalendarWriteTest`` and ``AnonymousCsrfFailureWriteTest``.
 
 The decorators keep no state between requests: they decide from ``request.user`` and ``request.method`` alone.
 """

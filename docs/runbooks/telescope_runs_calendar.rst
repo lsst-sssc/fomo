@@ -2584,10 +2584,25 @@ form, no Save or Delete button and no todo controls. The Attributed
 campaign run block and its tally show exactly as they do for a logged-in
 visitor, while the Observation series block stays logged-in only (see
 "Observation series" above). Any logged-in user, staff or not, can create,
-edit and delete entries and add and tick todos exactly as before. A write
-attempt while logged out (a stale browser tab, a script) is sent to the
-login page and changes nothing; after logging in, the browser returns to
-the calendar page, never to the refused write.
+edit and delete entries and add and tick todos exactly as before -- and
+that includes an account its owner self-registered through the site's
+sign-up page: self-registration is open
+(``TOM_REGISTRATION_STRATEGY = 'open'`` in ``src/fomo/settings.py``), so a
+new account needs no operator approval. That is a deliberate, accepted
+choice (2026-10-08): "Self-signup is wanted; collaborators should be able
+to join without an operator; calendar edits are visible, attributable and
+easily reverted."
+
+A write attempt while logged out changes nothing and is sent to the login
+page in one of two ways. One that passes the CSRF check (typically a save
+from a calendar tab left open after logging out) returns to the calendar
+page after logging in. One that fails the CSRF check (a script, a form
+posted from another site, or a tab whose form token a newer login has
+replaced) is turned away before the calendar's own login check runs and is
+sent to the login page with the refused address as the page to return to;
+after logging in the browser simply opens that address, which changes
+nothing -- the delete and todo addresses refuse a plain visit and the
+create and edit addresses only show a form.
 
 Before chasing a missing attribution, first confirm the pop-up opens at
 all: clicking a calendar entry opens the pop-up through the Bootstrap 5

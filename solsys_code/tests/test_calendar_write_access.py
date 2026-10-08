@@ -4,11 +4,17 @@ tomtoolkit 3.1.0's ``tom_calendar`` write views carry no login check and act on 
 guards them in its own URL conf (``solsys_code/calendar_access.py``). These tests run against FOMO's real
 URL conf, so they hold whichever layer does the guarding: an anonymous caller is sent to the login page and
 no row changes, while a plain signed-in user still writes exactly as before.
+
+A logged-out write is refused one of two ways. ``AnonymousCalendarWriteTest`` posts through the default test
+client, which skips Django's CSRF check, so it proves the guard's own refusal (login ``next`` is the calendar
+page). ``AnonymousCsrfFailureWriteTest`` posts through a CSRF-enforcing client, so ``CsrfViewMiddleware`` refuses
+first and the login ``next`` is the refused path itself.
 """
 
 import inspect
 from datetime import datetime
 from datetime import timezone as dt_timezone
+from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -39,22 +45,8 @@ def make_event() -> CalendarEvent:
     )
 
 
-class AnonymousCalendarWriteTest(TestCase):
-    """An anonymous request must not create, change or delete a calendar event or todo."""
-
-    @classmethod
-    def setUpTestData(cls) -> None:
-        cls.event = make_event()
-        cls.todo = EventTodo.objects.create(event=cls.event, description='keep', is_completed=True)
-
-    def login_url(self) -> str:
-        """Return the exact login URL a refused write is redirected to (next is the calendar page)."""
-        return f'{settings.LOGIN_URL}?next={reverse("calendar:calendar")}'
-
-    def assert_login_redirect(self, response) -> None:
-        """Assert the response is the 302 to the login page."""
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response['Location'], self.login_url())
+class CalendarRowSnapshotMixin:
+    """Row-snapshot helpers shared by the anonymous write tests; needs ``self.event`` and ``self.todo``."""
 
     def snapshot(self) -> tuple:
         """Return every protected field of the event and todo plus both table counts."""
@@ -83,6 +75,40 @@ class AnonymousCalendarWriteTest(TestCase):
     def assert_unchanged(self, before: tuple) -> None:
         """Assert nothing in the snapshot changed."""
         self.assertEqual(self.snapshot(), before)
+
+    def write_requests(self) -> list[tuple[str, str, dict]]:
+        """Return (label, url, data) for every write route, to POST to."""
+        return [
+            ('create-event', reverse('calendar:create-event'), EVENT_POST_DATA),
+            ('update-event', reverse('calendar:update-event', args=[self.event.pk]), EVENT_POST_DATA),
+            ('delete-event', reverse('calendar:delete-event', args=[self.event.pk]), {}),
+            ('create-todo', reverse('calendar:create-todo', args=[self.event.pk]), {'description': 'second'}),
+            ('update-todo', reverse('calendar:update-todo', args=[self.todo.pk]), {'description': 'x'}),
+        ]
+
+
+class AnonymousCalendarWriteTest(CalendarRowSnapshotMixin, TestCase):
+    """An anonymous request must not create, change or delete a calendar event or todo.
+
+    These tests use the default test client, which skips Django's CSRF check, so they prove the guard's refusal
+    (login ``next`` is the calendar page) for a write that passes the CSRF check, such as a save from a tab left
+    open after logging out. A write that fails the CSRF check never reaches the guard and is covered by
+    ``AnonymousCsrfFailureWriteTest``.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.event = make_event()
+        cls.todo = EventTodo.objects.create(event=cls.event, description='keep', is_completed=True)
+
+    def login_url(self) -> str:
+        """Return the login URL for a refused write that passes the CSRF check (next is the calendar page)."""
+        return f'{settings.LOGIN_URL}?next={reverse("calendar:calendar")}'
+
+    def assert_login_redirect(self, response) -> None:
+        """Assert the response is the guard's 302 to the login page (a refused write that passes the CSRF check)."""
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], self.login_url())
 
     def test_anonymous_post_update_event_changes_nothing(self) -> None:
         before = self.snapshot()
@@ -202,16 +228,6 @@ class AnonymousCalendarWriteTest(TestCase):
         self.assert_login_redirect(update_response)
         self.assert_unchanged(before)
 
-    def write_requests(self) -> list[tuple[str, str, dict]]:
-        """Return (label, url, data) for every write route, to POST to."""
-        return [
-            ('create-event', reverse('calendar:create-event'), EVENT_POST_DATA),
-            ('update-event', reverse('calendar:update-event', args=[self.event.pk]), EVENT_POST_DATA),
-            ('delete-event', reverse('calendar:delete-event', args=[self.event.pk]), {}),
-            ('create-todo', reverse('calendar:create-todo', args=[self.event.pk]), {'description': 'second'}),
-            ('update-todo', reverse('calendar:update-todo', args=[self.todo.pk]), {'description': 'x'}),
-        ]
-
     def test_anonymous_repeat_writes_are_refused_both_times(self) -> None:
         for label, url, data in self.write_requests():
             with self.subTest(route=label):
@@ -252,6 +268,105 @@ class AnonymousCalendarWriteTest(TestCase):
                 response = self.client.post(path, data)
 
                 self.assert_login_redirect(response)
+                self.assert_unchanged(before)
+
+
+class AnonymousCsrfFailureWriteTest(CalendarRowSnapshotMixin, TestCase):
+    """A logged-out write with no valid CSRF token is refused before FOMO's guard runs, and writes nothing.
+
+    A script or a forged cross-site post is refused by ``CsrfViewMiddleware``; tom_common's ``Raise403Middleware``
+    turns the 403 into a login redirect whose ``next`` is the refused path (htmx: ``HX-Redirect``). Nothing is
+    written, and a GET of that path writes nothing either.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.event = make_event()
+        cls.todo = EventTodo.objects.create(event=cls.event, description='keep', is_completed=True)
+        cls.editor = User.objects.create_user(username='csrf-replay-editor', password='pw')
+
+    def setUp(self) -> None:
+        self.csrf_client = Client(enforce_csrf_checks=True)
+
+    def refused_login_url(self, path: str) -> str:
+        """Return the login URL a tokenless write to ``path`` is redirected to (next is ``path`` itself)."""
+        return f'{settings.LOGIN_URL}?next={path}'
+
+    def test_tokenless_anonymous_post_is_sent_to_login_with_its_own_path(self) -> None:
+        guard_login_url = f'{settings.LOGIN_URL}?next={reverse("calendar:calendar")}'
+        for label, url, data in self.write_requests():
+            with self.subTest(route=label):
+                before = self.snapshot()
+
+                response = self.csrf_client.post(url, data)
+
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response['Location'], self.refused_login_url(url))
+                self.assertNotEqual(response['Location'], guard_login_url)
+                self.assert_unchanged(before)
+
+    def test_tokenless_anonymous_htmx_post_gets_hx_redirect_to_its_own_path(self) -> None:
+        for label, url, data in self.write_requests():
+            with self.subTest(route=label):
+                before = self.snapshot()
+
+                response = self.csrf_client.post(url, data, headers={'HX-Request': 'true'})
+
+                self.assertEqual(response.status_code, 200)
+                self.assertNotEqual(response.status_code, 403)
+                self.assertEqual(response['HX-Redirect'], self.refused_login_url(url))
+                self.assert_unchanged(before)
+
+    def test_tokenless_repeat_posts_are_refused_identically(self) -> None:
+        for label, url, data in self.write_requests():
+            with self.subTest(route=label):
+                before = self.snapshot()
+
+                first = self.csrf_client.post(url, data)
+                second = self.csrf_client.post(url, data)
+
+                self.assertEqual(first.status_code, 302)
+                self.assertEqual(second.status_code, 302)
+                self.assertEqual(first['Location'], self.refused_login_url(url))
+                self.assertEqual(first['Location'], second['Location'])
+                self.assert_unchanged(before)
+
+    def test_tokenless_post_to_missing_event_is_refused_not_404(self) -> None:
+        before = self.snapshot()
+        delete_url = reverse('calendar:delete-event', args=[999999])
+        update_url = reverse('calendar:update-event', args=[999999])
+
+        delete_response = self.csrf_client.post(delete_url, {})
+        update_response = self.csrf_client.post(update_url, EVENT_POST_DATA)
+
+        for response, url in ((delete_response, delete_url), (update_response, update_url)):
+            with self.subTest(path=url):
+                self.assertNotEqual(response.status_code, 404)
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response['Location'], self.refused_login_url(url))
+        self.assert_unchanged(before)
+
+    def test_replaying_the_refused_path_as_a_signed_in_get_changes_nothing(self) -> None:
+        # The login page sends the browser to ``next`` after logging in, as a plain GET.
+        expected_status = {
+            'create-event': 200,
+            'update-event': 200,
+            'delete-event': 405,
+            'create-todo': 405,
+            'update-todo': 405,
+        }
+        for label, url, data in self.write_requests():
+            with self.subTest(route=label):
+                before = self.snapshot()
+
+                refused = self.csrf_client.post(url, data)
+                next_path = parse_qs(urlsplit(refused['Location']).query)['next'][0]
+                editor_client = Client()
+                editor_client.force_login(self.editor)
+                replay = editor_client.get(next_path)
+
+                self.assertEqual(next_path, url)
+                self.assertEqual(replay.status_code, expected_status[label])
                 self.assert_unchanged(before)
 
 
