@@ -350,6 +350,8 @@ def test_calendar_page_has_no_bootstrap4_only_utility_classes(self):
         assert self.page.locator(f'.{bs4_class}').count() == 0, bs4_class
 ```
 
+**Status (Phase 39, 2026-10-08):** `calendar.html`'s half was fixed in Phase 39 (D-11): `border-start`, `border-end`, `fw-bold`, `me-2`, `me-3` and `var(--bs-white)` replace the Bootstrap 4 names, with `data-url` kept (commit 9b2df4d, 39-02). `src/templates/campaigns/campaignrun_table.html` is outside Phase 39 and still carries its Bootstrap 4 names (`font-weight-bold`, `mr-2` and `form-group`).
+
 ---
 
 ### WR-05: the calendar create/update endpoints this phase's templates drive have no authentication at all
@@ -382,6 +384,8 @@ placed *before* `include('tom_calendar.urls')`, plus a test asserting an anonymo
 does not create a `CalendarEvent`. If the write is genuinely meant to be public, record that
 decision in `docs/runbooks/telescope_runs_calendar.rst` — right now it is neither gated nor
 documented.
+
+**Status: fixed in Phase 39 (ACCESS-01), 2026-10-08.** tomtoolkit 3.1.0's views still carry no login guard, so FOMO wraps all five write routes (create-event, update-event, delete-event, create-todo, update-todo) in the guards of `solsys_code/calendar_access.py`, applied from `solsys_code/calendar_urls.py`. An anonymous request is redirected to login with `next=/calendar/` -- the calendar page, never the write URL, so logging in does not replay a GET-acting delete. update-event's GET stays the open pop-up, which a visitor now sees as a read-only card; delete-event, create-todo and update-todo are POST-only (`require_POST`). The proof is `solsys_code/tests/test_calendar_write_access.py`. The month view no longer offers a visitor the create targets, and the runbook records that the calendar is read-only when not logged in (the alternative this finding offered). Commits: 5e31c0f and 4d32e62 (39-01, the guards), 8d0eca5 (39-02, the read-only card and the month view without create targets).
 
 ---
 
