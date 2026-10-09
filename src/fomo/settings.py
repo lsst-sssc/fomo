@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 import tempfile
 
 from tom_common.default_settings import *  # noqa: F401, F403
@@ -184,6 +185,24 @@ CACHES = {
         'LOCATION': tempfile.gettempdir(),
     }
 }
+
+# Test-only overrides, active only when Django's test command is the entry point
+# (`python manage.py test`, `coverage run manage.py test`, `django-admin test` and
+# `python -m django test` all put 'test' at argv[1], the position Django's ManagementUtility
+# reads the subcommand from; runserver, shell, testserver and WSGI servers never do), so
+# production and runserver settings are untouched.
+#
+# The cache: Django swaps the test database but not the cache, and FileBasedCache.clear()
+# deletes every cache file in tempfile.gettempdir(), which every parallel test worker and the
+# dev runserver share (todo 2026-10-07 race; bug #3 in test_campaign_approval.py). Each test
+# process therefore gets a private LocMemCache.
+#
+# This block MUST stay above the `local_settings` fold tail at the end of this file, because
+# test_settings_api_key_fold executes the file from that anchor to the end in a bare
+# namespace. local_settings.py is imported afterwards and could override CACHES, so a host
+# that runs the suite must not set CACHES there.
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
 
 # TOM Specific configuration
 TARGET_TYPE = 'NON_SIDEREAL'
