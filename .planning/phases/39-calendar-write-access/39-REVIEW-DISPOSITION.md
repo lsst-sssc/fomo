@@ -13,7 +13,7 @@ findings:
     title: "The snapshot is named and described as \"vs tomtoolkit 3.1.0\", but the test diffs against whatever tomtoolkit is installed, and CI installs `tomtoolkit>=3.1.0` unpinned (carried forward)"
   - id: WR-04
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "No behavioural test keeps the edit-form hint from a signed-in non-staff user; 39-05 rewrote that gate, and weakening it is caught only by the regenerable snapshot"
   - id: IN-01
     severity: info
@@ -51,7 +51,7 @@ findings:
     severity: critical
     disposition: skipped
     title: "Open self-registration lets anyone through the login guard, so any internet user can still create, edit and delete any calendar event"
-open: 10
+open: 9
 total: 12
 recorded: 2026-10-08T23:08:19.143Z
 ---
@@ -62,7 +62,7 @@ recorded: 2026-10-08T23:08:19.143Z
 |---------|----------|-------------|--------|
 | WR-02 | warning | open | - |
 | WR-03 | warning | open | - |
-| WR-04 | warning | open | - |
+| WR-04 | warning | fixed | resolved by test in 39-06 Task 1 (cadb56c); test_signed_in_non_staff_does_not_see_hint GETs the edit pop-up as a signed-in non-staff user and asserts the hint and its band=high link are absent; test_hint_is_gated_on_the_edit_form gains a (plain_user, update, False) row; both fail, and only they fail, when the event_form.html gate is weakened to request.user.is_authenticated (scratch-template mutation run); test-only, template and snapshot unchanged; UAT Test 7 / G-39-7. |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
