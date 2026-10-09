@@ -145,6 +145,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 - [x] **Phase 38: Sync with main** - Merge `origin/main` into the branch and adopt exactly what `main` requires (tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9, LINCC template v2.2.0, the Django runner in CI), drop the dead pytest setup, get the full suite green, and rewrite draft PR #43's description for v2.4 (completed 2026-10-07)
 - [x] **Phase 39: Calendar Write Access** - An anonymous visitor can no longer create, change or delete a calendar event, the month view stops offering them the controls, and the event pop-up template's header comment says truthfully how it differs from upstream (completed 2026-10-08)
+- [ ] **Phase 39.1: Test-Suite Speed-Up (INSERTED)** - The unit-test suite the `django-test` hook and CI run finishes in about a minute instead of about ten (memoised `sun_event()`, cheaper crossing search, `--parallel`, fast test hasher, tagged migration tests) so code commits stop needing `SKIP=django-test`, with the 2-minute skycalc sun-event accuracy kept
 - [ ] **Phase 40: Notebook Isolation & Attribution Page** - Every pre-executed demo notebook runs on its own scratch database with a guard that catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3, closing the last six Phase 37.1 review warnings
 - [ ] **Phase 41: Todo Triage & Seed Notes** - Every pending todo and backlog Phase 999.1 gets a fix-now / drop / park decision with a reason, fix-now items are set up as an inserted phase, and the Proposal-record seed records upstream's multi-proposal direction
 - [ ] **Phase 42: Re-verify the v2.4 Phases** - The five stale v2.4 verification reports are re-run against the final HEAD and refreshed in their archived directories, and the v2.4 milestone record states the real per-phase outcome instead of an override
@@ -260,6 +261,49 @@ Plans:
 
 **UI hint**: yes
 
+### Phase 39.1: Test-Suite Speed-Up (INSERTED)
+
+**Goal**: The unit-test suite that the `django-test` pre-commit hook and the CI unit-test matrix run (`--exclude-tag functional --exclude-tag ephemeris_segfault`) finishes in about a minute locally instead of about ten, so a code commit no longer needs `SKIP=django-test`, and the sun-event times it depends on stay within the 2-minute LCO skycalc accuracy contract from Phase 1.
+**Depends on**: Phase 39 (inserted after it by the developer so Phases 40-42 commit against the fast hook)
+**Requirements**: SPEED-01, SPEED-02, SPEED-03, SPEED-04
+**Source**: pending todo `.planning/todos/pending/2026-10-08-cache-telescope-runs-sun-event-and-speed-up-the-test-suite.md`, which carries the `fomo_fresh` session's cProfile of the suite on PR #43 (write-ups: PR #43 comments 6064460914 and 6064524313). Phase 41's triage closes that todo as "fixed in 39.1".
+**Scope note**:
+
+- **Where the time goes (measured, 2,174 tests, 706 s serial):** `telescope_runs.sun_event()` is 80% — 2,268 calls at 0.17-0.25 s each, the same site and night recomputed many times per process; migration tests 6%; PBKDF2 password hashing 3.7% (368 hashes, no fast test hasher); everything else about 10%, no network, no sleeps. The two `TestGapAnalysisSiteUnknownCount` tests take 17.8 s each. The suite is already parallel-safe: `--parallel 4` runs in 2.6 min today.
+- **Four pieces, in this order:**
+  1. **Memoise the crossing search** in `solsys_code/telescope_runs.py`: an `lru_cache`d inner helper keyed on (lon, lat, altitude, timezone, date, threshold) that `sun_event()` calls after its existing validation and `to_earth_location()` check, returning copies of the cached `Time`s so callers cannot corrupt the cache. Measured on the todo's patch: serial 8.0 to 2.3 min, `--parallel 4` 2.6 min to 51 s, all tests pass with no test changed. The inner-helper placement keeps the 28 `patch(...sun_event...)` call-counting tests (Phase 35 D-13) valid, and the per-process cache keeps `allocation_projector.py`'s cross-session IERS-drift reasoning true.
+  2. **Make each call cheaper** in `_find_crossing()`: a coarse 10-minute scan plus a few more bisection steps instead of 1,441 one-minute samples, so the first gap-analysis test does not spend 15.9 s filling the cache for 91 dates. The existing sun-event precision tests (skycalc 2-minute contract, 1.44° ± 0.02° dip) must still pass unchanged.
+  3. **Run tests in parallel**: `--parallel` on the CI unit-test step in `.github/workflows/testing-and-coverage.yml` and on the `django-test` hook in `.pre-commit-config.yaml`; coverage must still combine across workers. Address the known race first: todo 2026-10-07 (`test_page_query_count_grows_by_a_bounded_per_row_amount_not_unboundedly` calls `cache.clear()` on the shared file cache and raced once under `--parallel 4`).
+  4. **Cheaper fixtures**: `MD5PasswordHasher` under test only (in `settings.py`, keyed on the test runner being active, never in production settings), and tag the migration tests so the pre-commit hook can exclude them while CI keeps running them.
+- Keep the `ephemeris_segfault` exclusion exactly as it is; this phase does not touch `TestEphemeris`.
+- Record the before and after timings (serial and parallel, local and CI) in the phase summary so the gain is auditable.
+- The accuracy contract is the non-negotiable: any change to `_find_crossing()` that moves a sun-event time by more than the skycalc tolerance is rejected, speed gain or not.
+
+**Paired docs (CLAUDE.md rule)**: `solsys_code/telescope_runs.py` -> `docs/notebooks/pre_executed/telescope_runs_demo.ipynb`, re-executed with `jupyter nbconvert --to notebook --execute --inplace` and committed with output; `CLAUDE.md`'s Commands and Testing sections and `docs/runbooks/telescope_runs_calendar.rst` wherever they quote the hook's duration or the `SKIP=django-test` workaround, since both change.
+**Success Criteria** (what must be TRUE):
+
+  1. `python manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault` passes with every test green, and the `django-test` pre-commit hook completes in about one minute on the developer machine (recorded before and after timings in the phase summary)
+  2. The sun-event precision tests and the horizon-dip test pass unchanged, and a direct comparison of sunset, sunrise and the -15° dark crossings for the three Stage 1 sites against the stored skycalc reference values stays within 2 minutes
+  3. Calling `sun_event()` twice for the same site and night performs the crossing search once, a mutated return value does not change the next call's result, and the existing call-counting tests in the allocation projector and reconciler still pass without modification
+  4. The CI unit-test matrix and the pre-commit hook run the suite with `--parallel`, coverage still reports a combined figure, and the shared-cache race from todo 2026-10-07 is fixed rather than retried
+  5. Production settings are unchanged: the fast password hasher applies only under the test runner, and `telescope_runs_demo.ipynb` is re-executed with the memoised code and committed with output
+
+**Plans**: 4 plans
+
+Plans:
+
+**Wave 1**
+- [ ] 39.1-01-PLAN.md — Pieces 1-2 (tracer: before timings, then a per-process `lru_cache` below `sun_event()`'s validation, returning copies, proven through the 28 unchanged call-counting tests); 10-minute coarse scan plus vectorised bisection in `_find_crossing()` checked against a verbatim copy of the old algorithm (<= 1 s, three sites x two kinds) with the skycalc tests untouched; `telescope_runs_demo.ipynb` re-executed with memo cells (SPEED-01, SPEED-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 39.1-02-PLAN.md — Piece 3 (tracer: test-only per-process `LocMemCache` under `argv[1] == 'test'`, above the local-settings fold tail, plus `override_settings` on the two cache-clearing class hierarchies -- the 2026-10-07 race fixed, five `--parallel 4` runs green); blocking-human tblib legitimacy check; `--parallel` with `coverage erase`/`combine` in the django-test hook and the CI unit step, coverage `multiprocessing`/`parallel` config, CLAUDE.md coverage commands (SPEED-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 39.1-03-PLAN.md — Piece 4 (tracer: `@tag('migration')` on the six MigrationExecutor classes, excluded by the hook only); MD5 hasher under the test command only; after timings beside the before ones (hook <= 120 s and >= 5x faster) and CLAUDE.md, hook comment and codebase TESTING.md updated (SPEED-04)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 39.1-04-PLAN.md — CI after-timing (tracer: D-11 snapshot staged in a worktree, scope and leak checked); developer decides publish or hold; publish records the parallel unit-test CI durations on PR #43, hold records a dated deferral with the local CI-sized proxy (SPEED-03, SPEED-04)
+
 ### Phase 40: Notebook Isolation & Attribution Page
 
 **Goal**: Every pre-executed demo notebook builds and uses its own scratch database, guarded by a check that catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3 — closing the remaining six Phase 37.1 review warnings (WR-13 to WR-18).
@@ -329,7 +373,7 @@ Plans:
 
 ## Progress
 
-**Execution Order:** 38 → 39 → 40 → 41 → (inserted 41.1, if triage marks anything fix-now) → 42
+**Execution Order:** 38 → 39 → 39.1 (inserted) → 40 → 41 → (inserted 41.1, if triage marks anything fix-now) → 42
 
 | Phase             | Milestone | Plans Complete | Status      | Completed  |
 | ----------------- | --------- | -------------- | ----------- | ---------- |
@@ -375,6 +419,7 @@ Plans:
 | 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 17/17 | Complete    | 2026-10-06 |
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
+| 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 0/4 | Not started | - |
 | 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
@@ -385,7 +430,7 @@ Full phase detail for all shipped milestones lives in their respective `mileston
 
 🚧 **v2.5 Main Sync & Consolidation** — Phases 38-42, started 2026-10-06.
 
-Coverage: 23/23 v1 requirements mapped (SYNC-01..08 → 38; ACCESS-01..02 and WARN-01 → 39; WARN-02..07 → 40; TRIAGE-01..03 → 41; REVERIFY-01..03 → 42), no orphans, no duplicates. A gap-closure phase (expected 41.1) is inserted after Phase 41 if the triage marks any item fix-now. Next: `/gsd-discuss-phase 38`.
+Coverage: 27/27 v1 requirements mapped (SYNC-01..08 → 38; ACCESS-01..02 and WARN-01 → 39; SPEED-01..04 → 39.1 (inserted 2026-10-09); WARN-02..07 → 40; TRIAGE-01..03 → 41; REVERIFY-01..03 → 42), no orphans, no duplicates. A gap-closure phase (expected 41.1) is inserted after Phase 41 if the triage marks any item fix-now. Next: `/gsd-discuss-phase 38`.
 
 ## Backlog
 

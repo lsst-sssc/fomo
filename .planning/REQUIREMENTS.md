@@ -33,6 +33,15 @@ Requirements for this milestone. Each maps to a roadmap phase.
 - [ ] **WARN-06** (WR-17): `telescope_runs_demo.ipynb`'s committed output reports the horizon dip in a single unit (degrees or arcminutes), not "arcmin deg"; the notebook is re-executed and committed.
 - [ ] **WARN-07** (WR-18): Pressing Undo on a Dismissed row in the attribution queue leaves the Dismissed section open and on the same page, so working down the list needs no re-open or re-page per row.
 
+### Test-suite speed (SPEED) — Phase 39.1, inserted 2026-10-09
+
+Source: pending todo `2026-10-08-cache-telescope-runs-sun-event-and-speed-up-the-test-suite.md` (cProfile of the suite on PR #43: `sun_event()` 80%, migrations 6%, password hashing 3.7%).
+
+- [ ] **SPEED-01**: `telescope_runs.sun_event()` memoises the crossing search per process, keyed on site coordinates, timezone, date and threshold, behind the existing validation and `to_earth_location()` check; a second call for the same site and night does no new AltAz transform, returned `Time` objects are copies so a caller cannot corrupt the cache, and the 28 `patch(...sun_event...)` call-counting tests (Phase 35 D-13) pass unchanged. `telescope_runs_demo.ipynb` is re-executed and committed with output.
+- [ ] **SPEED-02**: Each crossing search is cheaper (coarse scan plus bisection instead of 1,441 one-minute samples) while the Phase 1 accuracy contract holds: sunset, sunrise and the -15° dark crossings for the three Stage 1 sites stay within 2 minutes of the LCO skycalc reference values and the horizon dip at 2402 m stays 1.44° ± 0.02°, proven by the existing precision tests passing unchanged.
+- [ ] **SPEED-03**: The CI unit-test step and the `django-test` pre-commit hook run the suite with `--parallel`, coverage still reports a combined figure, and the shared-file-cache race in `test_page_query_count_grows_by_a_bounded_per_row_amount_not_unboundedly` (todo 2026-10-07) is fixed so parallel runs are deterministic.
+- [ ] **SPEED-04**: Test-only fixture costs are cut — a fast password hasher applies only when the test runner is active (production settings unchanged) and the migration tests carry a tag the pre-commit hook excludes while CI keeps running them — and the hook's `python manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault` run finishes in about one minute on the developer machine, with before and after timings recorded in the phase summary.
+
 ### Re-verify the stale v2.4 reports (REVERIFY)
 
 - [ ] **REVERIFY-01**: After the `main` sync (SYNC-07) and the cleanup phases have landed, each v2.4 verification report that `verification.status` reads as `stale` (phases 34, 35, 36, 37 and 37.1, under `.planning/milestones/v2.4-phases/`) is re-run by the verifier against HEAD, goal-backward against that phase's own must-haves, and the refreshed report is written back into the archived phase directory with a status of `passed`, `gaps_found` or `human_needed` — never left `stale`.
@@ -96,6 +105,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WARN-05 | Phase 40 | Pending |
 | WARN-06 | Phase 40 | Pending |
 | WARN-07 | Phase 40 | Pending |
+| SPEED-01 | Phase 39.1 | Pending |
+| SPEED-02 | Phase 39.1 | Pending |
+| SPEED-03 | Phase 39.1 | Pending |
+| SPEED-04 | Phase 39.1 | Pending |
 | TRIAGE-01 | Phase 41 | Pending |
 | TRIAGE-02 | Phase 41 | Pending |
 | TRIAGE-03 | Phase 41 | Pending |
@@ -104,12 +117,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REVERIFY-03 | Phase 42 | Pending |
 
 **Coverage:**
-- v1 requirements: 23 total
-- Mapped to phases: 23 (Phase 38: 8, Phase 39: 3, Phase 40: 6, Phase 41: 3, Phase 42: 3)
+- v1 requirements: 27 total
+- Mapped to phases: 27 (Phase 38: 8, Phase 39: 3, Phase 39.1: 4, Phase 40: 6, Phase 41: 3, Phase 42: 3)
 - Unmapped: 0 ✓
 
 TRIAGE-02 is delivered by Phase 41 (the triage produces the fix-now REQ-IDs and inserts the gap-closure phase, expected 41.1); the fix-now REQ-IDs themselves are added to this file and mapped to that inserted phase when it is created.
 
 ---
 *Requirements defined: 2026-10-06*
-*Last updated: 2026-10-06 after roadmap creation (v2.5 Phases 38-42)*
+*Last updated: 2026-10-09 — SPEED-01..04 added for inserted Phase 39.1 (Test-Suite Speed-Up)*
