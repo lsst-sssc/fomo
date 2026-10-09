@@ -1,8 +1,8 @@
 ---
 phase: 39-calendar-write-access
-verified: 2026-10-08T23:58:00Z
-status: human_needed
-score: 58/58 must-haves verified
+verified: 2026-10-09T04:07:17Z
+status: passed
+score: 64/64 must-haves verified
 covered_files:
   - .planning/phases/39-calendar-write-access/39-01-PLAN.md
   - .planning/phases/39-calendar-write-access/39-01-SUMMARY.md
@@ -14,6 +14,8 @@ covered_files:
   - .planning/phases/39-calendar-write-access/39-04-SUMMARY.md
   - .planning/phases/39-calendar-write-access/39-05-PLAN.md
   - .planning/phases/39-calendar-write-access/39-05-SUMMARY.md
+  - .planning/phases/39-calendar-write-access/39-06-PLAN.md
+  - .planning/phases/39-calendar-write-access/39-06-SUMMARY.md
   - docs/runbooks/telescope_runs_calendar.rst
   - solsys_code/calendar_access.py
   - solsys_code/calendar_urls.py
@@ -28,7 +30,7 @@ covered_files:
   - src/fomo/urls.py
   - src/templates/tom_calendar/partials/calendar.html
   - src/templates/tom_calendar/partials/event_form.html
-covered_digest: "v3:sha256:bcc8fed35cb47974b0dff3771ea2c787c8facf6d76d33cb2722efe7ddda806c9"
+covered_digest: "v3:sha256:c53b45871371cef06220460b8b8f8010ff2364f890d5da0e51aa06e509e9b3e1"
 behavior_unverified: 0
 overrides_applied: 1
 overrides:
@@ -38,165 +40,118 @@ overrides:
     accepted_at: "2026-10-08T17:04:52Z"
 re_verification:
   previous_status: human_needed
-  previous_score: 48/49
+  previous_score: 58/58
   gaps_closed:
-    - "G-39-4 (39-UAT Test 4, major): staff and superuser GET /calendar/create/ (with and without ?date=, htmx or not) and an invalid staff create POST now return 200 with the form, not 500 -- isinstance guard in high_band_attribution_candidates plus the action-first elif in event_form.html"
-    - "G-39-3 (39-UAT Test 3, minor): the runbook's logged-out-write paragraph now says the create and edit addresses show a bare, unstyled copy of the event form, not to use it, and to go back to the calendar page"
-    - "Previous human item 1 (39-02 judgment-tier visitor-affordance prohibition): resolved by the developer, 39-UAT Test 1 pass"
-    - "Previous human item 2 (39-01 A12 backstop concurrency truth): structural evidence accepted by the developer, 39-UAT Test 2 pass"
-    - "Previous human item 3 (39-04 runbook readability) and advisory WR-01: answered at 39-UAT Test 3 ('pass, but add the WR-01 sentence'); the sentence is now in the runbook (G-39-3); residual token-in-URL risk accepted as AR-39-02"
+    - "G-39-7 (39-UAT Test 7, 39-REVIEW WR-04): test_signed_in_non_staff_does_not_see_hint and a (plain_user, update, False) row in test_hint_is_gated_on_the_edit_form now pin the staff conjunct of the attribution-hint gate; an independent verifier mutation run (gate weakened to is_authenticated through a scratch template directory) fails exactly those two checks"
+    - "Previous human item 1 (UAT Test 4 re-run as staff): 39-UAT Test 5 pass"
+    - "Previous human item 2 (runbook bare-form sentence): 39-UAT Test 6 pass"
+    - "Previous human item 3 (WR-04 decision): developer chose 'add the test' (39-UAT Test 7); added by 39-06 (cadb56c)"
   gaps_remaining: []
   regressions: []
 advisory:
-  - finding: "39-REVIEW WR-02 (carried): event_form.html's header says the pinned snapshot makes 'any new difference fail until this list and that file are updated together'; regenerating the snapshot alone turns the test green for a line inside an already-anchored region, so the header list is not enforced on that path."
+  - finding: "39-REVIEW IN-08 (new, round 4): test_signed_in_non_staff_does_not_see_hint has no positive control of its own; its hx-post anchor proves the signed-in non-create form rendered, not that the event still has a High-band candidate in that render, and the line-1017 comment ('so the absences below mean something') claims more than the anchor alone proves."
     category: other
-    reason: "The six-item list is exact today (10 snapshot regions map to items 1-6; item 4 now says 'edit form only'), so the goal's 'says truthfully how it differs' holds; only the sentence about what the test enforces overclaims. One-line reword."
-    evidence_status: "statically evident (header lines 9-12 unchanged; current_diff() regenerates from the body only)"
-  - finding: "39-REVIEW WR-03 (carried): the snapshot is named 'vs tomtoolkit 3.1.0' but is diffed against the installed tomtoolkit; pyproject.toml line 20 is 'tomtoolkit>=3.1.0', unpinned."
+    reason: "Not a must-have miss. The 39-06 truth claims only what the anchor does prove (edit form, not create form or anonymous card). Non-vacuity is established by the shared setUpTestData fixture plus two sibling positive controls on the same event (test_staff_sees_high_band_hint_for_unlinked_event and the staff/update row of test_hint_is_gated_on_the_edit_form), which would fail first if the candidate dropped out of the High band, and by the verifier's own mutation run. Resolve by folding a staff row into the test or rewording the comment; Phase 41 triage candidate with the other open findings."
+    evidence_status: "statically evident; verifier mutation run shows the test catches the WR-04 regression as written"
+  - finding: "39-REVIEW WR-02 (carried): event_form.html's header says the pinned snapshot makes any new difference fail until the list and the file are updated together; regenerating the snapshot alone turns the test green for a line inside an already-anchored region."
     category: other
-    reason: "Fails closed with a misleading remedy on an upstream upgrade; installed version is 3.1.0 so the comparison is true today."
+    reason: "The six-item list is exact today; only the sentence about what the test enforces overclaims. Open in the ledger for Phase 41 triage."
+    evidence_status: "statically evident (header unchanged since the previous report)"
+  - finding: "39-REVIEW WR-03 (carried): the snapshot is named 'vs tomtoolkit 3.1.0' but diffed against the installed tomtoolkit; pyproject.toml has tomtoolkit>=3.1.0 unpinned."
+    category: other
+    reason: "Installed version is 3.1.0, so the comparison is true today. Open in the ledger for Phase 41 triage."
     evidence_status: "statically evident"
-  - finding: "39-REVIEW IN-06: the staff 'Save and Edit' create path (the third render of event_form.html, upstream create_event lines 154-163, action='update' with a real event) has no repository test."
+  - finding: "39-REVIEW IN-06 (carried): the staff 'Save and Edit' create path has no repository test."
     category: other
-    reason: "Not a defect today: verifier scratch probe (subclass of EventModalAttributionHintTest, outside the repo) POSTed a valid create with save_and_edit as staff, superuser and plain user -> 200, the update form for the new event, no hint, OK. On that path the hint is evaluated with a real CalendarEvent, which the guarded tag handles. Worth a test, not a gap."
-    evidence_status: "scratch probe passed (Ran 1 test, OK)"
-  - finding: "39-REVIEW IN-07: the runbook's troubleshooting paragraph covers a pop-up that does not open (JavaScript fault) but not a pop-up that opens empty (a server error), which was G-39-4's actual symptom."
+    reason: "Works today (previous verifier scratch probe passed). Coverage, not a defect."
+    evidence_status: "scratch probe passed in the previous round"
+  - finding: "39-REVIEW IN-07 (carried): runbook troubleshooting does not cover a pop-up that opens empty."
     category: other
-    reason: "G-39-4's cause is fixed and pinned by tests; calendar.html still opens the modal on any response (hardening offered at UAT, not requested), so a future 5xx would look the same. Documentation completeness for a hypothetical future fault, not a statement in the runbook that is false. Candidate for Phase 41 todo triage alongside the calendar.html hardening and candidates_for_event's unguarded '' path."
-    evidence_status: "statically evident (rst lines 2609-2620)"
-human_verification:
-  - test: "UAT Test 4 re-run as staff (39-05 Task 1 human-check, SUMMARY D8): on the dev server, signed in as a staff or superuser account (e.g. sssc_admin or talister), click '+ New Event' and click an empty day cell; then open an existing unlinked entry that has a High-band candidate."
-    expected: "Both triggers open the pop-up with the create form (title, dates, Save and 'Save and Edit'), not an empty box; the existing unlinked entry's pop-up still shows the 'Possible campaign run match' hint."
-    why_human: "Real-browser htmx swap and modal display as staff. Automated evidence is strong (staff/superuser GETs return 200 with the form; the staff body equals the plain user's once the CSRF token is masked, and the plain-user browser test passes), but the planner deferred this check to end of phase."
-  - test: "UAT Test 3 re-check (G-39-3, SUMMARY D7): read docs/runbooks/telescope_runs_calendar.rst lines 2596-2607 once."
-    expected: "The new closing sentences ('show a bare, unstyled copy of the event form. Do not use that copy: its Save saves nothing and silently discards what was typed; go back to the calendar page and make the change there.') read clearly and match what was asked for at UAT."
-    why_human: "Operator-facing wording; the developer requested the sentence, so this is a confirmation, not a new judgement."
-  - test: "Decide on 39-REVIEW WR-04: no repository test GETs the edit pop-up as a signed-in NON-staff user and asserts the 'Possible campaign run match' hint is absent."
-    expected: "Either add the test before shipping (recommended; about 6 lines in EventModalAttributionHintTest, reusing plain_user, _signed_in_client and unlinked_event_with_candidate) or accept it as an advisory. Behaviour is correct today: the verifier's scratch test of exactly that case passes on the real tree, and fails when the template's gate is mutated to request.user.is_authenticated, while all 17 repository tests in EventModalAttributionHintTest and EventFormHeaderMatchesUpstreamTest still pass under that mutation."
-    why_human: "Coverage gap on the T-39-26 information-disclosure mitigation, which 39-05 rewrote and 39-SECURITY.md marks closed on evidence that covers anonymous and staff but not signed-in non-staff viewers. With open self-registration (CR-01, accepted) every new account is such a viewer. It is not a must-have failure (no phase truth or requirement covers non-staff, and the behaviour holds), so it is a ship decision for the developer, not a gap."
+    reason: "Nothing in the runbook is false; G-39-4's cause is fixed and tested. Phase 41 triage candidate."
+    evidence_status: "statically evident"
 ---
 
 # Phase 39: Calendar Write Access Verification Report
 
 **Phase Goal:** The public calendar is read-only to anyone not logged in — an anonymous visitor can neither create, change nor delete an event, and is not offered a control that would try — and FOMO's event pop-up override says truthfully how it differs from tomtoolkit 3.1.0's upstream template.
-**Verified:** 2026-10-08T23:58:00Z
-**Status:** human_needed
-**Re-verification:** Yes — after gap-closure plan 39-05 (commits 917a895, c71b7b0, ba8a53a, 3241a21)
+**Verified:** 2026-10-09T04:07:17Z
+**Status:** passed
+**Re-verification:** Yes — after gap-closure plan 39-06 (commits cadb56c test, 8d0f26b ledger, 19cb95c summary)
 
-The goal is achieved, and both UAT gaps are closed in the code:
+The phase goal is achieved, and the last open item is closed.
 
-- **G-39-4:** staff and superusers get the New Event create form again, with no 500 and no hint.
-- **G-39-3:** the runbook now warns about the bare copy of the form.
+- **G-39-7 / WR-04 is closed in the code.** The repository now has a test in which a signed-in non-staff user opens the edit pop-up and does not see the staff-only hint. A second, template-level test row pins the same gate. I ran my own mutation check: I copied the template to a scratch directory outside the repo and weakened the gate to `is_authenticated`. Exactly those two checks fail (`Ran 13 tests ... FAILED (failures=2)`). On the real tree the class passes (13 tests, OK).
+- **The previous report's three human items are resolved at UAT.** Test 5 (staff browser re-run) passed. Test 6 (the runbook sentence) passed. Test 7 led to "add the test", which 39-06 delivered.
+- **Nothing outside the test module changed.** Since the previous verification (69b2df1), the only change under `src/`, `docs/`, `solsys_code/` and `pyproject.toml` is `solsys_code/tests/test_calendar_template.py`, +26/-4. The template, tag module, runbook, snapshot and notebooks are byte-identical, so every earlier must-have still holds.
 
-The full local suite ran once: `Ran 2247 tests ... OK`, exit 0, no skips. Every file the 39-05 prohibitions protect is unchanged since cf76780.
-
-At UAT the developer resolved the three human items from the previous report:
-
-- Test 1 passed (the visitor-affordance prohibition).
-- Test 2 passed (the backstop concurrency truth).
-- Test 3 led to G-39-3, which is now fixed.
-
-Three human items remain:
-
-- the UAT Test 4 browser re-run as staff, which the planner deferred to end of phase;
-- a one-read confirmation of the new runbook sentence;
-- a decision on WR-04.
-
-That is why the status is `human_needed` and not `passed`.
+No human items remain, so the status is `passed`. One bookkeeping note for the orchestrator: `39-UAT.md` still records G-39-7 as `status: failed`, because 39-06 was forbidden from editing that file. `/gsd-verify-work` (or the orchestrator) should mark it resolved by 39-06-PLAN.md.
 
 ## Goal Achievement
 
-### Re-checked gaps
-
-| # | Gap | Now | Evidence |
-|---|-----|-----|----------|
-| G-39-4 | New Event pop-up blank for staff and superusers (GET /calendar/create/ was 500) | ✓ VERIFIED | Targeted run of `EventModalAttributionHintTest` and `EventFormHeaderMatchesUpstreamTest`: `Ran 17 tests ... OK`. The RED record (39-05-red-evidence-task1.json, exit 1, `Internal Server Error: /calendar/cr...`) proves the new tests failed before the fix |
-| G-39-3 | Runbook did not warn about the bare form | ✓ VERIFIED | rst lines 2604-2607 now read "show a bare, unstyled copy of the event form. Do not use that copy: its Save saves nothing and silently discards what was typed; go back to the calendar page and make the change there." The old clause "only show a form" is gone. `git diff --stat cf76780 HEAD -- docs/` shows only this file, +4/-2 |
-| Prev. human 1 | Judgment-tier visitor-affordance prohibition (39-02) | ✓ resolved by human | 39-UAT Test 1: pass |
-| Prev. human 2 | A12 backstop concurrency truth | ✓ resolved by human | 39-UAT Test 2: pass. calendar_access.py is unchanged since cf76780 |
-| Prev. human 3 / WR-01 | Runbook readability and the WR-01 sentence | ✓ resolved | 39-UAT Test 3 asked for the WR-01 sentence; it is now in the runbook (G-39-3). The residual token-in-URL risk is accepted as AR-39-02. The claim "saves nothing and discards what was typed" is true: the form has no method or action, so Save sends a GET to the same address, and upstream `create_event` reads only `date` from GET while `update_event` re-renders the stored event |
-
-### Observable Truths — 39-05 (new, full verification)
+### Observable Truths — 39-06 (new, full verification)
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| E1 | Staff and superuser GET of /calendar/create/ and ?date=2026-07-16, htmx and not: 200, `<form`, the create hx-post, `>Save and Edit</button>`, the date, and no hint | ✓ VERIFIED | `test_staff_and_superuser_get_the_create_form` (8 subTests) passes. It uses `Client(raise_request_exception=False)`, so a 500 would show up as a FAIL |
-| E2 | The staff create form matches the plain user's once the CSRF token is masked | ✓ VERIFIED | `test_staff_create_form_matches_the_plain_users_apart_from_the_csrf_token` passes |
-| E3 | A staff htmx invalid create POST: 200, HX-Retarget `#cal-modal-body`, `<form`, and no row created | ✓ VERIFIED | `test_staff_invalid_create_post_re_renders_the_form` passes |
-| E4 | The tag returns [] for '' and None; the guard is its first statement after the docstring; the rest is AST-identical to cf76780 | ✓ VERIFIED | Verifier AST check: first statement `if not isinstance(event, CalendarEvent): return []`; the remaining body, signature and decorators are AST-identical; the other top-level code in the module is unchanged. `test_attribution_tag_returns_empty_list_for_a_non_event` passes |
-| E5 | The elif reads exactly `{% elif action == "update" and request.user.is_staff and not event.telescope_label_meta.run %}`; the hint shows for update and not for create | ✓ VERIFIED | event_form.html line 284; it is the only staff elif. `test_hint_is_gated_on_the_edit_form` passes |
-| E6 | Pre-existing hint tests are AST-identical and pass; superuser also sees the hint | ✓ VERIFIED | Verifier AST check: no pre-existing test method changed. setUpTestData keeps its original statements as a prefix and adds 2 (superuser, plain_user). `test_superuser_sees_high_band_hint_for_unlinked_event` passes |
-| E7 | Header item 4 says "edit form only"; six items; snapshot regenerated with 10 regions and the new elif; `<form>` block identical to cf76780; exactly 3 partials | ✓ VERIFIED | Header items 1-6 present; 10 `@@ ` lines; snapshot line 199 holds the gated elif. Form block identical (verifier check). The partials directory holds calendar.html, campaign_chip.html and event_form.html. `test_body_diff_matches_pinned_snapshot` passes |
-| E8 | Runbook paragraph warns about the bare copy; the 39-04 phrases and the verbatim rationale remain; nothing else in docs/ changed | ✓ VERIFIED | Phrase counts: "passes the CSRF check" 1, "fails the CSRF check" 1, "returns to the calendar page" 1, the verbatim rationale 1, "bare, unstyled copy of the event form" 1, old clause 0. The diff touches only that paragraph |
-| E9 | Phase gate: full suite OK with no skips; ruff clean; check shows only W005; no migrations; RECORD intact | ✓ VERIFIED | Verifier ran each check once: `python manage.py test --noinput solsys_code --exclude-tag=ephemeris_segfault` gave `Ran 2247 tests in 478.474s` / `OK` / exit 0, with no `skipped=` (functional tests included). `pre-commit run ruff` and `ruff-format` on the two 39-05 Python files: Passed, tree unchanged. `manage.py check`: urls.W005 only. `makemigrations --check --dry-run`: No changes detected. RECORD: 22 hashed tom_calendar files, 0 mismatches, tomtoolkit 3.1.0 |
+| F1 | A signed-in non-staff user (plain_user) who GETs calendar:update-event for unlinked_event_with_candidate gets 200 and the edit form (`hx-post="<update url>"`). The body has neither `Possible campaign run match` nor the `campaigns:attribution?band=high` link (`test_signed_in_non_staff_does_not_see_hint`) | ✓ VERIFIED | test_calendar_template.py lines 1010-1020 assert exactly that. The test passes in my targeted run. The anchor is a sound discriminator: `hx-post="{% url 'calendar:update-event' event.id %}"` appears only at event_form.html line 43, the not-create arm of the signed-in `<form>` branch. `plain_user` is `create_user` with defaults, so it is not staff |
+| F2 | `test_hint_is_gated_on_the_edit_form` loops over exactly three (user, action, shown) rows: (staff, update, True), (staff, create, False), (plain, update, False). It sets `request.user` per row inside `subTest(user=..., action=...)` | ✓ VERIFIED | Lines 984-1002 match. The old pre-loop `request.user = self.staff_user` is removed, and `request.user = user` is the first statement in the subTest. The render call and the assertEqual line are unchanged |
+| F3 | Non-vacuity: with only the hint elif changed to `is_authenticated` in a scratch copy searched first, the class runs 13 tests and ends `FAILED (failures=2)`, failing only the new test and the plain-user subTest. The real tree runs 13 OK | ✓ VERIFIED (independently reproduced) | My own run used a scratch dir in the session scratchpad, not the executor's: `verifier_mut_settings` prepends a copy whose only diff is line 284. Output: `FAIL: test_hint_is_gated_on_the_edit_form ... (user='attrmodalplain', action='update')`, `FAIL: test_signed_in_non_staff_does_not_see_hint`, `Ran 13 tests`, `FAILED (failures=2)`. Real tree: `Ran 18 tests ... OK` for EventModalAttributionHintTest (13) plus EventFormHeaderMatchesUpstreamTest (5). The tracked tree stayed clean |
+| F4 | Test-only: nothing under src/, docs/ or solsys_code/ changed since 6ea4928 except the test module. Every other class and member is AST-identical, and the imports are unchanged | ✓ VERIFIED | `git diff --stat 6ea4928 HEAD -- src docs solsys_code pyproject.toml` lists only test_calendar_template.py. My AST check: no top-level class was added or removed; only EventModalAttributionHintTest changed. Within it, one method was added (the last one) and only test_hint_is_gated_on_the_edit_form changed. The class docstring keeps its old text as a prefix plus a G-39-7 paragraph, which plan line 193 permits. Imports are identical |
+| F5 | 39-REVIEW-DISPOSITION.md records WR-04 as `fixed` in its front matter and its table row. `open:` goes from 10 to 9, the Source cell cites 39-06 Task 1, cadb56c, both test names, the mutation and G-39-7, and nothing else changes | ✓ VERIFIED | `git show 8d0f26b` is exactly a three-line edit. The ledger was later re-run by the round-4 review gate (65ff40e), which added IN-08 and set `open: 10` / `total: 13`. WR-04 is still `fixed` with the same Source cell |
+| F6 | Gate: ruff and ruff-format pass and change no tracked file; the test commit went through the full hook; nothing is pushed | ✓ VERIFIED | `pre-commit run ruff` and `ruff-format` on the module both Passed, and the tree is unchanged. No line is longer than 120 characters. cadb56c is not on any remote branch: the branch is 86 commits ahead of `origin/issue37-telescope-runs-calendar`. The full django-test hook run is the executor's and orchestrator's claim (the commit message has no SKIP). The change touches only one test class, and I re-ran that class |
 
 ### Observable Truths — roadmap and earlier plans (regression check)
 
+All of these were fully verified in the previous report (58/58). Since then (69b2df1 to HEAD), the only non-planning change is the test module. I spot-checked the following:
+
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| R1 | SC1: an anonymous POST to the five write routes is refused, and a test per route proves nothing changed | ✓ VERIFIED | `test_calendar_write_access` (both refusal paths) passes in the full suite; calendar_urls.py, calendar_access.py, settings.py and urls.py show an empty `git diff --stat cf76780 HEAD` |
-| R2 | SC2: a logged-in user can still create, update and delete from the month view | ✓ VERIFIED (strengthened) | The functional round trip passes in the full suite. Staff and superusers can now create too (E1), which D-01 requires and which was broken before 39-05 |
-| R3 | SC3: no create target for an anonymous visitor; the pop-up is readable | ✓ VERIFIED | calendar.html is unchanged since cf76780; the anonymous card and inert-cell tests pass in the full suite; UAT Test 1 passed |
-| R4 | SC4: the header names every block that differs from 3.1.0 | ✓ VERIFIED (advisory WR-02) | 10 regions map to items 1-6, and item 4 is updated for the gated elif. `test_every_differing_region_is_listed_and_every_item_differs` passes |
-| A1-A11 | 39-01 route, method, htmx, signed-in, shadowing, boundary, precision and idempotency truths | ✓ VERIFIED | Files unchanged; tests pass |
-| A7 | CSRF: a signed-in POST without a token is refused and creates nothing | PASSED (override) | Accepted by Tim Lister on 2026-10-08T17:04:52Z; the test is unchanged |
-| A12 | Concurrency edge (backstop): the guard keeps no state | ✓ VERIFIED (human-accepted) | 39-UAT Test 2 pass; calendar_access.py unchanged since cf76780 |
-| B1-B14 | 39-02 presentation, card, URL, XSS, BS5, browser and idempotency truths | ✓ VERIFIED | test_calendar_template passes in the full suite; the `<form>` block is unchanged since cf76780 (B6 as adjusted by 39-04) |
-| C1-C5 | 39-03 suite, quality gates, vendored package untouched, ledgers | ✓ VERIFIED | E9 re-runs the suite, ruff and RECORD checks; the ledgers are not regressed |
-| D1 | Paired doc describes the logged-out write path truthfully | ✓ VERIFIED (strengthened by E8) | — |
-| N1-N13 | 39-04 CSRF-failure path tests, docstrings, CR-01 records, label and pinned snapshot | ✓ VERIFIED | The AnonymousCsrfFailureWriteTest tests pass; `test_replaying_the_refused_path_as_a_signed_in_get_changes_nothing` still expects 200 for create-event and update-event (lines 352-353), which is the page the new runbook sentence describes |
+| R1 | SC1: an anonymous POST to each of the five write routes is refused, and a test per route proves nothing changed | ✓ VERIFIED | calendar_urls.py, calendar_access.py, settings.py, urls.py and test_calendar_write_access.py are byte-identical since the previous report. The suite passed in the 39-06 commit hook |
+| R2 | SC2: a signed-in user can still create, update and delete from the month view (staff included since 39-05) | ✓ VERIFIED | The files are unchanged. EventModalAttributionHintTest's staff create-form tests pass in my run |
+| R3 | SC3: an anonymous visitor gets no create target, and the pop-up is readable | ✓ VERIFIED | calendar.html is unchanged. UAT Test 1 passed earlier |
+| R4 | SC4: the event_form.html header names every block that differs from 3.1.0 | ✓ VERIFIED (advisory WR-02) | event_form.html and the snapshot are unchanged. EventFormHeaderMatchesUpstreamTest (5 tests) passes in my run. The gate at line 284 still reads `{% elif action == "update" and request.user.is_staff and not event.telescope_label_meta.run %}` |
+| A1-A12, B1-B14, C1-C5, D1, N1-N13, E1-E9 | 39-01 to 39-05 truths | ✓ VERIFIED | Carried. Every file they rest on is byte-identical since the previous verification. A7 still passes by override; A12 was accepted by a human at UAT |
 
-**Score:** 58/58 truths verified. That is 49 carried from the previous report plus 9 new (E1-E9). It includes 1 passed by override (A7) and 1 accepted by a human at UAT (A12). None is present-but-behavior-unverified.
+**Score:** 64/64 truths verified: 58 carried plus 6 new (F1-F6). That includes 1 passed by override (A7) and 1 human-accepted (A12). None is present-but-behavior-unverified. No truth was flagged for coincidental reliance. IN-08's concern is a precondition (the event has a High-band candidate), but the shared `setUpTestData` fixture declares it and sibling tests assert it, so it is not an undeclared or fixture-only precondition in the Step 5c sense.
 
-### Prohibitions (39-05)
+### Prohibitions (39-06)
 
 | Prohibition | Tier | Disposition |
 |-------------|------|-------------|
-| No change to calendar.html, the `<form>` block, calendar_urls.py, calendar_access.py, settings.py or urls.py | test | ✓ `git diff --stat cf76780 HEAD` is empty for all of them; form block identical |
-| No change to campaign_attribution.py or calendar_display_extras.py | test | ✓ empty diff |
-| Snapshot not regenerated without header item 4 in the same commit; no tom_calendar edit; no fourth override | test | ✓ both are in 917a895; RECORD 0 mismatches; 3 partials |
-| No existing test changed; no skip, tag-out or expected failure | test | ✓ AST check: only setUpTestData changed, by appending 2 statements; full suite has no skips |
-| No runbook text outside the closing clause changed; 39-UAT/VERIFICATION/DISPOSITION/SECURITY and earlier plans not edited by 39-05 | test | ✓ the runbook diff is one hunk. 917a895 and c71b7b0 touch none of those files; the later ledger, security and verification edits came from the workflow's own steps (782c530, 798a433, bc0e22c, f373781, 1691f6e) |
-| (earlier) 39-02 judgment-tier "nothing looks editable to a visitor" | judgment | ✓ resolved by human, 39-UAT Test 1 pass |
+| No change to event_form.html, the snapshot, attribution_display_extras.py, the runbook or any notebook | test | ✓ Enforced by a deterministic check: `git diff --stat 6ea4928 HEAD -- src docs solsys_code` lists only the test module |
+| No change to any test other than the two named; no new fixtures; no skip, tag-out or expected failure | test | ✓ AST check (F4). No decorator was added; setUpTestData and the helpers are unchanged |
+| The mutant template and scratch settings never go inside the repo, and the tracked template is never edited | test | ✓ `git status --untracked-files=all` shows no mutant files. The executor's scratch files are under `$HOME/tmp/phase39-06-mutant`. event_form.html is unchanged in git |
+| No edit to 39-UAT, 39-VERIFICATION, 39-REVIEW, 39-SECURITY or earlier plans; only the WR-04 row of the ledger changed | test | ✓ cadb56c touches only the test module. 8d0f26b touches only the ledger (3 lines). 19cb95c touches ROADMAP.md, STATE.md and 39-06-SUMMARY.md |
 
-### Required Artifacts (39-05)
+### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `solsys_code/templatetags/attribution_display_extras.py` | isinstance guard | ✓ VERIFIED | Line 52; docstring now true |
-| `src/templates/tom_calendar/partials/event_form.html` | gated elif and header item 4 | ✓ VERIFIED | Lines 24-25 and 284; G-39-4 reason sentence in the comment |
-| `solsys_code/tests/test_calendar_template.py` | six new tests | ✓ VERIFIED | Lines 922-998, all passing |
-| `solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff` | regenerated, 10 regions | ✓ VERIFIED | Gated elif at line 199 |
-| `39-05-red-evidence-task1.json` | RED evidence | ✓ VERIFIED | Exit 1, failures before the fix |
-| `docs/runbooks/telescope_runs_calendar.rst` | bare-form warning | ✓ VERIFIED | Lines 2604-2607 |
+| `solsys_code/tests/test_calendar_template.py` | `def test_signed_in_non_staff_does_not_see_hint` and the plain-user row | ✓ VERIFIED | Present at lines 1010-1020 and 993; it reuses the existing fixtures and passes |
+| `.planning/phases/39-calendar-write-access/39-REVIEW-DISPOSITION.md` | `\| WR-04 \| warning \| fixed \|` | ✓ VERIFIED | Present, citing cadb56c |
+| (earlier plans' artifacts) | — | ✓ VERIFIED | Byte-identical since the previous report |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| calendar.html | event_form.html | `hx-get="{% url 'calendar:create-event' %}"` (+ New Event and day cell) | ✓ WIRED | Lines 220 and 238; E1 shows 200 for staff |
-| event_form.html | attribution_display_extras.py | tag call reached only through the action-first elif | ✓ WIRED | Line 284 elif, then the `{% high_band_attribution_candidates event %}` call |
-| test_calendar_template.py | snapshot `.diff` | `EventFormHeaderMatchesUpstreamTest.SNAPSHOT` | ✓ WIRED | Line 2055 |
-| runbook | test_calendar_write_access.py | the bare-form sentence describes the 200 for create-event and update-event | ✓ WIRED | Test lines 352-353 |
+| test_calendar_template.py | event_form.html | a signed-in plain_user GET of update-event reaches the hint elif, whose `request.user.is_staff` conjunct alone hides the hint | ✓ WIRED | The pattern `elif action == "update" and request.user.is_staff` is at event_form.html:284. The mutation run proves the test reaches that conjunct |
+| 39-REVIEW-DISPOSITION.md | test_calendar_template.py | the WR-04 Source cell names the test | ✓ WIRED | The cell contains `test_signed_in_non_staff_does_not_see_hint` |
+| (earlier key links) | — | — | ✓ WIRED | Their files are unchanged |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| event_form.html hint | `attribution_candidates` | `high_band_attribution_candidates(event)` → `campaign_attribution.candidates_for_event` | Yes on the edit form (`test_staff_sees_high_band_hint_for_unlinked_event`); [] on create by design | ✓ FLOWING |
-| event_form.html card and decorations | `event.*`, `campaign_decoration event` | upstream `update_event` | Yes | ✓ FLOWING (unchanged) |
+| event_form.html hint | `attribution_candidates` | `high_band_attribution_candidates(event)` → `campaign_attribution.candidates_for_event` | Yes for staff on the edit form (the staff positive controls pass); withheld for non-staff by the gate (F1, F3) | ✓ FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| 39-05 targeted tests | `python manage.py test --noinput solsys_code.tests.test_calendar_template.EventModalAttributionHintTest solsys_code.tests.test_calendar_template.EventFormHeaderMatchesUpstreamTest` | Ran 17 tests, OK | ✓ PASS |
-| Full local suite (run once) | `python manage.py test --noinput solsys_code --exclude-tag=ephemeris_segfault` | Ran 2247 tests in 478.474s, OK, exit 0 | ✓ PASS |
-| WR-04: plain signed-in GET of the edit pop-up has no hint | scratch test outside the repo (subclass of EventModalAttributionHintTest) | real tree: Ran 1, OK | ✓ PASS (behaviour holds) |
-| WR-04 mutation | the same run with a scratch settings module that puts in front a copy of event_form.html whose gate is mutated to `request.user.is_authenticated` | the scratch probe FAILs; all 17 repository tests in the two classes pass (the source-level snapshot test reads the repository file, so a mutation through the template loader escapes it) | confirms WR-04 |
-| IN-06: Save and Edit create as staff, superuser and plain user | scratch test | 200, update form for the new event, no hint; OK | ✓ PASS |
-| Ruff | `pre-commit run ruff` / `ruff-format --files` on the two Python files | Passed; tree unchanged | ✓ PASS |
-| System, migrations and RECORD checks | `manage.py check`, `makemigrations --check --dry-run`, RECORD hashes | W005 only; No changes; 22/0 | ✓ PASS |
+| Targeted classes on the real tree | `python manage.py test --noinput solsys_code.tests.test_calendar_template.EventModalAttributionHintTest solsys_code.tests.test_calendar_template.EventFormHeaderMatchesUpstreamTest` | Ran 18 tests, OK | ✓ PASS |
+| WR-04 mutant (`is_staff` → `is_authenticated`, scratch DIRS entry outside the repo) | `PYTHONPATH=<scratch> python manage.py test --noinput --settings=verifier_mut_settings ...EventModalAttributionHintTest` | Ran 13 tests, FAILED (failures=2): the plain-user subTest and the new test | ✓ PASS (the expected failure occurs) |
+| Ruff gates | `pre-commit run ruff` / `ruff-format --files solsys_code/tests/test_calendar_template.py` | Passed, Passed; tree unchanged | ✓ PASS |
+| Full suite | not re-run, per orchestrator instruction; it passed in the cadb56c commit hook and was reused as the regression gate | — | ? not re-run (test-only change; the affected class was re-run) |
 
 ### Probe Execution
 
@@ -206,62 +161,43 @@ Step 7c: SKIPPED. The phase declares no probe scripts.
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|-------------|--------|----------|
-| ACCESS-01 | 39-01, 39-03, 39-04, 39-05 | an anonymous POST to the five write routes changes nothing; a test per endpoint | ✓ SATISFIED | R1, A1-A12, N1-N6. The 39-05 runbook warning (E8) makes the CSRF-failure landing page accurately documented |
-| ACCESS-02 | 39-02, 39-03, 39-05 | month-view create and update targets hidden from anonymous users | ✓ SATISFIED | R3, B1-B14; calendar.html unchanged. 39-05 restores the create path for staff (E1-E3) and changes nothing for anonymous visitors |
-| WARN-01 | 39-02, 39-03, 39-04, 39-05 | the event_form.html header states accurately which blocks differ | ✓ SATISFIED | R4, N11-N13, E7. Advisories WR-02 and WR-03 are about what the test enforces, not about the list itself |
+| ACCESS-01 | 39-01, 39-03, 39-04, 39-05, 39-06 | an anonymous POST to the five write routes changes nothing; a test per endpoint | ✓ SATISFIED | R1 and the carried A/N truths. 39-06 adds coverage of a signed-in non-staff viewer and changes no behaviour |
+| ACCESS-02 | 39-02, 39-03, 39-05 | the month view's create and update targets are hidden from anonymous users | ✓ SATISFIED | R3 and the carried B truths; calendar.html is unchanged |
+| WARN-01 | 39-02, 39-03, 39-04, 39-05, 39-06 | the event_form.html header states accurately which blocks differ | ✓ SATISFIED | R4. Header item 4 ("staff-only, edit form only") is now backed by a behavioural test of the staff conjunct (F2) |
 
-No orphaned requirements: REQUIREMENTS.md lines 90-92 map exactly ACCESS-01, ACCESS-02 and WARN-01 to Phase 39, and plans claim all three.
+There are no orphaned requirements. REQUIREMENTS.md lines 90-92 map exactly ACCESS-01, ACCESS-02 and WARN-01 to Phase 39, and the plans claim all three.
 
-### Code Review Round 3 (39-REVIEW.md, bc0e22c) — Classification
+### Code Review Round 4 (39-REVIEW.md, b748445): Classification
 
 | Finding | Classification | Reasoning |
 |---------|----------------|-----------|
-| **WR-04**: no behavioural test keeps the edit-form hint from a signed-in non-staff user | **Human decision** (human item 3; recommended: add the test) | Confirmed. The string "Possible campaign run match" appears in tests only in test_calendar_template.py, and no case there is a signed-in non-staff user on the edit form. My mutation run reproduces the reviewer's result: with the gate weakened to `is_authenticated`, all 17 repository tests in the two classes stay green. **Not a must-have gap**: ACCESS-02 is about anonymous visitors, and no 39-05 truth or prohibition claims non-staff coverage (E6 lists anonymous, non-candidate and record-backed cases). The behaviour is correct today (the scratch probe passes on the real tree). The gate already excluded non-staff users before this phase, without a test, since 27-07. **But** 39-05 rewrote that gate. T-39-26 in 39-SECURITY.md is marked closed against non-staff exposure on evidence that does not cover non-staff. SUMMARY D5 claims "non-staff ... still never see it" and cites no test for it. Under CR-01 every self-registered account is such a viewer. The fix is about 6 lines, so it should be added before shipping |
-| **IN-06**: the staff Save and Edit create path is untested | 📋 Advisory, accepted | Works today (scratch probe: staff, superuser and plain user all get 200 with the update form). On that path the tag receives a real CalendarEvent. Coverage, not a defect |
-| **IN-07**: runbook troubleshooting does not cover an empty pop-up | 📋 Advisory, accepted | The runbook says nothing false. The G-39-4 cause is fixed and has tests. The empty-pop-up symptom is only possible again if a future 5xx and the unhardened calendar.html (not requested at UAT) coincide. Phase 41 triage candidate |
-| WR-01 | Resolved by documentation | Runbook lines 2604-2607 verified; AR-39-02 accepts the residual token-in-URL risk; the ledger marks it fixed (1691f6e) |
-| WR-02 (carried) | 📋 Advisory | Header lines 9-12 unchanged; the list itself is exact |
-| WR-03 (carried) | 📋 Advisory | pyproject.toml line 20 `tomtoolkit>=3.1.0`; installed 3.1.0 |
-| IN-01..IN-05 (carried) | ℹ️ Info | Their files are unchanged since the previous report (calendar_access.py, calendar_urls.py and test_calendar_write_access.py show no diff since cf76780); the classifications are unchanged |
+| **IN-08**: the new HTTP test has no positive control of its own | **Not a must-have miss; 📋 advisory. Neither a gap nor a human decision** | Confirmed as stated. The anchor shows a signed-in, non-create form, not `action == "update"` and not a High-band candidate in that render. Three reasons it is not a gap. (1) The 39-06 truth F1 claims only what the anchor proves. (2) Non-vacuity, which is truth F3, rests on the mutation run, not on the anchor, and I reproduced it independently. (3) The shared `setUpTestData` fixture is protected by two positive controls on the same event: `test_staff_sees_high_band_hint_for_unlinked_event` and the staff/update row of the gate test. Either would fail first if the candidate fell out of the High band. What remains is a test-reliability nit and a comment (line 1017) that overstates what the anchor proves. It is a fix-when-convenient item (fold in a staff row, or reword the comment), best handled in Phase 41 triage with the other open findings. It needs no ship decision |
+| WR-04 | Resolved | F1-F3. Ledger `fixed` (F5) |
+| WR-02, WR-03, IN-01..IN-07 | Carried; open in the ledger by prior decision (Phase 41 triage) | Their files are unchanged; not gaps of this phase |
 | CR-01 | Accepted risk | AR-39-01, unchanged |
-
-Also surfaced by the 39-05 SUMMARY (not review findings) and accepted as follow-ups:
-
-- `campaign_attribution.candidates_for_event` still raises on `''`, although its docstring says it never raises. It is unreachable from the template now.
-- calendar.html still opens the modal on any response.
-
-Both are recorded for Phase 41 triage.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| attribution_display_extras.py | 31, 48 | "placeholder" | ℹ️ Info | Refers to Django's invalid-variable placeholder; not a stub |
-| telescope_runs_calendar.rst | 2604 | "todo" | ℹ️ Info | The calendar's todo feature; not a debt marker |
+| test_calendar_template.py | 1017 | comment overstates what the anchor proves (IN-08) | ℹ️ Info | Wording only; non-vacuity is shown by the mutation run |
 
-No TBD, FIXME or XXX appears in any line 39-05 added.
+No line that 39-06 added contains TBD, FIXME or XXX.
 
 ### Human Verification Required
 
-1. **UAT Test 4 re-run as staff (39-05 Task 1 human-check).** Sign in on the dev server as a staff or superuser account. Click "+ New Event", then an empty day cell. Each should open the pop-up with the create form, not an empty box. Then open an existing unlinked entry that has a High-band candidate; it should still show the "Possible campaign run match" hint.
-2. **UAT Test 3 re-check (G-39-3).** Read runbook lines 2596-2607 once and confirm the new bare-form sentences read as you asked at UAT.
-3. **WR-04 decision.** Either add a test in which a signed-in non-staff user GETs the edit pop-up of `unlinked_event_with_candidate` and the test asserts the hint is absent (recommended before shipping, because T-39-26 is marked closed without it), or accept WR-04 as an advisory.
+None. The previous report's three items were resolved at UAT (Tests 5, 6 and 7), and 39-06 declares no `<human-check>` block.
 
 ### Gaps Summary
 
-No gaps remain.
+No gaps.
 
-- **G-39-4:** closed, and pinned by six new tests that were RED before the fix.
-- **G-39-3:** closed, by a runbook-only change confined to the one paragraph.
+- **G-39-7 is closed by a test-only change.** I confirmed both new checks exist and pass. They fail exactly when the gate is weakened to `is_authenticated`, which I reproduced independently. No production file was touched.
+- **Every earlier must-have still holds.** The files they rest on are byte-identical since the previous verification.
 
-Every earlier must-have still holds: the files the 39-05 prohibitions protect are byte-unchanged since cf76780, and the full suite passes. The previous report's three human items were resolved at UAT.
-
-The remaining items are human items, not gaps:
-
-- two end-of-phase confirmations (the staff browser re-run and the runbook sentence);
-- the WR-04 ship decision. The behaviour it guards is correct today, but no repository test protects it.
+The only new review finding, IN-08, is an Info-level test-reliability nit and not a must-have miss. It sits in the advisory list with the carried WR-02, WR-03, IN-06 and IN-07 for Phase 41 triage.
 
 ---
 
-_Verified: 2026-10-08T23:58:00Z_
+_Verified: 2026-10-09T04:07:17Z_
 _Verifier: Claude (gsd-verifier)_
