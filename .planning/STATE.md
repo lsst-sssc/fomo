@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: "39.1"
 current_phase_name: Test-Suite Speed-Up (INSERTED)
 status: executing
-stopped_at: Completed 39.1-01-PLAN.md
-last_updated: "2026-10-09T08:46:57.754Z"
+stopped_at: Completed 39.1-02-PLAN.md
+last_updated: "2026-10-09T13:22:35.177Z"
 last_activity: 2026-10-09
-last_activity_desc: Phase 39.1 Plan 01 complete (SPEED-01, SPEED-02)
-state_head: 7953b1fabf59cab17e70bbd72ec08854b6553791
+last_activity_desc: Phase 39.1 Plan 02 complete (SPEED-03)
+state_head: 57e9c34c5b6b6eb223828198490b6921ba076fa1
 progress:
   total_phases: 6
   completed_phases: 41
   total_plans: 17
-  completed_plans: 14
-  percent: 82
+  completed_plans: 15
+  percent: 88
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39 complete)
 ## Current Position
 
 Phase: 39.1 (Test-Suite Speed-Up (INSERTED)) — EXECUTING
-Plan: 2 of 4 (Plan 1 of 4 complete)
+Plan: 3 of 4 (Plan 2 of 4 complete)
 Status: Ready to execute
-Last activity: 2026-10-09 — Phase 39.1 Plan 01 complete (SPEED-01, SPEED-02)
+Last activity: 2026-10-09 — Phase 39.1 Plan 02 complete (SPEED-03)
 
-Progress: [████████░░] 14/17 plans (82%)
+Progress: [█████████░] 15/17 plans (88%)
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [████████░░] 14/17 plans (82%)
 | Phase 39 P05 | 30 min | 2 tasks | 6 files |
 | Phase 39 P06 | 41 min | 2 tasks | 2 files |
 | Phase 39.1 P01 | 90 min | 3 tasks | 6 files |
+| Phase 39.1 P02 | 4h 28m | 3 tasks | 9 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -86,6 +87,10 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39]: 39-05: G-39-3 is runbook-only; the template method=post hardening (39-REVIEW WR-01 item 2) was offered at UAT and not requested. campaign_attribution.candidates_for_event missing guard surfaced for Phase 41 todo triage
 - [Phase 39]: 39-06: G-39-7 closed test-only; the hint gate in event_form.html is correct and the staff conjunct is now pinned at view and template level (WR-04 fixed)
 - [Phase 39.1]: 39.1-01: sun_event() crossing search memoised per process via lru_cache(maxsize=4096) helper below the validation, returning Time copies; _find_crossing is a 10-minute scan plus 14-step vectorised bisection, within 0.044 s of the pre-phase 1-minute scan
+- [Phase 39.1]: Phase 39.1: race fixed by a per-process LocMemCache under manage.py test (argv[1]=='test' block above the local_settings fold tail) plus override_settings on the two cache-clearing classes
+- [Phase 39.1]: Phase 39.1: --parallel with no worker count in the django-test hook and CI, hook keeps coverage, daily smoke test stays serial on purpose
+- [Phase 39.1]: Phase 39.1: coverage config-file form (concurrency multiprocessing, parallel true) works; hook starts with coverage erase and runs coverage combine before reporting
+- [Phase 39.1]: Phase 39.1: tblib approved by the developer and added to the dev extra
 
 ### Pending Todos
 
@@ -157,8 +162,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-09T08:46:57.586Z
-**Stopped at:** Completed 39.1-01-PLAN.md
+**Last session:** 2026-10-09T13:22:35.018Z
+**Stopped at:** Completed 39.1-02-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
