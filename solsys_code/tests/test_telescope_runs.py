@@ -1,10 +1,12 @@
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from unittest import mock
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import astropy.units as u
 from astropy.time import Time
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
+from solsys_code import telescope_runs
 from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.telescope_runs import (
     SITES,
@@ -452,3 +454,157 @@ class TestTelescopeRuns(TestCase):
         remainder as an instrument or a leftover status."""
         with self.assertRaises(ValueError):
             parse_run_line('NTT EFOSC2 allocation 9-13 July [0110.C-0234')
+
+
+# A site no other test uses (coordinates in particular), so the first sun_event() call for it is a
+# cache miss in any process, whatever ran before. Used unsaved: sun_event() reads attributes only.
+MEMO_PROBE_SITE_FIELDS = dict(
+    obscode='Z97',
+    name='Memo probe site',
+    short_name='MemoProbe',
+    lat=-30.1234,
+    lon=-70.5678,
+    altitude=2000.0,
+    timezone='America/Santiago',
+)
+
+
+class TestSunEventMemo(SimpleTestCase):
+    """SPEED-01: sun_event() runs the crossing search once per site, night and kind per process."""
+
+    def setUp(self):
+        telescope_runs._cached_crossings.cache_clear()
+        super().setUp()
+
+    @staticmethod
+    def _probe_site(**overrides) -> Observatory:
+        return Observatory(**{**MEMO_PROBE_SITE_FIELDS, **overrides})
+
+    @staticmethod
+    def _threshold(site: Observatory, kind: str) -> float:
+        if kind == 'sun':
+            return -(0.833 + horizon_dip(site.altitude).to_value(u.deg))
+        return -15.0
+
+    def test_second_call_makes_no_new_altaz_transform(self):
+        site = Observatory(**MEMO_PROBE_SITE_FIELDS)
+        with mock.patch('solsys_code.telescope_runs._solar_altitude', wraps=telescope_runs._solar_altitude) as spy:
+            sun_event(site, date(2026, 8, 17), 'sun')
+            self.assertGreaterEqual(spy.call_count, 1)
+            spy.reset_mock()
+            sun_event(site, date(2026, 8, 17), 'sun')
+            self.assertEqual(spy.call_count, 0, 'the second identical call repeated the AltAz transform')
+
+    def test_second_call_runs_the_crossing_search_once(self):
+        site = Observatory(**MEMO_PROBE_SITE_FIELDS)
+        with mock.patch('solsys_code.telescope_runs._find_crossing', wraps=telescope_runs._find_crossing) as spy:
+            sun_event(site, date(2026, 8, 18), 'dark')
+            sun_event(site, date(2026, 8, 18), 'dark')
+        self.assertEqual(spy.call_count, 1)
+
+    def test_mutating_a_returned_time_does_not_change_the_next_result(self):
+        site = self._probe_site()
+        first = sun_event(site, date(2026, 8, 19), 'sun')
+        recorded = (first[0].jd1, first[0].jd2)
+        first[0].format = 'jd'
+        second = sun_event(site, date(2026, 8, 19), 'sun')
+        self.assertEqual(second[0].format, 'datetime')
+        self.assertIsNot(second[0], first[0])
+        self.assertEqual((second[0].jd1, second[0].jd2), recorded)
+
+    def test_result_is_bit_identical_to_a_direct_search(self):
+        site = self._probe_site()
+        for kind in ('sun', 'dark'):
+            with self.subTest(kind=kind):
+                night = date(2026, 8, 20)
+                direct = telescope_runs._find_crossing(
+                    _local_noon_utc(night, site.timezone),
+                    site.to_earth_location(),
+                    self._threshold(site, kind),
+                    search_hours=24,
+                )
+                memoised = sun_event(site, night, kind)
+                self.assertEqual(len(direct), 2)
+                for got, want in zip(memoised, direct, strict=True):
+                    self.assertEqual((got.jd1, got.jd2), (want.jd1, want.jd2))
+
+    def test_each_key_component_is_its_own_entry(self):
+        base_date = date(2026, 8, 21)
+        base_site = self._probe_site()
+        sun_event(base_site, base_date, 'sun')
+        cases = {
+            'date +1 day': (base_site, date(2026, 8, 22), 'sun'),
+            'date -1 day': (base_site, date(2026, 8, 20), 'sun'),
+            'kind sun->dark': (base_site, base_date, 'dark'),
+            'altitude +1 m': (self._probe_site(altitude=2001.0), base_date, 'sun'),
+            'latitude +0.0001 deg': (self._probe_site(lat=-30.1233), base_date, 'sun'),
+            'timezone name': (self._probe_site(timezone='America/Argentina/Buenos_Aires'), base_date, 'sun'),
+        }
+        for label, (site, night, kind) in cases.items():
+            with self.subTest(label):
+                before = telescope_runs._cached_crossings.cache_info()
+                sun_event(site, night, kind)
+                after = telescope_runs._cached_crossings.cache_info()
+                self.assertEqual(after.misses - before.misses, 1)
+                self.assertEqual(after.hits - before.hits, 0)
+        before = telescope_runs._cached_crossings.cache_info()
+        sun_event(base_site, base_date, 'sun')
+        after = telescope_runs._cached_crossings.cache_info()
+        self.assertEqual(after.hits - before.hits, 1)
+        self.assertEqual(after.misses - before.misses, 0)
+
+    def test_equal_coordinates_share_one_entry(self):
+        clay = dict(
+            lat=-29.0146, lon=-70.6926, altitude=2402, timezone='America/Santiago', name='Clay-valued', obscode='Z96'
+        )
+        baade = {**clay, 'name': 'Baade-valued', 'obscode': 'Z95'}
+        night = date(2026, 8, 22)
+        sun_event(Observatory(short_name='Magellan-Clay', **clay), night, 'sun')
+        before = telescope_runs._cached_crossings.cache_info()
+        sun_event(Observatory(short_name='Magellan-Baade', **baade), night, 'sun')
+        after = telescope_runs._cached_crossings.cache_info()
+        self.assertEqual(after.hits - before.hits, 1)
+        self.assertEqual(after.misses - before.misses, 0)
+
+    def test_cache_is_bounded(self):
+        self.assertEqual(telescope_runs._cached_crossings.cache_info().maxsize, 4096)
+
+    def test_validation_runs_before_the_cache(self):
+        no_timezone = self._probe_site(timezone='')
+        no_position = self._probe_site(lon=None, lat=None, altitude=None, timezone='UTC')
+        for label, site in (('blank timezone', no_timezone), ('no coordinates', no_position)):
+            with self.subTest(label):
+                before = telescope_runs._cached_crossings.cache_info()
+                with self.assertRaises(ValueError):
+                    sun_event(site, date(2026, 8, 23), 'sun')
+                after = telescope_runs._cached_crossings.cache_info()
+                self.assertEqual(after.misses, before.misses)
+                self.assertEqual(after.currsize, before.currsize)
+
+    def test_unknown_timezone_still_raises_and_is_not_cached(self):
+        site = self._probe_site(timezone='America/Santigo')
+        before = telescope_runs._cached_crossings.cache_info()
+        with self.assertRaises(ZoneInfoNotFoundError):
+            sun_event(site, date(2026, 8, 24), 'sun')
+        after = telescope_runs._cached_crossings.cache_info()
+        self.assertEqual(after.currsize, before.currsize)
+
+    def test_polar_no_crossing_raises_every_time_without_recomputing(self):
+        polar = Observatory(
+            obscode='Z94',
+            name='Polar memo probe',
+            short_name='PolarMemo',
+            lat=78.0,
+            lon=15.0,
+            altitude=0.0,
+            timezone='UTC',
+        )
+        with mock.patch('solsys_code.telescope_runs._solar_altitude', wraps=telescope_runs._solar_altitude) as spy:
+            with self.assertRaises(ValueError) as first:
+                sun_event(polar, date(2026, 6, 21), 'sun')
+            self.assertIn('PolarMemo', str(first.exception))
+            spy.reset_mock()
+            with self.assertRaises(ValueError) as second:
+                sun_event(polar, date(2026, 6, 21), 'sun')
+            self.assertEqual(spy.call_count, 0)
+        self.assertEqual(str(first.exception), str(second.exception))

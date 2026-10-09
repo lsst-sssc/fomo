@@ -2,12 +2,13 @@ import re
 from dataclasses import dataclass
 from datetime import date as date_cls
 from datetime import datetime, time, timedelta
+from functools import lru_cache
 from math import sqrt
 from zoneinfo import ZoneInfo
 
 import astropy.units as u
 import numpy as np
-from astropy.coordinates import AltAz, get_sun
+from astropy.coordinates import AltAz, EarthLocation, get_sun
 from astropy.time import Time
 
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -255,6 +256,50 @@ def _local_noon_utc(local_date: date_cls, tz_name: str) -> Time:
     return Time(local_noon.astimezone(ZoneInfo('UTC')))
 
 
+@lru_cache(maxsize=4096)
+def _cached_crossings(
+    lon: float, lat: float, altitude: float, timezone: str, date: date_cls, threshold: float
+) -> tuple[Time, ...]:
+    """Memoised solar-altitude crossings of ``threshold`` in the 24 h after local noon of ``date``.
+
+    The same site and night are recomputed many times in one process (night minting, the gap
+    analysis' per-date loop), and every recomputation repeats an identical AltAz search (SPEED-01).
+    This per-process memo turns the repeats into dictionary lookups.
+
+    It sits one level BELOW ``sun_event()`` on purpose: the call-counting tests (Phase 35 D-13)
+    patch the outer ``sun_event`` name and must still count every call, and ``sun_event()``'s
+    validation has to run on every call, so only the pure crossing search is cached. The memo is
+    per process, so a new process recomputes; that keeps the IERS-drift reasoning in
+    ``allocation_projector.py`` (a stored boundary is compared against a freshly computed one)
+    true, and ``maxsize`` bounds the memory of a long-running web process.
+
+    The key is every input the result depends on: the four ``Observatory`` fields
+    ``allocation_projector`` fingerprints (lon, lat, altitude, timezone) plus the date and the
+    threshold (which already encodes the kind and the altitude-derived horizon dip). An in-place
+    ``Observatory`` correction is therefore a new key, and two records with identical coordinates
+    (Magellan-Clay and Magellan-Baade) share one entry. Exceptions are never cached: a call that
+    raises stores nothing.
+
+    ``EarthLocation`` is not a safe cache key, so it is rebuilt here from the key's floats exactly
+    as ``Observatory.to_earth_location()`` builds it. The returned ``Time`` objects are mutable
+    (``Time.format`` can be set in place), so callers MUST ``.copy()`` what they hand out.
+
+    Args:
+        lon: observatory longitude in degrees east.
+        lat: observatory latitude in degrees.
+        altitude: observatory altitude in metres.
+        timezone: IANA timezone name used to find local noon of ``date``.
+        date: local calendar date of the evening whose night is searched.
+        threshold: solar altitude threshold in degrees.
+
+    Returns:
+        tuple[Time, ...]: UTC crossing times in chronological order (possibly empty).
+    """
+    location = EarthLocation(lon=lon * u.deg, lat=lat * u.deg, height=altitude * u.m)
+    anchor = _local_noon_utc(date, timezone)
+    return tuple(_find_crossing(anchor, location, threshold, search_hours=24))
+
+
 def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]:
     """Computes UTC sun-event crossing times for an observing night.
 
@@ -265,6 +310,10 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
         kind: 'sun' for the dip-corrected sunset/sunrise threshold
             (-(0.833 + dip) degrees), or 'dark' for the -15 degree
             dark-window threshold (no dip correction).
+
+    Results are memoised per process by ``_cached_crossings()`` (same site position,
+    timezone, date and threshold run one crossing search) and returned as copies, so a
+    caller mutating a returned ``Time`` cannot change what later calls get.
 
     Returns:
         tuple[Time, Time]: (setting, rising) as astropy.time.Time objects,
@@ -283,8 +332,8 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
             'set Observatory.timezone (IANA name, e.g. "America/Santiago") before calling sun_event().'
         )
 
-    location = site.to_earth_location()
-    anchor = _local_noon_utc(date, site.timezone)
+    # Raises ValueError for a coordinate-less site, before any cache lookup.
+    site.to_earth_location()
 
     if kind == 'sun':
         dip = horizon_dip(site.altitude)
@@ -295,7 +344,9 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
     else:
         raise ValueError(f"kind must be 'sun' or 'dark', got {kind!r}")
 
-    crossings = _find_crossing(anchor, location, threshold, search_hours=24)
+    # An unknown timezone name raises ZoneInfoNotFoundError from inside the helper; lru_cache
+    # stores nothing for a call that raises. Copy each Time: cached objects are mutable.
+    crossings = [t.copy() for t in _cached_crossings(site.lon, site.lat, site.altitude, site.timezone, date, threshold)]
     if len(crossings) != 2:
         raise ValueError(
             f'Expected 2 sun-event crossings for {site.short_name} on {date} '
