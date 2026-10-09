@@ -175,6 +175,9 @@ locally. It still runs when you name it directly.
   (the admin-editable watched-proposal contract — bare invocation, `last_run_at`/
   `last_run_summary`, per-proposal failure isolation — is covered by that same notebook,
   not a second one);
+  `docs/notebooks/fomo_nb_utils.py` -> every notebook under `docs/notebooks/pre_executed/`
+  (all eight call its `setup_scratch_django` / `teardown_scratch_django`; a behavior change to the
+  helper re-executes every one of them);
   `solsys_code/unattended.py`, `solsys_code/notifications.py`,
   `solsys_code/management/commands/run_unattended.py` and
   `solsys_code/management/commands/check_unattended.py` -> the runbook's
