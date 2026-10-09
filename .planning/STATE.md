@@ -3,19 +3,19 @@ gsd_state_version: "1.0"
 milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: "39.1"
-current_phase_name: Test-Suite Speed-Up
+current_phase_name: Test-Suite Speed-Up (INSERTED)
 status: executing
-stopped_at: Phase 39.1 inserted after Phase 39, ready to plan Phase 39.1
-last_updated: "2026-10-09T06:05:15.427Z"
+stopped_at: Completed 39.1-01-PLAN.md
+last_updated: "2026-10-09T08:46:57.754Z"
 last_activity: 2026-10-09
-last_activity_desc: Phase 39.1 inserted after Phase 39 (test-suite speed-up); plan it before Phase 40
-state_head: 52431728e0bbd25fad1782db1866c4f4d66b6ee8
+last_activity_desc: Phase 39.1 Plan 01 complete (SPEED-01, SPEED-02)
+state_head: 7953b1fabf59cab17e70bbd72ec08854b6553791
 progress:
   total_phases: 6
   completed_phases: 41
   total_plans: 17
-  completed_plans: 13
-  percent: 76
+  completed_plans: 14
+  percent: 82
 ---
 
 # Project State
@@ -25,16 +25,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39 complete)
 
 **Core value:** The `issue37-telescope-runs-calendar` branch is back in step with `main` — same dependency floors, same tooling, same CI runner — and the debt v2.4 carried forward is either fixed or has a written decision, so the next feature milestone starts from a current, clean base.
-**Current focus:** Phase 39.1 — Test-Suite Speed-Up (inserted); then Phase 40
+**Current focus:** Phase 39.1 — Test-Suite Speed-Up (INSERTED)
 
 ## Current Position
 
-Phase: 39.1 (Test-Suite Speed-Up) — READY TO EXECUTE
-Plan: Not started
+Phase: 39.1 (Test-Suite Speed-Up (INSERTED)) — EXECUTING
+Plan: 2 of 4 (Plan 1 of 4 complete)
 Status: Ready to execute
-Last activity: 2026-10-09 — Phase 39.1 inserted after Phase 39 (test-suite speed-up); plan it before Phase 40
+Last activity: 2026-10-09 — Phase 39.1 Plan 01 complete (SPEED-01, SPEED-02)
 
-Progress: [████████████████████] 13/13 plans ([████████░░] 76%)
+Progress: [████████░░] 14/17 plans (82%)
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [████████████████████] 13/13 p
 | Phase 39 P04 | 2h | 3 tasks | 9 files |
 | Phase 39 P05 | 30 min | 2 tasks | 6 files |
 | Phase 39 P06 | 41 min | 2 tasks | 2 files |
+| Phase 39.1 P01 | 90 min | 3 tasks | 6 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -84,6 +85,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39]: 39-05: G-39-4 fixed minimally with an isinstance guard on high_band_attribution_candidates plus an action-first gate on the staff hint in event_form.html; header item 4 and the pinned snapshot updated in the same commit
 - [Phase 39]: 39-05: G-39-3 is runbook-only; the template method=post hardening (39-REVIEW WR-01 item 2) was offered at UAT and not requested. campaign_attribution.candidates_for_event missing guard surfaced for Phase 41 todo triage
 - [Phase 39]: 39-06: G-39-7 closed test-only; the hint gate in event_form.html is correct and the staff conjunct is now pinned at view and template level (WR-04 fixed)
+- [Phase 39.1]: 39.1-01: sun_event() crossing search memoised per process via lru_cache(maxsize=4096) helper below the validation, returning Time copies; _find_crossing is a 10-minute scan plus 14-step vectorised bisection, within 0.044 s of the pre-phase 1-minute scan
 
 ### Pending Todos
 
@@ -155,8 +157,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-09T03:54:44.397Z
-**Stopped at:** Phase 39 complete, ready to plan Phase 40
+**Last session:** 2026-10-09T08:46:57.586Z
+**Stopped at:** Completed 39.1-01-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
