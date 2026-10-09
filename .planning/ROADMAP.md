@@ -239,7 +239,7 @@ Plans:
   3. An anonymous visitor to `/calendar/` sees no create or update click target in the month view, yet can still open an event's pop-up and read it, including its attributed-run link; a logged-in editor still sees the click targets
   4. The header comment of `src/templates/tom_calendar/partials/event_form.html` names the blocks that actually differ from tomtoolkit 3.1.0's upstream template, and a diff against that upstream file matches the list
 
-**Plans**: 5/6 plans executed (39-04 closes verification gap 1 and records the CR-01 and WR-02 decisions; 39-05 closes UAT gaps G-39-3 and G-39-4; 39-06 closes UAT gap G-39-7)
+**Plans**: 6/6 plans executed (39-04 closes verification gap 1 and records the CR-01 and WR-02 decisions; 39-05 closes UAT gaps G-39-3 and G-39-4; 39-06 closes UAT gap G-39-7)
 
 Plans:
 **Wave 1**
@@ -256,7 +256,7 @@ Plans:
 - [x] 39-05-PLAN.md — Gap closure (tracer: a staff "+ New Event" click): RED tests as staff and superuser, then high_band_attribution_candidates guarded against a non-event and the staff hint gated on the edit form, header item 4 and the pinned snapshot kept in step (G-39-4); runbook warns the post-login create and edit addresses show a bare copy of the event form, go back to the calendar page (G-39-3, 39-REVIEW WR-01); phase gate (ACCESS-01, ACCESS-02, WARN-01)
 
 **Wave 5** *(gap closure, blocked on Wave 4 completion)*
-- [ ] 39-06-PLAN.md — Gap closure (tracer: a signed-in non-staff user opens an unlinked event's edit pop-up): test-only. Adds test_signed_in_non_staff_does_not_see_hint and a (plain_user, update, False) row in test_hint_is_gated_on_the_edit_form. A scratch-template mutation run proves both fail when the hint gate is weakened to is_authenticated. Marks WR-04 fixed in 39-REVIEW-DISPOSITION.md (G-39-7, 39-REVIEW WR-04; ACCESS-01, WARN-01)
+- [x] 39-06-PLAN.md — Gap closure (tracer: a signed-in non-staff user opens an unlinked event's edit pop-up): test-only. Adds test_signed_in_non_staff_does_not_see_hint and a (plain_user, update, False) row in test_hint_is_gated_on_the_edit_form. A scratch-template mutation run proves both fail when the hint gate is weakened to is_authenticated. Marks WR-04 fixed in 39-REVIEW-DISPOSITION.md (G-39-7, 39-REVIEW WR-04; ACCESS-01, WARN-01)
 
 **UI hint**: yes
 
@@ -374,7 +374,7 @@ Plans:
 | 37. Status Vocabulary, Public Tallies & Provenance-Blind Gaps | v2.4 | 10/10 | Complete    | 2026-09-21 |
 | 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 17/17 | Complete    | 2026-10-06 |
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
-| 39. Calendar Write Access | v2.5 | 5/5 | In Progress | - |
+| 39. Calendar Write Access | v2.5 | 6/6 | In Progress | - |
 | 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |

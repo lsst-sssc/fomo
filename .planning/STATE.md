@@ -5,16 +5,16 @@ milestone_name: Main Sync & Consolidation
 current_phase: 39
 current_phase_name: Calendar Write Access
 status: executing
-stopped_at: Phase 39 re-verified (human_needed 58/58) after plan 39-05; awaiting /gsd-verify-work 39
-last_updated: "2026-10-08T22:55:54.478Z"
-last_activity: 2026-10-08
-last_activity_desc: Plan 39-05 complete (gap closure); re-verification human_needed, UAT tests 5-7 pending
-state_head: ba8a53a4075905eaaddbf7a1c195d743fcdbf790
+stopped_at: Completed 39-06-PLAN.md
+last_updated: "2026-10-09T03:54:44.551Z"
+last_activity: 2026-10-09
+last_activity_desc: Plan 39-06 complete (gap closure G-39-7); awaiting /gsd-verify-work 39
+state_head: 8d0f26b61c30b5f8b1c5c2885cb55fa874ece048
 progress:
   total_phases: 5
   completed_phases: 40
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 13
+  completed_plans: 13
   percent: 100
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-10-08 — Phase 38 complete)
 
 ## Current Position
 
-Phase: 39 (Calendar Write Access) — VERIFYING (human_needed)
-Plan: 5 of 5
-Status: Plan 39-05 complete (gap closure G-39-3, G-39-4); phase re-verified 58/58 must-haves, human_needed — 39-UAT.md tests 5-7 pending
-Last activity: 2026-10-08 — Plan 39-05 complete; re-verification human_needed; awaiting /gsd-verify-work 39
+Phase: 39 (Calendar Write Access) — VERIFYING (gap closure G-39-7 executed)
+Plan: 6 of 6
+Status: Plan 39-06 complete (test-only closure of G-39-7 / 39-REVIEW WR-04); awaiting /gsd-verify-work 39 to mark UAT Test 7 resolved
+Last activity: 2026-10-09 — Plan 39-06 complete; awaiting /gsd-verify-work 39
 
 Progress: [████████████████████] 7/7 plans ([██████████] 100%)
 
@@ -53,6 +53,7 @@ Progress: [████████████████████] 7/7 pla
 | Phase 39 P03 | 45 min | 2 tasks | 3 files |
 | Phase 39 P04 | 2h | 3 tasks | 9 files |
 | Phase 39 P05 | 30 min | 2 tasks | 6 files |
+| Phase 39 P06 | 41 min | 2 tasks | 2 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -82,6 +83,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39]: wave 3 ui.safety-gate block ("UI files changed, no UI-SPEC.md") overridden by the developer (2026-10-08): the only UI change is 65ba57c restoring a one-word button label, and 39-UI-REVIEW.md already audits the phase against the abstract standards
 - [Phase 39]: 39-05: G-39-4 fixed minimally with an isinstance guard on high_band_attribution_candidates plus an action-first gate on the staff hint in event_form.html; header item 4 and the pinned snapshot updated in the same commit
 - [Phase 39]: 39-05: G-39-3 is runbook-only; the template method=post hardening (39-REVIEW WR-01 item 2) was offered at UAT and not requested. campaign_attribution.candidates_for_event missing guard surfaced for Phase 41 todo triage
+- [Phase 39]: 39-06: G-39-7 closed test-only; the hint gate in event_form.html is correct and the staff conjunct is now pinned at view and template level (WR-04 fixed)
 
 ### Pending Todos
 
@@ -149,8 +151,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-08T22:55:54.433Z
-**Stopped at:** Completed 39-05-PLAN.md
+**Last session:** 2026-10-09T03:54:44.397Z
+**Stopped at:** Completed 39-06-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
