@@ -20,6 +20,7 @@ user, so the tests that open the modal from those targets log a plain user in fi
 
 import os
 import re
+import tempfile
 import time
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
@@ -28,7 +29,8 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
-from django.test import SimpleTestCase, tag
+from django.template.utils import get_app_template_dirs
+from django.test import SimpleTestCase, override_settings, tag
 from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import sync_playwright
@@ -45,6 +47,50 @@ from solsys_code.models import (
     ObservationRecordDismissal,
 )
 from solsys_code.solsys_code_observatory.models import Observatory
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def repo_template_dirs():
+    """Every template directory this repository owns, in a stable order without duplicates.
+
+    That is each ``TEMPLATES[0]['DIRS']`` entry (read when called, so ``override_settings`` is honoured),
+    then each installed app's ``templates`` directory that lies inside the repository and outside any
+    ``site-packages``/``dist-packages`` path. Third-party apps' templates (tom_targets, rest_framework, ...)
+    are never returned: this repository cannot fix them, and a guard that scanned them would only fail.
+    No FOMO app has a ``templates`` directory of its own today (all templates sit in ``src/templates``), so
+    the app-directory branch is future-proofing.
+    """
+    candidates = [Path(d) for d in settings.TEMPLATES[0]['DIRS']]
+    for app_dir in get_app_template_dirs('templates'):
+        resolved = Path(app_dir).resolve()
+        if resolved.is_relative_to(REPO_ROOT) and not {'site-packages', 'dist-packages'} & set(resolved.parts):
+            candidates.append(Path(app_dir))
+    directories = []
+    seen = set()
+    for candidate in candidates:
+        key = candidate.resolve()
+        if key not in seen:
+            seen.add(key)
+            directories.append(candidate)
+    return directories
+
+
+def repo_template_files():
+    """Sorted ``(template directory, template path)`` pairs for every ``*.html`` file in a repo template directory."""
+    return [(base, path) for base in repo_template_dirs() for path in sorted(base.rglob('*.html'))]
+
+
+def bootstrap4_hits(pattern):
+    """Lines of repo-owned templates matching ``pattern``, each as ``'<path relative to its own template
+    directory>:<line number>: <line>'``. Relative to the file's own directory, so a hit in a second
+    ``DIRS`` entry is reported rather than raising ``ValueError``. Templates are read as UTF-8."""
+    hits = []
+    for base, path in repo_template_files():
+        for lineno, line in enumerate(path.read_text(encoding='utf-8').splitlines(), start=1):
+            if pattern.search(line):
+                hits.append(f'{path.relative_to(base)}:{lineno}: {line.strip()}')
+    return hits
 
 
 @tag('functional')
@@ -526,34 +572,23 @@ class TestTemplatesUseBootstrap5DataAttributes(SimpleTestCase):
     """UAT G-37.1-1 guard: ``tom_common/base.html`` loads Bootstrap 5, whose plugins bind only the
     ``data-bs-*`` attribute spellings. A Bootstrap 4 spelling (``data-toggle``, ``data-target``,
     ...) in a template is inert there and fails silently in a browser -- the attribution page's
-    collapse headings did exactly that. This scan needs no browser and no database."""
+    collapse headings did exactly that. This scan needs no browser and no database. It covers every
+    repo-owned template directory (``repo_template_dirs()``); the in-repo app-directory branch is
+    future-proofing, since no FOMO app has a ``templates/`` directory today (D-20)."""
 
-    # Bootstrap 4's plugin data attributes. Bootstrap 5's carry a `bs-` segment (data-bs-toggle)
-    # and so never match: after `data-` the next characters must be one of these names and then `=`.
+    # Bootstrap 4's plugin data attributes. Bootstrap 5's carry a `bs-` segment (data-bs-toggle) and so
+    # never match: after `data-` the next characters must be one of these names and then `=`.
     BOOTSTRAP4_ATTRIBUTE = re.compile(
         r'\bdata-(?:toggle|target|dismiss|parent|ride|slide-to|slide|spy|backdrop|keyboard|placement)\s*='
     )
 
-    @staticmethod
-    def _template_files():
-        files = []
-        for template_dir in settings.TEMPLATES[0]['DIRS']:
-            files.extend(sorted(Path(template_dir).rglob('*.html')))
-        return files
-
     def test_no_template_uses_bootstrap4_data_attributes(self):
-        files = self._template_files()
-        hits = []
-        for path in files:
-            for lineno, line in enumerate(path.read_text(encoding='utf-8').splitlines(), start=1):
-                if self.BOOTSTRAP4_ATTRIBUTE.search(line):
-                    relative = path.relative_to(Path(settings.TEMPLATES[0]['DIRS'][0]))
-                    hits.append(f'{relative}:{lineno}: {line.strip()}')
+        hits = bootstrap4_hits(self.BOOTSTRAP4_ATTRIBUTE)
         self.assertEqual(hits, [], 'Bootstrap 4 plugin data attributes found:\n' + '\n'.join(hits))
 
     def test_the_scan_is_not_vacuous(self):
         """Guard against the scan silently covering nothing (wrong directory, empty glob)."""
-        files = self._template_files()
+        files = [path for _, path in repo_template_files()]
         self.assertGreaterEqual(len(files), 20, f'expected at least 20 templates, scanned {len(files)}')
         names = {path.as_posix() for path in files}
         for expected in ('campaigns/attribution_queue.html', 'campaigns/campaign_list.html'):
@@ -569,3 +604,113 @@ class TestTemplatesUseBootstrap5DataAttributes(SimpleTestCase):
             'data-bs-slide-to="1"',
         ):
             self.assertIsNone(self.BOOTSTRAP4_ATTRIBUTE.search(good), good)
+
+
+class TestTemplatesUseBootstrap5ClassNames(SimpleTestCase):
+    """WARN-04 / D-19 guard: ``tom_common/base.html`` loads Bootstrap 5.3, which removed or renamed many
+    Bootstrap 4 class names (``font-weight-bold``, ``mr-2``, ``border-left``, ``form-inline``, ...). A removed
+    name in a template is inert and fails silently: the attribution page's High-band left bar and its band
+    filter layout rendered nothing for exactly that reason. This scan needs no browser and no database and
+    covers every repo-owned template directory (``repo_template_dirs()``)."""
+
+    # Whole class tokens inside a ``class="..."`` value only. The lookarounds treat ``-`` and word characters
+    # as part of a token (``\b`` would treat ``-`` as a boundary), so ``me-2``, ``ms-auto``, ``text-muted`` and
+    # ``border-left-width`` in a ``style`` attribute never match while ``mr-2``, ``border-left`` and
+    # ``font-weight-bold`` do. Bootstrap 5 names (``fw-bold``, ``me-2``, ``border-start``, ``text-bg-info``)
+    # are not in the list.
+    BOOTSTRAP4_CLASS = re.compile(
+        r'class="[^"]*(?<![\w-])(?:'
+        r'font-weight-(?:bold|bolder|normal|light|lighter)|font-italic|border-(?:left|right)|'
+        r'[mp][lr]-(?:[0-5]|auto)|form-inline|form-group|form-row|text-(?:left|right)|float-(?:left|right)|'
+        r'custom-(?:select|control|checkbox|radio|switch|file|range)[\w-]*|btn-block|'
+        r'badge-(?:primary|secondary|success|danger|warning|info|light|dark|pill)|sr-only(?:-focusable)?|'
+        r'no-gutters|input-group-(?:append|prepend)|form-control-file|jumbotron|card-deck|embed-responsive[\w-]*'
+        r')(?![\w-])'
+    )
+
+    # A ``select`` styled as a text input (Bootstrap 5 wants ``form-select``). DOTALL because a select's
+    # opening tag often spans several lines.
+    SELECT_STYLED_AS_INPUT = re.compile(r'<select\b[^>]*\bclass="[^"]*(?<![\w-])form-control(?![\w-])', re.DOTALL)
+
+    def test_no_template_uses_removed_bootstrap4_class_names(self):
+        hits = bootstrap4_hits(self.BOOTSTRAP4_CLASS)
+        self.assertEqual(hits, [], 'Removed Bootstrap 4 class names found:\n' + '\n'.join(hits))
+
+    def test_no_select_is_styled_as_a_text_input(self):
+        offenders = [
+            str(path.relative_to(base))
+            for base, path in repo_template_files()
+            if self.SELECT_STYLED_AS_INPUT.search(path.read_text(encoding='utf-8'))
+        ]
+        self.assertEqual(
+            offenders, [], 'select elements styled form-control (use form-select):\n' + '\n'.join(offenders)
+        )
+
+    def test_the_scan_is_not_vacuous(self):
+        files = [path for _, path in repo_template_files()]
+        self.assertGreaterEqual(len(files), 20, f'expected at least 20 templates, scanned {len(files)}')
+        names = {path.as_posix() for path in files}
+        for expected in (
+            'campaigns/attribution_queue.html',
+            'campaigns/campaign_list.html',
+            'solsys_code/partials/campaign_links.html',
+        ):
+            self.assertTrue(any(name.endswith(expected) for name in names), f'{expected} was not covered by the scan')
+
+    def test_the_pattern_matches_bootstrap4_and_not_bootstrap5_class_names(self):
+        for bad in (
+            'class="font-weight-bold"',
+            'class="small mr-2"',
+            'class="border-left border-success"',
+            'class="form-inline mb-4"',
+            'class="badge badge-info"',
+            'class="btn btn-block"',
+            'class="custom-select"',
+            'class="form-group"',
+        ):
+            self.assertIsNotNone(self.BOOTSTRAP4_CLASS.search(bad), bad)
+        for good in (
+            'class="fw-bold"',
+            'class="me-2"',
+            'class="border-0 border-start border-4 border-success"',
+            'class="badge text-bg-info"',
+            'class="d-flex align-items-center gap-2"',
+            'style="border-left-width: 4px"',
+            'class="text-muted"',
+            'class="ms-auto"',
+        ):
+            self.assertIsNone(self.BOOTSTRAP4_CLASS.search(good), good)
+
+    def test_a_hit_in_a_second_template_directory_is_reported_not_raised(self):
+        """IN-12: the scan once computed every hit's path against ``DIRS[0]``, which raised ``ValueError`` for a
+        hit in any later ``DIRS`` entry. Such a hit is now reported relative to its own directory."""
+        with tempfile.TemporaryDirectory() as extra_dir:
+            nested = Path(extra_dir) / 'second'
+            nested.mkdir()
+            (nested / 'bad.html').write_text(
+                '<div class="font-weight-bold" data-toggle="collapse">caf\u00e9</div>\n', encoding='utf-8'
+            )
+            templates = [dict(settings.TEMPLATES[0], DIRS=[*settings.TEMPLATES[0]['DIRS'], extra_dir])]
+            with override_settings(TEMPLATES=templates):
+                class_hits = bootstrap4_hits(self.BOOTSTRAP4_CLASS)
+                attribute_hits = bootstrap4_hits(TestTemplatesUseBootstrap5DataAttributes.BOOTSTRAP4_ATTRIBUTE)
+        expected = str(Path('second') / 'bad.html')
+        self.assertEqual(
+            [hit for hit in class_hits if hit.startswith(expected)],
+            [f'{expected}:1: ' + '<div class="font-weight-bold" data-toggle="collapse">caf\u00e9</div>'],
+        )
+        self.assertEqual(len([hit for hit in attribute_hits if hit.startswith(expected)]), 1)
+
+    def test_third_party_app_template_directories_are_not_scanned(self):
+        directories = [d.resolve() for d in repo_template_dirs()]
+        for directory in directories:
+            self.assertTrue(directory.is_relative_to(REPO_ROOT), f'{directory} is outside the repository')
+            self.assertFalse(
+                {'site-packages', 'dist-packages'} & set(directory.parts), f'{directory} is a third-party directory'
+            )
+        third_party = [Path(d).resolve() for d in get_app_template_dirs('templates')]
+        for name in ('rest_framework', 'tom_targets'):
+            installed = [d for d in third_party if name in d.parts]
+            self.assertTrue(installed, f'expected an installed {name} template directory to compare against')
+            for directory in installed:
+                self.assertNotIn(directory, directories)

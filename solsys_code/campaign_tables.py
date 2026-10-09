@@ -430,7 +430,7 @@ class ApprovalQueueTable(CampaignRunTable):
             'hx-target="#{4}" hx-swap="innerHTML" hx-vals=\'{{"input_id": "{1}"}}\' '
             'data-site-resolved="false" oninput="this.dataset.siteResolved = \'false\';">'
             '<div id="{4}" class="mt-2"></div>'
-            '<a href="{5}" class="small ml-1">Create new Observatory</a>',
+            '<a href="{5}" class="small ms-1">Create new Observatory</a>',
             site_raw,
             input_id,
             form_id,
