@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v2.5
 milestone_name: Main Sync & Consolidation
-current_phase: 40
-current_phase_name: Notebook Isolation & Attribution Page
-status: planning
-stopped_at: Phase 39 complete, ready to plan Phase 40
-last_updated: "2026-10-09T04:12:24.894Z"
+current_phase: "39.1"
+current_phase_name: Test-Suite Speed-Up
+status: executing
+stopped_at: Phase 39.1 inserted after Phase 39, ready to plan Phase 39.1
+last_updated: "2026-10-09T06:05:15.427Z"
 last_activity: 2026-10-09
-last_activity_desc: Phase 39 complete, transitioned to Phase 40
-state_head: a139d37f93228a69c6ef48a56d04b2f4aec43c8b
+last_activity_desc: Phase 39.1 inserted after Phase 39 (test-suite speed-up); plan it before Phase 40
+state_head: 52431728e0bbd25fad1782db1866c4f4d66b6ee8
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 41
-  total_plans: 13
+  total_plans: 17
   completed_plans: 13
-  percent: 91
+  percent: 76
 ---
 
 # Project State
@@ -25,16 +25,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39 complete)
 
 **Core value:** The `issue37-telescope-runs-calendar` branch is back in step with `main` — same dependency floors, same tooling, same CI runner — and the debt v2.4 carried forward is either fixed or has a written decision, so the next feature milestone starts from a current, clean base.
-**Current focus:** Phase 40 — Notebook Isolation & Attribution Page
+**Current focus:** Phase 39.1 — Test-Suite Speed-Up (inserted); then Phase 40
 
 ## Current Position
 
-Phase: 40 — Notebook Isolation & Attribution Page
+Phase: 39.1 (Test-Suite Speed-Up) — READY TO EXECUTE
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-10-09 — Phase 39 complete, transitioned to Phase 40
+Status: Ready to execute
+Last activity: 2026-10-09 — Phase 39.1 inserted after Phase 39 (test-suite speed-up); plan it before Phase 40
 
-Progress: [████████████████████] 13/13 plans (100%)
+Progress: [████████████████████] 13/13 plans ([████████░░] 76%)
 
 ## Performance Metrics
 
@@ -115,6 +115,10 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: WARN-05 names `docs/notebooks/pre_executed/README`; the real file is `docs/notebooks/README.md`.
 - [Phase 42]: REVERIFY-02 routes fixes into "the TRIAGE-02 gap-closure phase", which runs before Phase 42. A re-verification gap fixed this milestone needs a further phase inserted after 42, then a re-run of that report.
 - [Phase 41]: TRIAGE-03 needs the TOM Toolkit Slack "multi proposal support" thread content from the developer.
+
+### Roadmap Evolution
+
+- Phase 39.1 inserted after Phase 39: Test-Suite Speed-Up: memoise sun_event(), cheaper crossing search, --parallel in CI and the django-test hook, fast test hasher and tagged migration tests, so the hook drops from ~10 min to ~1 min and commits stop needing SKIP=django-test (source: todo 2026-10-08) (URGENT)
 
 ## Deferred Items
 
