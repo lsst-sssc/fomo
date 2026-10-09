@@ -15,9 +15,10 @@ from datetime import timezone as dt_timezone
 
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, tag
 
 
+@tag('migration')  # Phase 39.1 (SPEED-04): drives MigrationExecutor; the django-test hook skips it, CI runs it
 class TestCompanionRecordRenamePreservesHistory(TransactionTestCase):
     """Exercises migrations 0008 (rename) and 0009 (AddField run) end-to-end."""
 
@@ -104,6 +105,7 @@ class TestCompanionRecordRenamePreservesHistory(TransactionTestCase):
             self.new_apps.get_model('solsys_code', 'CalendarEventTelescopeLabel')
 
 
+@tag('migration')  # Phase 39.1 (SPEED-04): drives MigrationExecutor; the django-test hook skips it, CI runs it
 class TestSourceAndTelescopeClassBackfill(TransactionTestCase):
     """CANON-01/CANON-02: regression coverage for migrations 0010 (AddField source/
     telescope_class + CreateModel CampaignRunObservation) and 0011 (the telescope_class
@@ -226,6 +228,7 @@ class TestSourceAndTelescopeClassBackfill(TransactionTestCase):
         self.assertEqual(CampaignRun.objects.get(pk=self.resolved_control_pk).telescope_class, '')
 
 
+@tag('migration')  # Phase 39.1 (SPEED-04): drives MigrationExecutor; the django-test hook skips it, CI runs it
 class TestUnflagClassWideCampaignRunSiteReview(TransactionTestCase):
     """260730-jty/D-06 (26-CONTEXT.md:94): regression coverage for migration 0012, which
     unflags every CampaignRun that carries a telescope_class -- a class-carrying row is

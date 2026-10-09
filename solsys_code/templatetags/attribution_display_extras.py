@@ -26,8 +26,9 @@ def high_band_attribution_candidates(event: CalendarEvent) -> list[campaign_attr
 
     A thin filter over ``campaign_attribution.candidates_for_event()`` -- the existing,
     already dismissal-aware, campaign-boundary-gated scorer -- kept to the High band only,
-    since that is the confidence tier this hint is meant to surface. Never raises: delegates
-    entirely to ``candidates_for_event()``, which itself never raises.
+    since that is the confidence tier this hint is meant to surface. Never raises: returns ``[]``
+    for any value that is not a CalendarEvent (the create form passes the empty-string
+    placeholder for its missing ``event``) and otherwise delegates to ``candidates_for_event()``.
 
     WR-06 (37.1-REVIEW.md): an event drawn from an observation record is never offered
     (37.1 D-09) -- it is attributed only through its record, and the attribution queue no longer
@@ -41,8 +42,15 @@ def high_band_attribution_candidates(event: CalendarEvent) -> list[campaign_attr
     Returns:
         list[AttributionCandidate]: the event's candidates whose band is
         ``campaign_attribution.BAND_HIGH``, possibly empty -- always empty for a record's own
-        event. Never raises.
+        event or for a value that is not a CalendarEvent. Never raises.
     """
+    # The create-event form context has no `event` key, and Django resolves the missing variable
+    # to the empty-string invalid-variable placeholder rather than raising -- the same guard as
+    # campaign_decoration(), run_tally() and observation_series_decoration() in
+    # calendar_display_extras.py. Without it the lookup below raised ValueError and a staff
+    # viewer's New Event pop-up was a 500 (39-UAT.md G-39-4).
+    if not isinstance(event, CalendarEvent):
+        return []
     if CalendarEventMeta.objects.filter(event=event, observation_record__isnull=False).exists():
         return []
     return [c for c in campaign_attribution.candidates_for_event(event) if c.band == campaign_attribution.BAND_HIGH]

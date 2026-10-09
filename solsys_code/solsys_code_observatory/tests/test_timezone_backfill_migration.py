@@ -7,9 +7,10 @@ directly -- rather than relying entirely on the unrepeatable manual dev-DB run.
 
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, tag
 
 
+@tag('migration')  # Phase 39.1 (SPEED-04): drives MigrationExecutor; the django-test hook skips it, CI runs it
 class TestTimezoneBackfillMigration(TransactionTestCase):
     """Exercises migration 0003's backfill_observatory_timezone RunPython step end-to-end."""
 

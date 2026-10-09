@@ -27,10 +27,12 @@ python manage.py fetch_jplsbdb_objects --orbit_class IEO
 
 # Tests — the Django test runner is the only test runner (see "Testing" below):
 python manage.py test solsys_code --exclude-tag=ephemeris_segfault   # full local suite, incl. Playwright browser tests (needs `playwright install chromium`)
-python manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault   # what pre-commit and the CI unit-test matrix run
+python manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --parallel   # what the CI unit-test matrix runs (under coverage)
+python manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --exclude-tag migration --parallel   # what the django-test pre-commit hook runs (under coverage)
 python manage.py test --tag functional         # Playwright browser tests only (CI functional-tests job)
+python manage.py test --tag migration          # the six MigrationExecutor test classes only (CI runs them; the hook skips them)
 python manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
-coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault && coverage report   # with coverage
+coverage erase && coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --parallel && coverage combine && coverage report   # with coverage (combine the per-process data files first)
 
 # Lint / format: run through pre-commit, which pins ruff to the version .pre-commit-config.yaml
 # enforces (v0.16.9) -- an unpinned `ruff` on PATH can report findings the enforced gate does not
@@ -92,7 +94,21 @@ template's pytest tooling was removed in the v2.2.0 update (issue #54); do not r
 Tests that need a real browser (`StaticLiveServerTestCase` + Playwright) are tagged
 `@tag('functional')` so pre-commit and the CI unit-test matrix can skip them with
 `--exclude-tag functional`; the CI `functional-tests` job runs them with `--tag functional`.
-Coverage is measured with `coverage run manage.py test` (`[tool.coverage.run]` in `pyproject.toml`).
+The unit suite runs in parallel worker processes (`--parallel`, one per CPU). `[tool.coverage.run]` in
+`pyproject.toml` sets `concurrency = ["multiprocessing"]` and `parallel = true`, so each process writes its own
+`.coverage.*` file and `coverage combine` must run before `coverage report`/`html`/`xml`, after a
+`coverage erase` that drops files an interrupted run left behind. Under the test command
+`src/fomo/settings.py` gives each test process its own `LocMemCache`, so workers never share or clear each
+other's cache, and `MD5PasswordHasher` (Django's documented "speeding up the tests" setting) instead of
+PBKDF2. Both overrides sit in one `if len(sys.argv) > 1 and sys.argv[1] == 'test':` block above the
+`local_settings` import, so production settings are unchanged -- never move them into `local_settings.py`.
+`tblib` (dev extra) carries a failing worker's traceback back to the console.
+
+The six `TransactionTestCase` classes that drive `MigrationExecutor` (in `test_canonical_record_migration`,
+`test_window_schema_migration`, `test_calendar_event_meta_links` and `solsys_code_observatory`'s
+`test_timezone_backfill_migration`) are tagged `@tag('migration')`. The `django-test` hook excludes them with
+`--exclude-tag migration`, the CI unit-test matrix runs them, and `python manage.py test --tag migration` runs
+only them; tag any new migration test the same way.
 
 `TestEphemeris` in `solsys_code/tests/test_views.py` is tagged `@tag('ephemeris_segfault')` because the
 native ASSIST integrator crashes the whole test process instead of failing a single test. Every
@@ -114,14 +130,19 @@ locally. It still runs when you name it directly.
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
 - pre-commit blocks direct commits to `main`, clears Jupyter notebook output (except under
   `docs/notebooks/pre_executed/`), checks that the pre-executed notebooks are marked never-execute, runs
-  ruff and ruff-format, and runs the Django tests minus the `functional` and `ephemeris_segfault` tags
-  (`django-test` hook, about 10 minutes; use `SKIP=django-test git commit ...` for work-in-progress
-  commits). Sphinx docs are built only in CI. CI (`.github/workflows/`) tests Python 3.10–3.12.
+  ruff and ruff-format, and runs the Django tests minus the `functional`, `ephemeris_segfault` and
+  `migration` tags, in parallel with combined coverage (`django-test` hook, about 80 seconds on the developer
+  machine since Phase 39.1; code commits no longer need `SKIP=django-test` -- keep it for a deliberately red
+  work-in-progress commit). Sphinx docs are built only in CI. CI (`.github/workflows/`) tests Python 3.10–3.12.
 - The repo is generated from the LINCC python-project-template (`.copier-answers.yml`). The template's
   CI/pre-commit files assume pytest; after each `copier update` the test steps in
   `testing-and-coverage.yml`, `smoke-test.yml` and `.pre-commit-config.yaml` must be re-pointed at
   `manage.py test`, and the `ruff-pre-commit` rev (stale upstream) re-bumped — these are deliberate local
-  divergences, as are the `--exclude-tag ephemeris_segfault` on the test steps and the pre-executed-notebook
+  divergences, as are the `--exclude-tag ephemeris_segfault` on the test steps, `--exclude-tag migration` on
+  the `django-test` hook (hook only; CI runs the migration tests), `--parallel` with
+  `coverage erase`/`coverage combine` on the CI unit-test step and the `django-test` hook, the
+  `concurrency`/`parallel` keys in `[tool.coverage.run]` (the daily smoke test stays serial on purpose: it is
+  the one whole-suite run in a single process), and the pre-executed-notebook
   hook path `docs/notebooks/pre_executed/`. Answer `custom_install: custom`, never `retrofit` (which strips
   the ruff config).
 - **Verify the checked-out branch before any branch-implicit git command** (`rebase`, `reset`,

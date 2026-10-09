@@ -39,6 +39,7 @@ dev = [
     "jupyter", # Clears output from Jupyter notebooks
     "playwright", # Headless-browser functional tests (solsys_code/tests/test_bootstrap5_rendering.py)
     "coverage", # Used to report total code coverage of the Django test suite
+    "tblib", # Worker tracebacks for 'manage.py test --parallel' (named by Django's --parallel docs)
     "pre-commit", # Used to run checks before finalizing a git commit
     "ruff>=0.16", # Static linting/formatting; keep the floor in step with the ruff-pre-commit rev in .pre-commit-config.yaml
     "graphifyy", # (not a typo) queryable knowledge graph builder for AI tools
@@ -119,5 +120,10 @@ ignore = [
 "**/tests/*" = ["D101", "D102"]
 
 [tool.coverage.run]
+# Django's `--parallel` runs tests in worker processes, so coverage must follow them
+# (multiprocessing) and write one data file per process (parallel); `coverage combine`
+# merges those files before any report.
+concurrency = ["multiprocessing"]
+parallel = true
 source = ["solsys_code", "src/fomo", "src/templatetags"]
 omit = ["src/fomo/_version.py", "*/migrations/*", "*/tests/*"]

@@ -12,10 +12,15 @@ tom_calendar's month partial used to open `#cal-modal` with a jQuery call the to
 3.x base page never loads, so every click on the calendar threw silently. The tests below
 click a real rendered calendar page and assert the Bootstrap 5 modal actually opens, with
 no page error.
+
+Phase 39 (ACCESS-02): an anonymous visitor's modal is a read-only card and the create click
+targets (the '+ New Event' button and the day-cell create handler) exist only for a logged-in
+user, so the tests that open the modal from those targets log a plain user in first.
 """
 
 import os
 import re
+import time
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
 from pathlib import Path
@@ -118,6 +123,36 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
     def _calendar_url(self):
         return f'{self.live_server_url}{reverse("calendar:calendar")}?year={self.CAL_YEAR}&month={self.CAL_MONTH}'
 
+    def _calendar_editor(self):
+        """A plain, non-staff user: any logged-in user may write to the calendar (D-01)."""
+        return get_user_model().objects.create_user(username='bs5-calendar-editor', password='pw')
+
+    def _log_in_browser(self, user):
+        """Log the browser in by handing it the test client's session cookie."""
+        self.client.force_login(user)
+        self.page.context.add_cookies(
+            [
+                {
+                    'name': settings.SESSION_COOKIE_NAME,
+                    'value': self.client.cookies[settings.SESSION_COOKIE_NAME].value,
+                    'url': self.live_server_url,
+                }
+            ]
+        )
+
+    def _wait_for_db(self, predicate, message, timeout=5.0):
+        """Poll until predicate() is true; fail with message after timeout seconds.
+
+        The live server answers in its own thread, so a row it writes may land a moment after the
+        browser sees the modal close.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.1)
+        self.fail(message)
+
     def test_calendar_modal_opens_for_campaign_attributed_event_with_no_page_errors(self):
         """UAT G-33-2: clicking a campaign-attributed calendar entry opens `#cal-modal` via
         the Bootstrap 5 API, with the 'Attributed campaign run' block and its 'View
@@ -142,16 +177,21 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
 
     def test_calendar_modal_opens_for_new_event_button_with_no_page_errors(self):
         """The '+ New Event' button -- a click target with no CalendarEvent behind it at
-        all -- opens the same modal through the same Bootstrap 5 handler."""
+        all -- opens the same modal through the same Bootstrap 5 handler. The button exists
+        only for a logged-in user (Phase 39 D-07); the visitor case is covered by the two
+        anonymous tests below."""
         page_errors = []
         self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
 
+        self._log_in_browser(self._calendar_editor())
         self.page.goto(self._calendar_url())
         self.page.get_by_role('button', name='+ New Event').click()
 
         modal = self.page.locator('#cal-modal.show')
         modal.wait_for(state='visible')
         assert modal.is_visible()
+        self.page.locator('#cal-modal-body form').wait_for(state='attached')
+        assert self.page.locator('#cal-modal-body form').count() == 1
 
         assert page_errors == []
 
@@ -174,10 +214,13 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
         """must_haves Truth 3: clicking the empty area of a day cell with no events at all
         must also open the pop-up. Click the day-num span specifically -- it sits outside
         the inner event-container div's `event.stopPropagation()` guard, so the click
-        bubbles to the day cell's own handler."""
+        bubbles to the day cell's own handler. The day cell's create handler exists only for a
+        logged-in user (Phase 39 D-07); the visitor case is covered by the two anonymous
+        tests below."""
         page_errors = []
         self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
 
+        self._log_in_browser(self._calendar_editor())
         self.page.goto(self._calendar_url())
         empty_day_cell = self.page.locator(f'[hx-get*="date={self.CAL_YEAR}-{self.CAL_MONTH:02d}-01"]')
         empty_day_cell.locator('.day-num').click()
@@ -185,6 +228,119 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
         modal = self.page.locator('#cal-modal.show')
         modal.wait_for(state='visible')
         assert modal.is_visible()
+        self.page.locator('#cal-modal-body form').wait_for(state='attached')
+        assert self.page.locator('#cal-modal-body form').count() == 1
+
+        assert page_errors == []
+
+    def test_anonymous_visitor_opens_read_only_event_card_with_no_page_errors(self):
+        """D-09 (ACCESS-02): a visitor with no session cookie sees no create click target, can
+        still open an event's pop-up through the Bootstrap 5 API, and reads a plain-text card
+        (with the attributed-run block and its campaign link) containing no form control."""
+        page_errors = []
+        requests = []
+        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
+        self.page.on('request', lambda request: requests.append(request.url))
+
+        self.page.goto(self._calendar_url())
+        assert self.page.get_by_role('button', name='+ New Event').count() == 0
+        assert self.page.locator('[hx-get*="/calendar/create/"]').count() == 0
+
+        self.page.locator('.cal-event').first.click()
+
+        modal = self.page.locator('#cal-modal.show')
+        modal.wait_for(state='visible')
+        assert modal.is_visible()
+        card = self.page.locator('#cal-modal-body #cal-event-card')
+        card.wait_for(state='visible')
+        assert card.is_visible()
+        assert self.page.locator('#cal-modal-body').locator('form, button, input, select, textarea').count() == 0
+
+        modal_body_text = self.page.locator('#cal-modal-body').inner_text()
+        assert 'BS5 Modal Attributed Event' in modal_body_text
+        assert 'Attributed campaign run' in modal_body_text
+        assert self.page.locator('#cal-modal-body a', has_text='View campaign').count() >= 1
+
+        assert not any('/calendar/create/' in url for url in requests)
+        assert page_errors == []
+
+    def test_anonymous_click_on_empty_day_cell_opens_nothing(self):
+        """D-07: for a visitor the day cell is inert -- clicking an empty one opens no modal and
+        sends no request to the create route."""
+        page_errors = []
+        requests = []
+        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
+        self.page.on('request', lambda request: requests.append(request.url))
+
+        self.page.goto(self._calendar_url())
+        self.page.locator('.cal-day.is-current-month').first.locator('.day-num').click()
+        self.page.wait_for_timeout(500)
+
+        assert self.page.locator('#cal-modal.show').count() == 0
+        assert not any('/calendar/create/' in url for url in requests)
+        assert page_errors == []
+
+    def test_signed_in_editor_creates_edits_and_deletes_from_month_view(self):
+        """Phase 39 success criterion 2 (D-01, D-03): a plain, non-staff logged-in user still
+        creates, edits and deletes a calendar event from the month view, through the guarded
+        routes, exactly as before the login guards existed."""
+        page_errors = []
+        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
+        # Delete's hx-confirm raises a native confirm dialog; accept it.
+        self.page.on('dialog', lambda dialog: dialog.accept())
+
+        self._log_in_browser(self._calendar_editor())
+        modal = self.page.locator('#cal-modal.show')
+        modal_body = self.page.locator('#cal-modal-body')
+
+        # Create: click the empty 2026-08-20 day cell, fill the title, save.
+        self.page.goto(self._calendar_url())
+        day_cell = self.page.locator(f'[hx-get*="date={self.CAL_YEAR}-{self.CAL_MONTH:02d}-20"]')
+        day_cell.locator('.day-num').click()
+        modal.wait_for(state='visible')
+        self.page.locator('#cal-modal-body form').wait_for(state='attached')
+        # Upstream pre-fills the start time from the clicked day.
+        assert self.page.locator('#id_start_time').input_value() == '2026-08-20T00:00'
+        self.page.locator('#id_title').fill('EditorTrip')
+        modal_body.get_by_role('button', name='Save', exact=True).click()
+        modal.wait_for(state='hidden')
+        self._wait_for_db(
+            lambda: CalendarEvent.objects.filter(title='EditorTrip').count() == 1,
+            'the created event never reached the database',
+        )
+        event = CalendarEvent.objects.get(title='EditorTrip')
+        assert event.start_time.date() == date(2026, 8, 20)
+
+        # Edit: reload the month (a save re-renders the current year's month, not 2026-08),
+        # reopen the event, change the title, save.
+        self.page.goto(self._calendar_url())
+        self.page.locator('.cal-event', has_text='EditorTrip').first.click()
+        modal.wait_for(state='visible')
+        # The editor gets the update form, not the read-only card. (The pop-up of a saved event
+        # also holds upstream's separate add-a-todo form, so count the update form specifically.)
+        update_form = self.page.locator('#cal-modal-body form[hx-post*="/calendar/update/"]')
+        update_form.wait_for(state='attached')
+        assert update_form.count() == 1
+        assert self.page.locator('#cal-event-card').count() == 0
+        self.page.locator('#id_title').fill('EditorTrip2')
+        modal_body.get_by_role('button', name='Save', exact=True).click()
+        modal.wait_for(state='hidden')
+        self._wait_for_db(
+            lambda: CalendarEvent.objects.filter(pk=event.pk, title='EditorTrip2').exists(),
+            'the edited title never reached the database',
+        )
+
+        # Delete: reopen, press Delete, accept the confirm dialog.
+        self.page.goto(self._calendar_url())
+        self.page.locator('.cal-event', has_text='EditorTrip2').first.click()
+        modal.wait_for(state='visible')
+        modal_body.get_by_role('button', name='Delete').wait_for(state='visible')
+        modal_body.get_by_role('button', name='Delete').click()
+        modal.wait_for(state='hidden')
+        self._wait_for_db(
+            lambda: not CalendarEvent.objects.filter(pk=event.pk).exists(),
+            'the deleted event is still in the database',
+        )
 
         assert page_errors == []
 
@@ -274,17 +430,7 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
             reason='BS5 browser dismissal',
         )
 
-        # Log the browser in by handing it the test client's session cookie.
-        self.client.force_login(staff)
-        self.page.context.add_cookies(
-            [
-                {
-                    'name': settings.SESSION_COOKIE_NAME,
-                    'value': self.client.cookies[settings.SESSION_COOKIE_NAME].value,
-                    'url': self.live_server_url,
-                }
-            ]
-        )
+        self._log_in_browser(staff)
         page_errors = []
         self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
 

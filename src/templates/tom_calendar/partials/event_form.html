@@ -1,30 +1,42 @@
 {% comment %}
-   FOMO override of the upstream tom_calendar partial at
-   tom_calendar/templates/tom_calendar/partials/event_form.html (tomtoolkit 3.0.1,
-   installed package path verified via `pip show tomtoolkit`; re-diffed against upstream
-   for the tomtoolkit 3.0.0a9 -> 3.0.1 Bootstrap4->5 migration: `{% load bootstrap4 %}` ->
-   `{% load django_bootstrap5 %}`, `form-row` -> `row`, and the `{% buttons %}/{% endbuttons %}`
-   wrapper dropped since django_bootstrap5 doesn't provide it).
+   FOMO override of the upstream tom_calendar partial
+   tom_calendar/templates/tom_calendar/partials/event_form.html, compared with
+   tomtoolkit 3.1.0 (Phase 39, WARN-01).
 
-   Reason (D-08, Phase 27 CANON-05): an event must link back to its owning CampaignRun.
-   tom_calendar.views.update_event already renders this partial with `event` in context
-   (both the GET and invalid-POST branches), so a template override alone is enough -- no
-   view override, no URL change. This mirrors the existing calendar.html override's use of
-   event.telescope_label_meta.
+   Every block that differs from that upstream file is listed below; everything else is
+   byte-for-byte upstream. FOMO owns this copy and it drifts: re-diff it against the installed
+   upstream file on every tomtoolkit upgrade (T-27-20).
+   EventFormHeaderMatchesUpstreamTest in solsys_code/tests/test_calendar_template.py checks
+   this list against the installed upstream file, and pins the full diff in
+   solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff, so any new difference fails
+   until this list and that file are updated together.
 
-   Accepted cost (T-27-20): this is now the SECOND upstream tom_calendar template FOMO
-   owns, and both will drift on a future tomtoolkit upgrade -- diff this file against the
-   upstream path above when upgrading.
+   1. Before the form: this header, and the load line, which adds attribution_display_extras
+      and calendar_display_extras to upstream's django_bootstrap5.
+   2. Inside the form, the URL label: the "View" link is gated by is_web_url and carries
+      rel="noopener noreferrer"; any other stored value shows "(not a web link)" instead
+      (UAT G-37.1-1-allocurl: the allocation layer and the campaign reconciler keep ALLOC:/RUN:
+      namespace keys in CalendarEvent.url).
+   3. At the end of the form: plain <button> markup for Save, "Save and Edit" and Delete -- the
+      same labels as upstream -- where upstream uses bootstrap_button tags and a differently
+      laid-out Delete button.
+   4. Between the form's end and the Todo list heading: the observation_series_decoration
+      block, the campaign_decoration block (with its run_tally line) and the staff-only
+      high_band_attribution_candidates hint (edit form only), with their reason comments.
+   5. Around the form (Phase 39, ACCESS-02, D-05): a request.user.is_authenticated branch; a
+      visitor who is not logged in gets the read-only cal-event-card (labelled text, no form
+      controls) instead of the form.
+   6. Inside the cal-todos div (Phase 39, D-05): a request.user.is_authenticated branch around
+      upstream's todos include; a visitor who is not logged in gets a read-only list built from
+      event.todos.all.
 
-   Second deviation from upstream (UAT G-37.1-1-allocurl): the URL label's "View" link is limited
-   to http(s) web addresses via the is_web_url filter, because the allocation layer and the campaign
-   reconciler store ALLOC:/RUN: namespace keys in CalendarEvent.url; any other value shows a
-   "not a web link" note instead, and the link gains rel="noopener noreferrer".
-
-   Below this point, this file starts as an exact copy of the upstream partial with one
-   new block inserted after </form> and before the Todo list heading (D-08).
+   Reason for the campaign-run blocks (D-08, Phase 27 CANON-05): an event links back to the
+   campaign run it is attributed to. tom_calendar.views.update_event already renders this
+   partial with `event` in context (GET and invalid-POST branches), so a template override is
+   enough -- no view override and no URL change.
 {% endcomment %}
 {% load django_bootstrap5 attribution_display_extras calendar_display_extras %}
+{% if request.user.is_authenticated %}
 <form {% if action == "create" %}
         hx-post="{% url 'calendar:create-event' %}"
       {% else %}
@@ -92,7 +104,7 @@
     </div>
     <button type="submit" class="btn btn-primary">Save</button>
     {% if action == "create" %}
-    <button type="submit" name="save_and_edit" value="1" class="btn btn-primary">Save and edit</button>
+    <button type="submit" name="save_and_edit" value="1" class="btn btn-primary">Save and Edit</button>
     {% else %}
     <button type="button"
             hx-post="{% url 'calendar:delete-event' event.id %}"
@@ -101,6 +113,54 @@
             class="btn btn-danger">Delete</button>
     {% endif %}
 </form>
+{% else %}
+<div id="cal-event-card">
+  <dl class="row mb-2">
+    <dt class="col-sm-3">Title</dt>
+    <dd class="col-sm-9">{{ event.title }}</dd>
+    <dt class="col-sm-3">Start</dt>
+    <dd class="col-sm-9">{{ event.start_time|date:'Y-m-d H:i' }} UTC</dd>
+    <dt class="col-sm-3">End</dt>
+    <dd class="col-sm-9">{{ event.end_time|date:'Y-m-d H:i' }} UTC</dd>
+    {% if event.description %}
+    <dt class="col-sm-3">Description</dt>
+    <dd class="col-sm-9">{{ event.description|linebreaksbr }}</dd>
+    {% endif %}
+    {% if event.url %}
+    <dt class="col-sm-3">URL</dt>
+    <dd class="col-sm-9">
+      {% if event.url|is_web_url %}
+      <a href="{{ event.url }}" target="_blank" rel="noopener noreferrer">View ↗</a>
+      {% else %}
+      <span class="text-muted">(not a web link)</span>
+      {% endif %}
+    </dd>
+    {% endif %}
+    {% if event.target_list %}
+    <dt class="col-sm-3">Target list</dt>
+    <dd class="col-sm-9">
+      <a href="{% url 'targets:list' %}?targetlist__name={{ event.target_list.id }}" target="_blank">{{ event.target_list.name }} ↗</a>
+    </dd>
+    {% endif %}
+    {% if event.user %}
+    <dt class="col-sm-3">User</dt>
+    <dd class="col-sm-9">{{ event.user }}</dd>
+    {% endif %}
+    {% if event.proposal %}
+    <dt class="col-sm-3">Proposal</dt>
+    <dd class="col-sm-9">{{ event.proposal }}</dd>
+    {% endif %}
+    {% if event.telescope %}
+    <dt class="col-sm-3">Telescope</dt>
+    <dd class="col-sm-9">{{ event.telescope }}</dd>
+    {% endif %}
+    {% if event.instrument %}
+    <dt class="col-sm-3">Instrument</dt>
+    <dd class="col-sm-9">{{ event.instrument }}</dd>
+    {% endif %}
+  </dl>
+</div>
+{% endif %}
 {% comment %}
    D-08: event.telescope_label_meta is CalendarEventMeta's reverse one-to-one accessor
    (related_name, unchanged by the Phase 27 rename). A reverse one-to-one miss raises
@@ -221,7 +281,7 @@
         {% endif %}
       </div>
     </div>
-{% elif not event.telescope_label_meta.run and request.user.is_staff %}
+{% elif action == "update" and request.user.is_staff and not event.telescope_label_meta.run %}
     {% comment %}
        27-07 gap closure (27-UAT.md Test 9, T-27-21): `not run` is true both when
        event.telescope_label_meta has no companion row at all and when the companion row
@@ -231,6 +291,9 @@
        request, not client input, matching campaign_list.html's nav-banner gate
        convention) -- an offered candidate run may not yet be publicly visible, so this
        hint must never reach an anonymous or non-staff visitor.
+       G-39-4 (39-UAT.md): the action test comes first, so the create form -- rendered by
+       tom_calendar's create_event with no `event` in its context -- never evaluates this
+       hint; before that gate a staff viewer's New Event pop-up was a 500, shown as an empty box.
     {% endcomment %}
     {% high_band_attribution_candidates event as attribution_candidates %}
     {% if attribution_candidates %}
@@ -253,9 +316,23 @@
 <h6 class="mb-2">Todo list</h6>
 <hr>
 <div id="cal-todos">
+{% if request.user.is_authenticated %}
 {% if action == "update" %}
   {% include 'tom_calendar/partials/todos.html' with event=event %}
 {% else %}
   <p>Save the event to add TODOs</p>
+{% endif %}
+{% else %}
+  <ul class="list-unstyled mb-0" id="cal-todos-readonly">
+  {% for todo in event.todos.all %}
+    {% if todo.is_completed %}
+    <li><span class="text-decoration-line-through">{{ todo.description }}</span> <small class="text-muted">(done)</small></li>
+    {% else %}
+    <li>{{ todo.description }} <small class="text-muted">(not done)</small></li>
+    {% endif %}
+  {% empty %}
+    <li class="text-muted small">No todos yet.</li>
+  {% endfor %}
+  </ul>
 {% endif %}
 </div>

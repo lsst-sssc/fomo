@@ -784,6 +784,9 @@ class TestCampaignRunAnchorPagination(CampaignViewTestBase):
         self.assertIn(f'id="run-{self.oldest_run.pk}"', response.content.decode())
 
 
+# todo 2026-10-07 / Phase 39.1 SPEED-03: a private cache even if a host's local_settings.py overrides
+# the test-only CACHES; subclasses inherit the override.
+@override_settings(CACHES=TEST_CACHES)
 class TestGapAnalysisSiteUnknownCount(TestCase):
     """GAPB-01/D-17: the gap page's site-unknown count line renders only when there's
     something to report, and states the count plainly rather than silently dropping an
@@ -867,6 +870,9 @@ class TestGapAnalysisSiteUnknownCount(TestCase):
         self.assertNotContains(response, 'not ignored')
 
 
+# todo 2026-10-07 / Phase 39.1 SPEED-03: a private cache even if a host's local_settings.py overrides
+# the test-only CACHES; subclasses inherit the override.
+@override_settings(CACHES=TEST_CACHES)
 class CampaignTallyViewTestBase(TestCase):
     """Shared fixture for the TALLY-01/02 Progress-column and roll-up tests: one
     resolvable ground Observatory (fixed UTC-10, no DST -- mirrors

@@ -2045,7 +2045,7 @@ Setting it up on a fresh host
 2. Put the real ``EMAIL_BACKEND`` (and its ``EMAIL_HOST_*`` settings) and
    the LCO/SOAR API key (from the LCO Observation Portal and the
    'Profile' link under your username in the top right corner) in this
-   host's ``local_settings.py`` file. This should never be in the crontab
+   host's ``src/fomo/local_settings.py`` file (see :ref:`local-settings`). This should never be in the crontab
    line, never in an environment variable, and never committed to git.
    Write the API key as a flat, top-level assignment --
    ``LCO_API_KEY = '<your key>'`` -- because ``settings.py`` imports
@@ -2573,6 +2573,39 @@ the page is drawn -- it is never written into the entry's own title or
 description -- so nothing that rewrites those fields (a base-layer
 re-projection, a hand edit, anything) can erase it.
 
+**Not logged in, the calendar is read-only.** A visitor who is not logged
+in sees a month view with no "+ New Event" button, and a day cell does
+nothing when clicked. Clicking an entry still opens the pop-up, but as a
+read-only card: title, start and end (UTC), description, URL (a "View ↗"
+link only for a web address; a stored allocation or run key shows only
+"(not a web link)"), target list, user, proposal, telescope and
+instrument, and the entry's todos marked done or not done -- with no
+form, no Save or Delete button and no todo controls. The Attributed
+campaign run block and its tally show exactly as they do for a logged-in
+visitor, while the Observation series block stays logged-in only (see
+"Observation series" above). Any logged-in user, staff or not, can create,
+edit and delete entries and add and tick todos exactly as before -- and
+that includes an account its owner self-registered through the site's
+sign-up page: self-registration is open
+(``TOM_REGISTRATION_STRATEGY = 'open'`` in ``src/fomo/settings.py``), so a
+new account needs no operator approval. That is a deliberate, accepted
+choice (2026-10-08): "Self-signup is wanted; collaborators should be able
+to join without an operator; calendar edits are visible, attributable and
+easily reverted."
+
+A write attempt while logged out changes nothing and is sent to the login
+page in one of two ways. One that passes the CSRF check (typically a save
+from a calendar tab left open after logging out) returns to the calendar
+page after logging in. One that fails the CSRF check (a script, a form
+posted from another site, or a tab whose form token a newer login has
+replaced) is turned away before the calendar's own login check runs and is
+sent to the login page with the refused address as the page to return to;
+after logging in the browser simply opens that address, which changes
+nothing -- the delete and todo addresses refuse a plain visit, and the
+create and edit addresses show a bare, unstyled copy of the event form.
+Do not use that copy: its Save saves nothing and silently discards what
+was typed; go back to the calendar page and make the change there.
+
 Before chasing a missing attribution, first confirm the pop-up opens at
 all: clicking a calendar entry opens the pop-up through the Bootstrap 5
 modal API, because the TOM Toolkit 3.x base page this site is built on
@@ -2580,9 +2613,9 @@ loads the Bootstrap 5 bundle, htmx and Alpine and no jQuery. These are two
 different faults with two different fixes. A pop-up that opens but shows
 no Attributed campaign run block means the entry carries no attribution
 link -- the situation the rest of this section covers. A pop-up that does
-not open at all, on any entry, on a day cell, or on the "+ New Event"
-button, is a client-side JavaScript fault in the calendar page, not a
-missing attribution. Exactly that fault was found and fixed in Phase 33
+not open at all, on any entry, or -- when logged in -- on a day cell or the "+ New Event" button,
+is a client-side JavaScript fault in the calendar page, not a missing
+attribution. Exactly that fault was found and fixed in Phase 33
 (UAT G-33-2); if it recurs, report it as a front-end regression and check
 the browser console, rather than looking for a missing campaign link.
 

@@ -2,12 +2,13 @@ import re
 from dataclasses import dataclass
 from datetime import date as date_cls
 from datetime import datetime, time, timedelta
+from functools import lru_cache
 from math import sqrt
 from zoneinfo import ZoneInfo
 
 import astropy.units as u
 import numpy as np
-from astropy.coordinates import AltAz, get_sun
+from astropy.coordinates import AltAz, EarthLocation, get_sun
 from astropy.time import Time
 
 from solsys_code.solsys_code_observatory.models import Observatory
@@ -196,17 +197,25 @@ def _solar_altitude(times: Time, location) -> np.ndarray:
     return altaz.alt.deg
 
 
+# Number of bisection steps that refine every bracketed crossing in _find_crossing(). The coarse
+# bracket is 600 s wide, so 600 s / 2**14 = 0.037 s resolution, finer than the pre-phase 60 s / 2**10 = 0.059 s.
+_BISECTION_STEPS = 14
+
+
 def _find_crossing(
-    anchor: Time, location, threshold_deg: float, search_hours: float = 24, coarse_step_min: float = 1.0
+    anchor: Time, location, threshold_deg: float, search_hours: float = 24, coarse_step_min: float = 10.0
 ) -> list[Time]:
     """Finds UTC times where solar altitude crosses threshold_deg.
 
-    Performs a coarse scan over the window [anchor, anchor + search_hours],
-    then refines each sign change with bisection to sub-second precision.
-    Anchoring at local noon of the observing date (see _local_noon_utc) and
-    scanning forward search_hours=24 guarantees both the evening sunset/dark
-    crossing of that date and the following morning's sunrise/dark-end
-    crossing fall within the window, in chronological (set, then rise) order.
+    Performs a coarse scan over the closed window [anchor, anchor + search_hours] in one
+    AltAz transform (145 samples at the defaults), then refines every sign change together
+    with a vectorised bisection: each of the ``_BISECTION_STEPS`` steps is ONE transform over
+    the midpoints of all brackets, giving ~0.04 s resolution. A night with two crossings
+    therefore costs 15 transforms and 173 time samples (the earlier 1-minute scan cost 21
+    transforms and 1,461 samples). Anchoring at local noon of the observing date (see
+    _local_noon_utc) and scanning forward search_hours=24 guarantees both the evening
+    sunset/dark crossing of that date and the following morning's sunrise/dark-end crossing
+    fall within the window, in chronological (set, then rise) order.
 
     Args:
         anchor: astropy Time at the start of the search window (local noon).
@@ -216,28 +225,35 @@ def _find_crossing(
         coarse_step_min: coarse scan step size, in minutes.
 
     Returns:
-        list[Time]: UTC times of each altitude crossing, in chronological order.
+        list[Time]: UTC times of each altitude crossing, in chronological order; an empty
+            list when the altitude never crosses the threshold in the window.
     """
-    # +coarse_step_min so the window covers a full, closed [0, search_hours] range
-    # (np.arange's exclusive upper bound would otherwise leave the last minute unscanned).
-    offsets = np.arange(0, search_hours * 60 + coarse_step_min, coarse_step_min) * u.min
-    times = anchor + offsets
-    alt = _solar_altitude(times, location)
-    crossings = []
-    for i in range(len(alt) - 1):
-        if (alt[i] - threshold_deg) * (alt[i + 1] - threshold_deg) < 0:
-            # Bisection refine between times[i] and times[i+1]
-            lo, hi = times[i], times[i + 1]
-            lo_alt = alt[i]
-            for _ in range(10):  # ~1/1024 of 1-min step -> sub-second precision
-                mid = lo + (hi - lo) / 2
-                mid_alt = _solar_altitude(Time([mid]), location)[0]
-                if (mid_alt - threshold_deg) * (lo_alt - threshold_deg) < 0:
-                    hi = mid
-                else:
-                    lo, lo_alt = mid, mid_alt
-            crossings.append(lo)
-    return crossings
+    # Accepted limitation: a double crossing that falls entirely inside one coarse step (the
+    # altitude dips below the threshold and back within 10 minutes) shows no sign change and is
+    # missed. The earlier 1-minute grid had the same weakness at a smaller scale. It only arises
+    # where the sun's altitude extremum grazes the threshold, near the polar-day/night boundary,
+    # and sun_event() raises a clear ValueError whenever the crossing count is not 2.
+    n_steps = int(round(search_hours * 60 / coarse_step_min))
+    # Closed [0, search_hours] window: n_steps + 1 samples, in seconds from the anchor.
+    offsets = np.arange(0, n_steps + 1) * coarse_step_min * 60.0
+    alt = _solar_altitude(anchor + offsets * u.s, location) - threshold_deg
+    brackets = np.nonzero(alt[:-1] * alt[1:] < 0)[0]
+    if brackets.size == 0:
+        return []
+
+    lo = offsets[brackets]
+    hi = offsets[brackets + 1]
+    lo_val = alt[brackets]
+    for _ in range(_BISECTION_STEPS):
+        mid = (lo + hi) / 2
+        mid_val = _solar_altitude(anchor + mid * u.s, location) - threshold_deg
+        # A sign change between the lower end and the midpoint keeps the crossing in [lo, mid].
+        crossing_in_lower_half = mid_val * lo_val < 0
+        hi = np.where(crossing_in_lower_half, mid, hi)
+        lo = np.where(crossing_in_lower_half, lo, mid)
+        lo_val = np.where(crossing_in_lower_half, lo_val, mid_val)
+    # Lower bracket ends, as before; brackets are found in ascending order so these are chronological.
+    return [anchor + float(x) * u.s for x in lo]
 
 
 def _local_noon_utc(local_date: date_cls, tz_name: str) -> Time:
@@ -255,6 +271,50 @@ def _local_noon_utc(local_date: date_cls, tz_name: str) -> Time:
     return Time(local_noon.astimezone(ZoneInfo('UTC')))
 
 
+@lru_cache(maxsize=4096)
+def _cached_crossings(
+    lon: float, lat: float, altitude: float, timezone: str, date: date_cls, threshold: float
+) -> tuple[Time, ...]:
+    """Memoised solar-altitude crossings of ``threshold`` in the 24 h after local noon of ``date``.
+
+    The same site and night are recomputed many times in one process (night minting, the gap
+    analysis' per-date loop), and every recomputation repeats an identical AltAz search (SPEED-01).
+    This per-process memo turns the repeats into dictionary lookups.
+
+    It sits one level BELOW ``sun_event()`` on purpose: the call-counting tests (Phase 35 D-13)
+    patch the outer ``sun_event`` name and must still count every call, and ``sun_event()``'s
+    validation has to run on every call, so only the pure crossing search is cached. The memo is
+    per process, so a new process recomputes; that keeps the IERS-drift reasoning in
+    ``allocation_projector.py`` (a stored boundary is compared against a freshly computed one)
+    true, and ``maxsize`` bounds the memory of a long-running web process.
+
+    The key is every input the result depends on: the four ``Observatory`` fields
+    ``allocation_projector`` fingerprints (lon, lat, altitude, timezone) plus the date and the
+    threshold (which already encodes the kind and the altitude-derived horizon dip). An in-place
+    ``Observatory`` correction is therefore a new key, and two records with identical coordinates
+    (Magellan-Clay and Magellan-Baade) share one entry. Exceptions are never cached: a call that
+    raises stores nothing.
+
+    ``EarthLocation`` is not a safe cache key, so it is rebuilt here from the key's floats exactly
+    as ``Observatory.to_earth_location()`` builds it. The returned ``Time`` objects are mutable
+    (``Time.format`` can be set in place), so callers MUST ``.copy()`` what they hand out.
+
+    Args:
+        lon: observatory longitude in degrees east.
+        lat: observatory latitude in degrees.
+        altitude: observatory altitude in metres.
+        timezone: IANA timezone name used to find local noon of ``date``.
+        date: local calendar date of the evening whose night is searched.
+        threshold: solar altitude threshold in degrees.
+
+    Returns:
+        tuple[Time, ...]: UTC crossing times in chronological order (possibly empty).
+    """
+    location = EarthLocation(lon=lon * u.deg, lat=lat * u.deg, height=altitude * u.m)
+    anchor = _local_noon_utc(date, timezone)
+    return tuple(_find_crossing(anchor, location, threshold, search_hours=24))
+
+
 def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]:
     """Computes UTC sun-event crossing times for an observing night.
 
@@ -265,6 +325,10 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
         kind: 'sun' for the dip-corrected sunset/sunrise threshold
             (-(0.833 + dip) degrees), or 'dark' for the -15 degree
             dark-window threshold (no dip correction).
+
+    Results are memoised per process by ``_cached_crossings()`` (same site position,
+    timezone, date and threshold run one crossing search) and returned as copies, so a
+    caller mutating a returned ``Time`` cannot change what later calls get.
 
     Returns:
         tuple[Time, Time]: (setting, rising) as astropy.time.Time objects,
@@ -283,8 +347,8 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
             'set Observatory.timezone (IANA name, e.g. "America/Santiago") before calling sun_event().'
         )
 
-    location = site.to_earth_location()
-    anchor = _local_noon_utc(date, site.timezone)
+    # Raises ValueError for a coordinate-less site, before any cache lookup.
+    site.to_earth_location()
 
     if kind == 'sun':
         dip = horizon_dip(site.altitude)
@@ -295,7 +359,9 @@ def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]
     else:
         raise ValueError(f"kind must be 'sun' or 'dark', got {kind!r}")
 
-    crossings = _find_crossing(anchor, location, threshold, search_hours=24)
+    # An unknown timezone name raises ZoneInfoNotFoundError from inside the helper; lru_cache
+    # stores nothing for a call that raises. Copy each Time: cached objects are mutable.
+    crossings = [t.copy() for t in _cached_crossings(site.lon, site.lat, site.altitude, site.timezone, date, threshold)]
     if len(crossings) != 2:
         raise ValueError(
             f'Expected 2 sun-event crossings for {site.short_name} on {date} '

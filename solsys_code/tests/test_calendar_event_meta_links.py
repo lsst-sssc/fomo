@@ -21,7 +21,7 @@ from datetime import timezone as dt_timezone
 
 from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, tag
 from tom_calendar.models import CalendarEvent
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.tests.factories import NonSiderealTargetFactory
@@ -138,6 +138,7 @@ class CalendarEventMetaObservationLinksFieldTests(TestCase):
         self.assertTrue(CalendarEvent.objects.filter(pk=event.pk).exists())
 
 
+@tag('migration')  # Phase 39.1 (SPEED-04): drives MigrationExecutor; the django-test hook skips it, CI runs it
 class TestCalendarEventMetaObservationLinksMigration(TransactionTestCase):
     """Exercises migration 0017 (two AddFields + one AlterField) against pre-existing rows.
 

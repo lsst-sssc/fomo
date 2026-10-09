@@ -10,20 +10,25 @@ fix, status box-shadow rings, composition with Phase 8 dashed border, and the fo
 legend with click-to-filter infrastructure.
 """
 
+import difflib
+import re
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from pathlib import Path
 
+import tom_calendar
 from django.contrib.auth.models import User
 from django.db import connection
 from django.db.models.signals import m2m_changed, post_save
-from django.test import Client, SimpleTestCase, TestCase
+from django.template.loader import render_to_string
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.html import escape
-from tom_calendar.models import CalendarEvent
+from tom_calendar.models import CalendarEvent, EventTodo
+from tom_calendar.views import EventForm
 from tom_observations.models import ObservationGroup, ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
@@ -32,6 +37,7 @@ from solsys_code.allocation_projector import ALLOC_URL_NAMESPACE
 from solsys_code.campaign_reconciler import RUN_URL_NAMESPACE
 from solsys_code.models import NO_CAMPAIGN_LABEL, CalendarEventMeta, CampaignRun
 from solsys_code.observation_projector import receiver_on_group_membership_changed, receiver_on_record_save
+from solsys_code.templatetags.attribution_display_extras import high_band_attribution_candidates
 from solsys_code.templatetags.calendar_display_extras import (
     observation_status_legend,
     proposal_color,
@@ -781,6 +787,15 @@ class EventModalAttributionHintTest(TestCase):
     the event_form.html modal for an unlinked event with a HIGH-band attribution-queue
     candidate now surfaces a staff-only "Possible campaign run match" hint naming the
     candidate and linking to the attribution queue filtered to band=high.
+
+    G-39-4 (39-UAT.md, .planning/debug/blank-new-event-popup.md): the create form has no
+    ``event``, so for a staff viewer the hint branch used to raise and the New Event pop-up came
+    back as a 500.
+
+    G-39-7 (39-UAT.md Test 7, 39-REVIEW WR-04, .planning/debug/non-staff-edit-popup-hint-test-missing.md):
+    the hint's ``request.user.is_staff`` conjunct is the only thing that keeps the hint from a signed-in
+    non-staff account, and every self-registered account can open the edit pop-up (D-01, D-04), so a plain
+    user is now tested on the edit form too.
     """
 
     @classmethod
@@ -826,8 +841,27 @@ class EventModalAttributionHintTest(TestCase):
         )
         CalendarEventMeta.objects.create(event=cls.linked_event, is_verified=True, run=cls.matched_run)
 
+        cls.superuser = User.objects.create_superuser(
+            username='attrmodalsuper', email='attrmodalsuper@example.com', password='pw'
+        )
+        cls.plain_user = User.objects.create_user(username='attrmodalplain', password='pw')
+
     def _modal_url(self, event):
         return reverse('calendar:update-event', args=[event.id])
+
+    def _signed_in_client(self, user) -> Client:
+        """A client signed in as ``user`` that does not re-raise server errors.
+
+        A 500 must surface as a status the test asserts on (a FAIL), not as an exception
+        re-raised into the test (an ERROR).
+        """
+        client = Client(raise_request_exception=False)
+        client.force_login(user)
+        return client
+
+    def _masked(self, html: str) -> str:
+        """``html`` with the CSRF token value blanked (the token is per request, the rest must match)."""
+        return re.sub(r'(name="csrfmiddlewaretoken" value=")[^"]*(")', r'\1\2', html)
 
     def test_staff_sees_high_band_hint_for_unlinked_event(self):
         self.client.force_login(self.staff_user)
@@ -889,6 +923,101 @@ class EventModalAttributionHintTest(TestCase):
         )
         content = template_path.read_text()
         self.assertNotIn('no production code writes CalendarEventMeta.run yet', content)
+
+    def test_staff_and_superuser_get_the_create_form(self):
+        """G-39-4 / D-01 / D-07: a staff or superuser GET of the create form gets the form, not a 500."""
+        create_url = reverse('calendar:create-event')
+        for user in (self.staff_user, self.superuser):
+            client = self._signed_in_client(user)
+            for query in ('', '?date=2026-07-16'):
+                for headers in ({'HX-Request': 'true'}, {}):
+                    with self.subTest(user=user.username, query=query, htmx=bool(headers)):
+                        response = client.get(create_url + query, headers=headers)
+                        self.assertEqual(response.status_code, 200)
+                        body = response.content.decode()
+                        self.assertIn('<form', body)
+                        self.assertIn(f'hx-post="{create_url}"', body)
+                        self.assertIn('>Save and Edit</button>', body)
+                        if query:
+                            self.assertIn('2026-07-16', body)
+                        self.assertNotIn('Possible campaign run match', body)
+
+    def test_staff_create_form_matches_the_plain_users_apart_from_the_csrf_token(self):
+        """G-39-4: the staff create form equals a plain user's, so the non-staff browser test speaks for staff."""
+        create_url = reverse('calendar:create-event')
+        plain = self._signed_in_client(self.plain_user).get(create_url, headers={'HX-Request': 'true'})
+        staff = self._signed_in_client(self.staff_user).get(create_url, headers={'HX-Request': 'true'})
+        self.assertEqual(plain.status_code, 200)
+        self.assertEqual(staff.status_code, 200)
+        plain_body = plain.content.decode()
+        staff_body = staff.content.decode()
+        self.assertIn('<form', plain_body)
+        self.assertIn('>Save and Edit</button>', plain_body)
+        self.assertEqual(self._masked(staff_body), self._masked(plain_body))
+
+    def test_staff_invalid_create_post_re_renders_the_form(self):
+        """G-39-4: a staff htmx POST of an invalid create form re-renders the form and creates nothing."""
+        title = 'Staff invalid create'
+        before = CalendarEvent.objects.count()
+        response = self._signed_in_client(self.staff_user).post(
+            reverse('calendar:create-event'), {'title': title}, headers={'HX-Request': 'true'}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['HX-Retarget'], '#cal-modal-body')
+        self.assertIn('<form', response.content.decode())
+        self.assertEqual(CalendarEvent.objects.count(), before)
+        self.assertFalse(CalendarEvent.objects.filter(title=title).exists())
+
+    def test_attribution_tag_returns_empty_list_for_a_non_event(self):
+        """G-39-4 (a): the tag's docstring promises it never raises; the create form hands it '' for a missing event."""
+        for value in ('', None):
+            with self.subTest(value=value):
+                try:
+                    result = high_band_attribution_candidates(value)
+                except Exception as exc:
+                    self.fail(
+                        f'high_band_attribution_candidates({value!r}) raised {type(exc).__name__}: {exc}; '
+                        'its docstring promises it never raises'
+                    )
+                self.assertEqual(result, [])
+
+    def test_hint_is_gated_on_the_edit_form(self):
+        """G-39-4 (b): the hint shows for action update and never for create (the update subTest proves
+        the same render path can show the hint at all). The plain-user update row (G-39-7) proves that
+        the staff test, not sign-in alone, gates the hint."""
+        event = self.unlinked_event_with_candidate
+        request = RequestFactory().get(reverse('calendar:update-event', args=[event.pk]))
+        for user, action, shown in (
+            (self.staff_user, 'update', True),
+            (self.staff_user, 'create', False),
+            (self.plain_user, 'update', False),
+        ):
+            with self.subTest(user=user.username, action=action):
+                request.user = user
+                html = render_to_string(
+                    'tom_calendar/partials/event_form.html',
+                    {'form': EventForm(instance=event), 'event': event, 'action': action},
+                    request=request,
+                )
+                self.assertEqual('Possible campaign run match' in html, shown)
+
+    def test_superuser_sees_high_band_hint_for_unlinked_event(self):
+        """G-39-4: the superuser neighbour of test_staff_sees_high_band_hint_for_unlinked_event."""
+        response = self._signed_in_client(self.superuser).get(self._modal_url(self.unlinked_event_with_candidate))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Possible campaign run match', response.content.decode())
+
+    def test_signed_in_non_staff_does_not_see_hint(self):
+        """G-39-7 / 39-REVIEW WR-04 / T-27-21: the hint is staff-only; a signed-in non-staff account
+        (sign-up is open) that opens the edit pop-up must not see it."""
+        event = self.unlinked_event_with_candidate
+        response = self._signed_in_client(self.plain_user).get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        # Proves the edit form rendered, not the create form or anonymous card, so the absences below mean something.
+        self.assertIn(f'hx-post="{self._modal_url(event)}"', body)
+        self.assertNotIn('Possible campaign run match', body)
+        self.assertNotIn(f'{reverse("campaigns:attribution")}?band=high', body)
 
 
 class TemplateCommentSyntaxSweepTest(SimpleTestCase):
@@ -1594,7 +1723,9 @@ class EventModalSeriesDecorationTest(TestCase):
 
 
 class EventFormUrlLinkTest(TestCase):
-    """UAT G-37.1-1-allocurl: the event pop-up's URL label links only http(s) addresses.
+    """UAT G-37.1-1-allocurl: the signed-in editor's event form links only http(s) addresses.
+
+    An anonymous visitor gets the read-only card instead of the form (see EventCardUrlLinkTest).
 
     The allocation layer (``ALLOC:{run.pk}:{night}``) and the campaign reconciler (``RUN:{pk}``)
     keep namespace keys in ``CalendarEvent.url``; those must show as plain values, never as a
@@ -1603,7 +1734,12 @@ class EventFormUrlLinkTest(TestCase):
 
     PORTAL_URL = 'https://observe.lco.global/requests/4229878'
 
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.editor = User.objects.create_user(username='urlcase-editor', password='pw')
+
     def _form_html(self, url: str) -> str:
+        self.client.force_login(self.editor)
         event = CalendarEvent.objects.create(
             title='URL case',
             start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
@@ -1641,3 +1777,458 @@ class EventFormUrlLinkTest(TestCase):
         content = self._form_html('')
         self.assertNotIn('not a web link', content)
         self.assertNotIn(self.PORTAL_URL, content)
+
+
+class CalendarMonthViewReadOnlyTest(TestCase):
+    """ACCESS-02 / D-07: the month view offers create click targets only to a signed-in user."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.event = CalendarEvent.objects.create(
+            title='Month Event',
+            start_time=datetime(2026, 8, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 4, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.editor = User.objects.create_user(username='month-editor', password='pw')
+
+    def _month(self, client=None, **extra) -> str:
+        response = (client or self.client).get(reverse('calendar:calendar'), {'year': 2026, 'month': 8}, **extra)
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_anonymous_month_view_has_no_create_target(self):
+        content = self._month()
+        self.assertNotIn('/calendar/create/', content)
+        self.assertNotIn('+ New Event', content)
+        self.assertIn(reverse('calendar:update-event', args=[self.event.pk]), content)
+        self.assertIn('bootstrap.Modal.getOrCreateInstance', content)
+        self.assertIn('cal-header-spacer', content)
+
+    def test_signed_in_month_view_keeps_both_create_targets(self):
+        self.client.force_login(self.editor)
+        content = self._month()
+        self.assertIn('+ New Event', content)
+        self.assertIn('/calendar/create/?date=2026-08-01', content)
+        self.assertNotIn('cal-header-spacer', content)
+
+    def test_anonymous_month_partial_offers_no_login_prompt(self):
+        content = self._month(headers={'HX-Request': 'true'})
+        lowered = content.lower()
+        self.assertNotIn('log in', lowered)
+        self.assertNotIn('login', lowered)
+        self.assertNotIn('/accounts/login/', content)
+
+
+class EventModalReadOnlyCardTest(TestCase):
+    """ACCESS-02 / D-04 / D-05: an anonymous visitor's pop-up is a read-only card, not the form."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.target_list = TargetList.objects.create(name='Card Target List')
+        cls.campaign = TargetList.objects.create(name='Card Campaign')
+        cls.card_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 8, 4),
+            window_end=date(2026, 8, 4),
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.event = CalendarEvent.objects.create(
+            title='Card Event',
+            description='Line one\nLine two',
+            start_time=datetime(2026, 8, 4, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 4, 21, 0, tzinfo=dt_timezone.utc),
+            url='https://observe.lco.global/requests/4229878',
+            target_list=cls.target_list,
+            user='tlister',
+            proposal='KEY2026B-004',
+            telescope='FTN',
+            instrument='MuSCAT3',
+        )
+        CalendarEventMeta.objects.create(event=cls.event, run=cls.card_run)
+        cls.done_todo = EventTodo.objects.create(event=cls.event, description='Check guider', is_completed=True)
+        cls.open_todo = EventTodo.objects.create(event=cls.event, description='Reduce frames', is_completed=False)
+        cls.bare_event = CalendarEvent.objects.create(
+            title='Bare Event',
+            start_time=datetime(2026, 8, 5, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 5, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.markup_event = CalendarEvent.objects.create(
+            title='Card <b>bold</b> title',
+            description='Line one\nLine two <script>alert(1)</script>',
+            start_time=datetime(2026, 8, 6, 20, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 6, 21, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.editor = User.objects.create_user(username='card-editor', password='pw')
+
+    def _popup_url(self, event) -> str:
+        return reverse('calendar:update-event', args=[event.pk])
+
+    def _popup(self, event, client=None) -> str:
+        response = (client or self.client).get(self._popup_url(event))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_anonymous_card_has_no_form_controls(self):
+        content = self._popup(self.event)
+        for forbidden in ('<form', '<input', '<select', '<textarea', '<button', 'hx-post', 'csrfmiddlewaretoken'):
+            self.assertNotIn(forbidden, content)
+        pk = self.event.pk
+        for url in (
+            reverse('calendar:delete-event', args=[pk]),
+            reverse('calendar:update-event', args=[pk]),
+            reverse('calendar:create-todo', args=[pk]),
+            reverse('calendar:update-todo', args=[self.done_todo.pk]),
+            reverse('calendar:update-todo', args=[self.open_todo.pk]),
+        ):
+            self.assertNotIn(url, content)
+
+    def test_anonymous_card_shows_every_field_as_text(self):
+        content = self._popup(self.event)
+        self.assertIn('id="cal-event-card"', content)
+        for label in (
+            'Title',
+            'Start',
+            'End',
+            'Description',
+            'URL',
+            'Target list',
+            'User',
+            'Proposal',
+            'Telescope',
+            'Instrument',
+        ):
+            self.assertIn(f'<dt class="col-sm-3">{label}</dt>', content)
+        for value in (
+            'Card Event',
+            '2026-08-04 20:00 UTC',
+            '2026-08-04 21:00 UTC',
+            'Line one<br>Line two',
+            'tlister',
+            'KEY2026B-004',
+            'FTN',
+            'MuSCAT3',
+            'Card Target List',
+            f'{reverse("targets:list")}?targetlist__name={self.target_list.id}',
+        ):
+            self.assertIn(value, content)
+
+    def test_anonymous_card_omits_empty_fields(self):
+        content = self._popup(self.bare_event)
+        for label in ('Title', 'Start', 'End'):
+            self.assertIn(f'<dt class="col-sm-3">{label}</dt>', content)
+        for label in ('Description', 'URL', 'Target list', 'User', 'Proposal', 'Telescope', 'Instrument'):
+            self.assertNotIn(f'<dt class="col-sm-3">{label}</dt>', content)
+
+    def test_anonymous_card_renders_attributed_run_block_once(self):
+        content = self._popup(self.event)
+        self.assertEqual(content.count('Attributed campaign run'), 1)
+        self.assertIn('FTN/MuSCAT3', content)
+        self.assertIn(f'{reverse("campaigns:table", args=[self.campaign.pk])}#run-{self.card_run.pk}', content)
+
+    def test_anonymous_card_lists_todos_read_only(self):
+        content = self._popup(self.event)
+        self.assertIn('id="cal-todos-readonly"', content)
+        self.assertRegex(content, r'Check guider</span>\s*<small[^>]*>\(done\)')
+        self.assertRegex(content, r'Reduce frames\s*<small[^>]*>\(not done\)')
+        self.assertNotIn('type="checkbox"', content)
+
+    def test_anonymous_card_with_no_todos_says_so(self):
+        content = self._popup(self.bare_event)
+        self.assertIn('No todos yet.', content)
+
+    def test_anonymous_card_escapes_markup(self):
+        content = self._popup(self.markup_event)
+        self.assertIn(escape(self.markup_event.title), content)
+        self.assertNotIn('<b>bold</b>', content)
+        self.assertIn('&lt;script&gt;', content)
+        self.assertNotIn('<script>alert(1)', content)
+        self.assertIn('Line one<br>Line two', content)
+
+    def test_anonymous_card_offers_no_login_prompt(self):
+        lowered = self._popup(self.event).lower()
+        self.assertNotIn('log in', lowered)
+        self.assertNotIn('login', lowered)
+
+    def test_signed_in_user_gets_the_editable_form(self):
+        self.client.force_login(self.editor)
+        content = self._popup(self.event)
+        self.assertIn('<form', content)
+        self.assertIn('csrfmiddlewaretoken', content)
+        self.assertIn('>Save</button>', content)
+        self.assertIn(reverse('calendar:delete-event', args=[self.event.pk]), content)
+        self.assertIn(reverse('calendar:create-todo', args=[self.event.pk]), content)
+        self.assertNotIn('cal-event-card', content)
+        self.assertEqual(content.count('Attributed campaign run'), 1)
+
+    def test_signed_in_create_form_uses_upstream_button_labels(self):
+        """WR-02: the create form's buttons read exactly as tomtoolkit 3.1.0's (Save, Save and Edit)."""
+        self.client.force_login(self.editor)
+        response = self.client.get(reverse('calendar:create-event'))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('>Save and Edit</button>', content)
+        self.assertIn('>Save</button>', content)
+        self.assertNotIn('>Save and ' + 'edit</button>', content)
+
+    def _row_counts(self) -> tuple[int, int, int]:
+        return (CalendarEvent.objects.count(), EventTodo.objects.count(), CalendarEventMeta.objects.count())
+
+    def test_anonymous_reads_write_nothing(self):
+        before_counts = self._row_counts()
+        before_modified = CalendarEvent.objects.get(pk=self.event.pk).modified
+        for _ in range(2):
+            self.assertEqual(self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 8}).status_code, 200)
+            self._popup(self.event)
+        self.assertEqual(self._row_counts(), before_counts)
+        self.assertEqual(CalendarEvent.objects.get(pk=self.event.pk).modified, before_modified)
+
+    def test_editor_then_anonymous_render_share_no_output(self):
+        self.client.force_login(self.editor)
+        editor_month = self.client.get(reverse('calendar:calendar'), {'year': 2026, 'month': 8}).content.decode()
+        editor_popup = self._popup(self.event)
+        self.assertIn('/calendar/create/', editor_month)
+        self.assertIn('<form', editor_popup)
+
+        visitor = Client()
+        visitor_month = visitor.get(reverse('calendar:calendar'), {'year': 2026, 'month': 8}).content.decode()
+        visitor_popup = self._popup(self.event, client=visitor)
+        self.assertNotIn('/calendar/create/', visitor_month)
+        self.assertNotIn('<form', visitor_popup)
+        self.assertIn('cal-event-card', visitor_popup)
+
+
+class EventCardUrlLinkTest(TestCase):
+    """ACCESS-02 / D-05: the anonymous card links only http(s) addresses and never echoes other values."""
+
+    PORTAL_URL = 'https://observe.lco.global/requests/4229878'
+
+    def _card_html(self, url: str) -> str:
+        event = CalendarEvent.objects.create(
+            title='URL card case',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+            url=url,
+        )
+        response = self.client.get(reverse('calendar:update-event', args=[event.id]))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_allocation_key_is_not_a_link_and_not_echoed(self):
+        key = f'{ALLOC_URL_NAMESPACE}1:2026-07-07'
+        content = self._card_html(key)
+        self.assertNotIn(f'href="{ALLOC_URL_NAMESPACE}', content)
+        self.assertIn('not a web link', content)
+        self.assertNotIn(key, content)
+
+    def test_campaign_run_key_is_not_a_link_and_not_echoed(self):
+        key = f'{RUN_URL_NAMESPACE}5'
+        content = self._card_html(key)
+        self.assertNotIn(f'href="{RUN_URL_NAMESPACE}', content)
+        self.assertIn('not a web link', content)
+        self.assertNotIn(key, content)
+
+    def test_portal_url_links_with_noopener(self):
+        content = self._card_html(self.PORTAL_URL)
+        self.assertIn(f'href="{self.PORTAL_URL}"', content)
+        self.assertIn('rel="noopener noreferrer"', content)
+        self.assertIn('View', content)
+        self.assertNotIn('not a web link', content)
+
+    def test_javascript_url_is_never_a_link_and_not_echoed(self):
+        content = self._card_html('javascript:alert(1)')
+        self.assertNotIn('href="javascript:', content)
+        self.assertNotIn('javascript:alert(1)', content)
+
+    def test_empty_url_shows_no_url_row(self):
+        content = self._card_html('')
+        self.assertNotIn('<dt class="col-sm-3">URL</dt>', content)
+        self.assertNotIn('not a web link', content)
+
+
+def normalized_upstream_diff(upstream_lines: list[str], body_lines: list[str]) -> str:
+    """Render the line-level difference between the upstream partial and FOMO's body as stable text.
+
+    Each non-equal opcode of ``difflib.SequenceMatcher`` (``autojunk=False``) becomes one ``@@ ... @@`` header line,
+    followed by the upstream lines prefixed with ``-`` and the FOMO body lines prefixed with ``+``.
+
+    Args:
+        upstream_lines: Lines of the installed tom_calendar event_form.html.
+        body_lines: Lines of FOMO's event_form.html after its header comment.
+
+    Returns:
+        The diff text, ending with a newline (empty string when the two are identical).
+    """
+    out: list[str] = []
+    matcher = difflib.SequenceMatcher(None, upstream_lines, body_lines, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'equal':
+            continue
+        out.append(f'@@ {tag} upstream {i1 + 1}-{i2} fomo-body {j1 + 1}-{j2} @@')
+        out.extend('-' + line for line in upstream_lines[i1:i2])
+        out.extend('+' + line for line in body_lines[j1:j2])
+    return '\n'.join(out) + '\n' if out else ''
+
+
+class EventFormHeaderMatchesUpstreamTest(SimpleTestCase):
+    """WARN-01 / D-10: event_form.html's header lists exactly the blocks that differ from the installed upstream."""
+
+    TEMPLATE = Path(__file__).resolve().parents[2] / 'src/templates/tom_calendar/partials/event_form.html'
+    SNAPSHOT = Path(__file__).resolve().parent / 'data' / 'event_form_vs_tomtoolkit_3_1_0.diff'
+    # Per header item: literals that must occur in a differing region and in that item's own header text.
+    ANCHORS = {
+        1: ('attribution_display_extras',),
+        2: ('is_web_url', 'noopener noreferrer', 'not a web link'),
+        3: ('<button', 'Save and Edit'),
+        4: ('observation_series_decoration', 'campaign_decoration', 'high_band_attribution_candidates'),
+        5: ('request.user.is_authenticated', 'cal-event-card'),
+        6: ('request.user.is_authenticated', 'event.todos.all'),
+    }
+
+    @classmethod
+    def _source(cls) -> str:
+        return cls.TEMPLATE.read_text()
+
+    @classmethod
+    def _header(cls) -> str:
+        source = cls._source()
+        return source.split('{% endcomment %}', 1)[0]
+
+    @classmethod
+    def _body_lines(cls) -> list[str]:
+        return cls._source().split('{% endcomment %}\n', 1)[1].splitlines()
+
+    @classmethod
+    def _upstream_lines(cls) -> list[str]:
+        upstream = (
+            Path(tom_calendar.__file__).resolve().parent / 'templates' / 'tom_calendar' / 'partials' / 'event_form.html'
+        )
+        assert upstream.exists(), f'installed upstream partial not found at {upstream}'
+        return upstream.read_text().splitlines()
+
+    @classmethod
+    def current_diff(cls) -> str:
+        return normalized_upstream_diff(cls._upstream_lines(), cls._body_lines())
+
+    @classmethod
+    def _differing_regions(cls, upstream: list[str], body: list[str]) -> list[str]:
+        """Return the text of each region where the body differs from upstream (FOMO side, upstream for a delete)."""
+        regions = []
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, upstream, body, autojunk=False).get_opcodes():
+            if tag == 'equal':
+                continue
+            lines = body[j1:j2] if j2 > j1 else upstream[i1:i2]
+            regions.append('\n'.join(lines))
+        return regions
+
+    def _unanchored_regions(self, upstream: list[str], body: list[str]) -> list[str]:
+        """Return the differing regions that hold no anchor of any header item."""
+        all_anchors = [anchor for anchors in self.ANCHORS.values() for anchor in anchors]
+        return [
+            region
+            for region in self._differing_regions(upstream, body)
+            if not any(anchor in region for anchor in all_anchors)
+        ]
+
+    def test_header_names_the_pinned_upstream(self):
+        source = self._source()
+        self.assertTrue(source.startswith('{% comment %}'))
+        header = self._header()
+        for needed in (
+            'tomtoolkit 3.1.0',
+            'tom_calendar/templates/tom_calendar/partials/event_form.html',
+            'FOMO override of the upstream tom_calendar partial',
+        ):
+            self.assertIn(needed, header)
+        for stale in ('exact copy', 'one new block', '3.0.1', '3.0.0a9'):
+            self.assertNotIn(stale, header)
+        # The header sits inside a {% comment %} block, so it must not contain template syntax itself.
+        inner = header[len('{% comment %}') :]
+        self.assertNotIn('{%', inner)
+        self.assertNotIn('#}', inner)
+
+    def test_header_items_are_numbered_one_to_six(self):
+        markers = re.findall(r'^\s+(\d+)\.\s', self._header(), flags=re.MULTILINE)
+        self.assertEqual(markers, ['1', '2', '3', '4', '5', '6'])
+
+    def _item_texts(self) -> dict[int, str]:
+        header = self._header()
+        starts = {int(m.group(1)): m.start() for m in re.finditer(r'^\s+(\d+)\.\s', header, flags=re.MULTILINE)}
+        self.assertEqual(sorted(starts), [1, 2, 3, 4, 5, 6], 'header items must be numbered 1 to 6')
+        texts = {}
+        for number in range(1, 7):
+            end = starts[number + 1] if number < 6 else len(header)
+            texts[number] = header[starts[number] : end]
+        return texts
+
+    def test_every_differing_region_is_listed_and_every_item_differs(self):
+        upstream = self._upstream_lines()
+        body = self._body_lines()
+        regions = self._differing_regions(upstream, body)
+        all_anchors = [anchor for anchors in self.ANCHORS.values() for anchor in anchors]
+        for region in regions:
+            self.assertTrue(
+                any(anchor in region for anchor in all_anchors),
+                f'a differing region is not covered by any header item:\n{region}',
+            )
+        for anchor in all_anchors:
+            self.assertTrue(
+                any(anchor in region for region in regions),
+                f'header anchor {anchor!r} does not occur in any region that differs from upstream',
+            )
+        texts = self._item_texts()
+        for number, anchors in self.ANCHORS.items():
+            for anchor in anchors:
+                self.assertIn(anchor, texts[number], f'header item {number} does not mention {anchor!r}')
+
+    def test_body_diff_matches_pinned_snapshot(self):
+        """The body's full diff against upstream is pinned, so any new difference fails until the header is updated.
+
+        difflib merges the card and decoration blocks into one inserted region, so the anchor rule above cannot see an
+        unlisted line inside it (39-REVIEW WR-02); this snapshot can.
+        """
+        self.assertTrue(self.SNAPSHOT.exists(), f'pinned snapshot missing at {self.SNAPSHOT}')
+        self.maxDiff = None
+        self.assertEqual(
+            self.current_diff(),
+            self.SNAPSHOT.read_text(),
+            "event_form.html's body now differs from tomtoolkit 3.1.0 in a way the pinned snapshot does not record; "
+            "update the header's numbered list, then regenerate the snapshot with: python manage.py shell -c "
+            '"from solsys_code.tests.test_calendar_template import EventFormHeaderMatchesUpstreamTest as T; '
+            'T.SNAPSHOT.write_text(T.current_diff())"',
+        )
+
+    def test_snapshot_detects_an_unlisted_line_inside_an_anchored_region(self):
+        """A line inserted beside an anchored line passes the anchor rule yet changes the diff (39-REVIEW WR-02)."""
+        upstream = self._upstream_lines()
+        body = self._body_lines()
+        pinned = self.SNAPSHOT.read_text()
+        self.assertEqual(normalized_upstream_diff(upstream, body), pinned)
+
+        index = next(i for i, line in enumerate(body) if 'cal-event-card' in line)
+        mutated = body[: index + 1] + ['<p>an unlisted line</p>'] + body[index + 1 :]
+        self.assertEqual(self._unanchored_regions(upstream, mutated), [])
+        self.assertNotEqual(normalized_upstream_diff(upstream, mutated), pinned)
+
+        label_index = next(i for i, line in enumerate(body) if 'name="save_and_edit"' in line)
+        relabelled = list(body)
+        relabelled[label_index] = relabelled[label_index].replace('Save and Edit', 'Save and ' + 'edit')
+        self.assertNotEqual(relabelled[label_index], body[label_index])
+        self.assertNotEqual(normalized_upstream_diff(upstream, relabelled), pinned)
+
+
+class CalendarTemplateBootstrap5ClassTest(SimpleTestCase):
+    """D-11: calendar.html uses the Bootstrap 5 utility names tomtoolkit 3.1.0's partial uses."""
+
+    TEMPLATE = Path(__file__).resolve().parents[2] / 'src/templates/tom_calendar/partials/calendar.html'
+
+    def test_calendar_partial_uses_bootstrap5_utility_names(self):
+        source = self.TEMPLATE.read_text()
+        self.assertIsNone(re.search(r'(?<![\w-])(?:mr|ml)-[0-9]', source))
+        bootstrap4_names = ('border-' + 'left', 'border-' + 'right', 'font-weight-' + 'bold', 'var(--' + 'white)')
+        for name in bootstrap4_names:
+            self.assertNotIn(name, source)
+        for name in ('border-start', 'border-end', 'fw-bold', 'me-2', 'me-3', 'var(--bs-white)'):
+            self.assertIn(name, source)
+        self.assertIn('data-url=', source)
+        self.assertNotIn('data-bs-url', source)

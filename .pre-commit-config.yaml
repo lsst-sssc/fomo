@@ -76,14 +76,21 @@ repos:
     # TestEphemeris (solsys_code/tests/test_views.py) is tagged 'ephemeris_segfault'
     # because the native ASSIST integrator crashes the whole test process, so it is
     # excluded here and in CI.
-    # This hook takes about 10 minutes; for work-in-progress commits use
-    # `SKIP=django-test git commit ...`.
+    # The suite runs with `--parallel` (one worker per CPU) and each worker writes its own
+    # coverage file, merged by `coverage combine`; `coverage erase` first drops files an
+    # interrupted run left behind.
+    # This hook takes about 80 seconds on the 32-core developer machine (Phase 39.1; it took
+    # 2276 s before; see .planning/phases/39.1-test-suite-speed-up/39.1-TIMINGS.md): memoised
+    # sun_event(), `--parallel`, a test-only MD5 password hasher and LocMemCache, and the
+    # 'migration'-tagged MigrationExecutor tests excluded here (CI still runs them).
+    # `SKIP=django-test` is no longer needed for speed -- keep it only for a deliberately red
+    # work-in-progress commit.
   - repo: local
     hooks:
       - id: django-test
-        name: Run Django unit tests (excluding functional and ephemeris_segfault)
-        description: Run the Django test suite with coverage, skipping the 'functional' Playwright tests and the 'ephemeris_segfault' class.
-        entry: bash -c "coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault && coverage html"
+        name: Run Django unit tests in parallel (excluding functional, ephemeris_segfault and migration)
+        description: Run the Django test suite in parallel worker processes with combined coverage, skipping the 'functional' Playwright tests, the 'ephemeris_segfault' class and the 'migration'-tagged MigrationExecutor tests (CI runs those).
+        entry: bash -c "coverage erase && coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --exclude-tag migration --parallel && coverage combine -q && coverage html"
         language: system
         pass_filenames: false
         always_run: true
