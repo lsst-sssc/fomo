@@ -328,11 +328,11 @@ Plans:
   4. On the attribution page, High-band rows show their marker again, a template test asserts the marker is present in the rendered HTML, and the page's templates use Bootstrap 5.3 class names only
   5. A staff member working down the Dismissed list can press Undo on a row and land back on the same page with the Dismissed section still open, with no re-open or re-page between rows
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 40-01-PLAN.md — Shared notebook helper `docs/notebooks/fomo_nb_utils.py` (tracer: seeded from feature/skymap, tested by running it -- fresh routing, `mode=ro` snapshot, missing-database and `DATABASES`-override `RuntimeError` under `python -O`; `load_telescope_runs_demo` moved onto it); `backfill_lco_observations_demo` and `campaign_lifecycle_demo` (fresh) and `reconcile_campaign_runs_demo` (snapshot) converted and re-executed; CLAUDE.md map line (WARN-05, WARN-03)
+- [x] 40-01-PLAN.md — Shared notebook helper `docs/notebooks/fomo_nb_utils.py` (tracer: seeded from feature/skymap, tested by running it -- fresh routing, `mode=ro` snapshot, missing-database and `DATABASES`-override `RuntimeError` under `python -O`; `load_telescope_runs_demo` moved onto it); `backfill_lco_observations_demo` and `campaign_lifecycle_demo` (fresh) and `reconcile_campaign_runs_demo` (snapshot) converted and re-executed; CLAUDE.md map line (WARN-05, WARN-03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 40-02-PLAN.md — Guard rewrite (tracer: helper call first, no own Django setup or `FOMO_DATABASE_PATH`, no byte copy or `fomo_db.sqlite3` literal, execution counts 1..N, write-free asserts, no `arcmin deg`, dip pinned) landing in one commit with the last four notebooks moved onto the helper; README states the D-04 rule with per-mode lists pinned by a test; ROADMAP SC 1 and WARN-05 reworded; ledger WR-13/14/16/17, IN-13/14/17 (WARN-02, WARN-03, WARN-05, WARN-06)
@@ -434,7 +434,7 @@ Plans:
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
 | 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 4/4 | Complete    | 2026-10-09 |
-| 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
+| 40. Notebook Isolation & Attribution Page | v2.5 | 1/4 | In Progress | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
 

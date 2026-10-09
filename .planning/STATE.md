@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: executing
-stopped_at: Phase 40 context gathered
-last_updated: "2026-10-09T22:16:40.024Z"
+stopped_at: Completed 40-01-PLAN.md
+last_updated: "2026-10-09T23:15:45.622Z"
 last_activity: 2026-10-09
-last_activity_desc: Phase 39.1 complete, transitioned to Phase 40
-state_head: 18a162f4b60d52bef98b9b3a71b776241c76537c
+last_activity_desc: Phase 40 execution started
+state_head: c760c61c8685dfaf20b814b5071bc6832ed138bd
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 21
-  completed_plans: 17
-  percent: 81
+  completed_plans: 18
+  percent: 86
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — READY TO EXECUTE
-Plan: Not started
+Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-10-09 — Phase 39.1 complete, transitioned to Phase 40
+Last activity: 2026-10-09 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([████████░░] 81%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 86%)
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 39.1 P02 | 4h 28m | 3 tasks | 9 files |
 | Phase 39.1 P03 | 22 min | 3 tasks | 11 files |
 | Phase 39.1 P04 | 45 min | 3 tasks | 2 files |
+| Phase 40 P01 | 70 min | 2 tasks | 7 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -97,6 +98,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39.1]: 39.1-03: MD5PasswordHasher lives in the argv[1]=='test' block of settings.py only; django-test hook measured 2276 s -> 78 s (29.2x), coverage 93% -> 93%, so coverage stays in the hook
 - [Phase 39.1]: 39.1-04: developer published the snapshot (commit 8cb2d2f) to draft PR #43; CI run 37941525172 green on 3.10-3.12 with --parallel, unit step 1019/1171/1140 s -> 163/110/160 s
 - [Phase 39.1]: UAT (2026-10-09): code-review WR-01 (a dark window shorter than one 10-minute coarse step, possible above about 51.5° latitude, returns no crossings and campaign_gap files that date as unknown) accepted as shipped; no code or doc change requested; no currently stored site is affected
+- [Phase 40]: Phase 40-01: notebook DB setup moved into docs/notebooks/fomo_nb_utils.py (setup_scratch_django / teardown_scratch_django); RuntimeError path check survives python -O; reconcile_campaign_runs_demo uses mode='snapshot' (mode=ro online backup), load_telescope_runs, backfill_lco and campaign_lifecycle use mode='fresh'
 
 ### Pending Todos
 
@@ -168,9 +170,9 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-09T17:55:59.790Z
-**Stopped at:** Phase 40 context gathered
-**Resume file:** .planning/phases/40-notebook-isolation-attribution-page/40-CONTEXT.md
+**Last session:** 2026-10-09T23:15:45.581Z
+**Stopped at:** Completed 40-01-PLAN.md
+**Resume file:** None
 
 ## Operator Next Steps
 
