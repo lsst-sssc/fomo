@@ -14,6 +14,7 @@ import html.parser
 import inspect
 import re
 from collections import defaultdict
+from datetime import date
 
 import django_tables2 as tables
 from django.template.loader import get_template
@@ -21,8 +22,9 @@ from django.test import SimpleTestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from solsys_code import campaign_tables
-from solsys_code.models import CampaignRunObservation, ObservationRecordDismissal
+from solsys_code import campaign_attribution, campaign_tables
+from solsys_code.models import CampaignRun, CampaignRunObservation, ObservationRecordDismissal
+from solsys_code.solsys_code_observatory.models import Observatory
 from solsys_code.tests.test_campaign_attribution_views import AttributionViewTestBase
 
 TEMPLATE_NAME = 'campaigns/attribution_queue.html'
@@ -108,6 +110,25 @@ class _CollapseSectionParser(html.parser.HTMLParser):
     @staticmethod
     def classes(attrs: dict) -> set[str]:
         return set((attrs.get('class') or '').split())
+
+
+class _CandidateRowParser(html.parser.HTMLParser):
+    """Collects the ``class`` and ``style`` attributes of every candidate ``tr`` start tag, in
+    document order, on the page's two worklist tables. A candidate row is any ``tr`` that is not a
+    ``bg-light`` group header. Feed it only the part of the page before the Dismissed section, so
+    the Dismissed and Confirmed tables' own rows are never counted."""
+
+    def __init__(self):
+        super().__init__()
+        self.rows: list[dict] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != 'tr':
+            return
+        attrs_dict = dict(attrs)
+        if 'bg-light' in (attrs_dict.get('class') or '').split():
+            return
+        self.rows.append({'class': attrs_dict.get('class'), 'style': attrs_dict.get('style')})
 
 
 class AttributionTemplateSourceTests(SimpleTestCase):
@@ -345,3 +366,87 @@ class AttributionRenderedFormStructureTests(AttributionViewTestBase):
                     'which would defeat the UI-SPEC Dismiss gate',
                 )
         self.assertTrue(found_dismiss, 'no Dismiss submitter was found -- fixture rendered no candidate rows')
+
+
+class AttributionHighBandMarkerRenderTests(AttributionViewTestBase):
+    """WARN-04 / D-18, D-21: a High-band candidate row carries the Bootstrap 5.3 left-bar marker
+    ``border-0 border-start border-4 border-success`` and no other candidate row carries any of those
+    four classes. Bootstrap 4's ``border-left`` is inert under Bootstrap 5.3, so the old marker
+    rendered nothing. GET only -- see the module docstring."""
+
+    MARKER = 'border-0 border-start border-4 border-success'
+    MARKER_CLASSES = ('border-0', 'border-start', 'border-4', 'border-success')
+
+    def setUp(self):
+        # A second run in the same campaign at another site, observing later in July: both orphans
+        # also match it, but on a different site and without date overlap, so it scores below the
+        # High band. (A record carries no telescope, so an overlapping window would leave it High.)
+        second_site = Observatory.objects.create(obscode='F65', name='Haleakala-Faulkes Telescope North')
+        self.second_run = CampaignRun.objects.create(
+            campaign=self.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 7, 12),
+            window_end=date(2026, 7, 21),
+            site=second_site,
+            telescope_class='',
+        )
+        self.event = self._make_event()
+        self.record = self._make_record()
+        for label, candidates in (
+            ('event', campaign_attribution.candidates_for_event(self.event)),
+            ('record', campaign_attribution.candidates_for_record(self.record)),
+        ):
+            bands = [c.band for c in candidates]
+            self.assertEqual(bands.count(campaign_attribution.BAND_HIGH), 1, f'{label} bands {bands}')
+            self.assertGreaterEqual(
+                len([b for b in bands if b != campaign_attribution.BAND_HIGH]), 1, f'{label} bands {bands}'
+            )
+        self.client.force_login(self.staff_user)
+
+    def _get(self, data=None):
+        response = self.client.get(reverse('campaigns:attribution'), data or {})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        before_dismissed = content[: content.index(f'id="{DISMISSED_SECTION_ID}"')]
+        parser = _CandidateRowParser()
+        parser.feed(before_dismissed)
+        return response, content, parser.rows
+
+    def test_high_band_rows_carry_the_left_bar_marker_and_others_do_not(self):
+        response, _, rows = self._get()
+        bands = [
+            candidate.band
+            for key in ('event_groups', 'record_groups')
+            for group in response.context[key]
+            for candidate in group.candidates
+        ]
+        self.assertGreaterEqual(len(bands), 4, f'expected the fixture to list four candidates, got {bands}')
+        self.assertEqual(len(rows), len(bands), 'candidate rows and candidates differ in number')
+        for position, (band, row) in enumerate(zip(bands, rows, strict=True)):
+            with self.subTest(position=position, band=band):
+                self.assertIsNone(row['style'], 'a candidate row must not carry an inline style')
+                classes = (row['class'] or '').split()
+                if band == campaign_attribution.BAND_HIGH:
+                    self.assertEqual(row['class'], self.MARKER)
+                else:
+                    for marker_class in self.MARKER_CLASSES:
+                        self.assertNotIn(marker_class, classes)
+
+    def test_no_marker_when_no_candidate_is_high_band(self):
+        for band in ('medium', 'low'):
+            with self.subTest(f'?band={band} lists no High-band row'):
+                _, content, rows = self._get({'band': band})
+                self.assertNotIn('border-start border-4 border-success', content)
+                for row in rows:
+                    self.assertIsNone(row['style'])
+                    for marker_class in self.MARKER_CLASSES:
+                        self.assertNotIn(marker_class, (row['class'] or '').split())
+        with self.subTest('the low-band view still lists the non-High rows'):
+            _, _, rows = self._get({'band': 'low'})
+            self.assertEqual(len(rows), 2, 'expected the event and the record to list one low candidate each')
+        with self.subTest('no orphans at all'):
+            self.event.delete()
+            self.record.delete()
+            _, content, rows = self._get()
+            self.assertEqual(rows, [])
+            self.assertNotIn('border-start border-4 border-success', content)

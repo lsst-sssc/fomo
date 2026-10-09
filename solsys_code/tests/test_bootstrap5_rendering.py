@@ -37,6 +37,7 @@ from tom_observations.models import ObservationRecord
 from tom_targets.models import TargetList
 from tom_targets.tests.factories import NonSiderealTargetFactory
 
+from solsys_code.campaign_attribution import BAND_HIGH, candidates_for_event
 from solsys_code.models import (
     CalendarEventMeta,
     CampaignRun,
@@ -452,6 +453,71 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
         # Clicking the Confirmed heading folds it away.
         self.page.locator('button[data-bs-target="#attribution-confirmed-section"]').click()
         confirmed.wait_for(state='hidden')
+
+        assert page_errors == []
+
+    def test_high_band_row_draws_a_green_left_bar_only(self):
+        """WARN-04 / D-21: under the Bootstrap 5.3.3 that ``tom_common/base.html`` loads, a High-band
+        candidate row on the attribution page draws a 4px solid green bar on its left edge and no
+        border on its other three sides. Bootstrap 4's ``border-left`` is inert there, so the marker
+        once rendered nothing. Bootstrap's reboot gives table rows ``border-style: solid``, which is
+        why the marker starts with ``border-0``. A non-High candidate row of the same orphan has no
+        4px left border."""
+        staff = get_user_model().objects.create_user(username='bs5-marker-staff', password='pw', is_staff=True)
+        campaign = TargetList.objects.create(name='BS5 Marker Campaign')
+        target = NonSiderealTargetFactory.create()
+        campaign.targets.add(target)
+        high_site = Observatory.objects.create(obscode='E10', name='Siding Spring', short_name='SSO')
+        other_site = Observatory.objects.create(obscode='F65', name='Haleakala-Faulkes Telescope North')
+        high_run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 21),
+            site=high_site,
+            telescope_class='',
+        )
+        other_run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 21),
+            site=other_site,
+            telescope_class='',
+        )
+        event = CalendarEvent.objects.create(
+            title='[QUEUED] 2m0 2M0-SCICAM-MUSCAT (marker)',
+            start_time=datetime(2026, 7, 7, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 7, 8, 6, 0, tzinfo=dt_timezone.utc),
+            telescope='COJ-2m0',
+            instrument='2M0-SCICAM-MUSCAT',
+            target_list=campaign,
+        )
+        CalendarEventMeta.objects.create(event=event, is_verified=False, run=None)
+        bands = {c.run.pk: c.band for c in candidates_for_event(event)}
+        self.assertEqual(bands.get(high_run.pk), BAND_HIGH, f'fixture bands {bands}')
+        self.assertNotEqual(bands.get(other_run.pk, 'none'), BAND_HIGH, f'fixture bands {bands}')
+
+        self._log_in_browser(staff)
+        page_errors = []
+        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
+        self.page.goto(f'{self.live_server_url}{reverse("campaigns:attribution")}')
+
+        marked = self.page.locator('tr.border-start').first
+        marked.wait_for(state='attached')
+        computed = marked.evaluate(
+            """el => {
+                const s = getComputedStyle(el);
+                return [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth,
+                        s.borderLeftStyle, s.borderLeftColor];
+            }"""
+        )
+        self.assertEqual(computed, ['0px', '0px', '0px', '4px', 'solid', 'rgb(25, 135, 84)'])
+
+        # The other candidate row of the same orphan (no marker class) has no 4px left bar.
+        unmarked = self.page.locator('table.table tbody tr:not(.bg-light):not(.border-start)').first
+        unmarked.wait_for(state='attached')
+        self.assertNotEqual(unmarked.evaluate('el => getComputedStyle(el).borderLeftWidth'), '4px')
 
         assert page_errors == []
 

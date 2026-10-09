@@ -808,11 +808,11 @@ class TestEvidenceColumns(AttributionViewTestBase):
         self.assertIn(str(candidate.score), content)
         # This candidate is the sole High-band candidate for its orphan, so per the
         # Checkbox Gate Contract (28-UI-SPEC.md) its leading cell renders a checkbox
-        # instead of the confidence badge -- the row's border-left border-success is
+        # instead of the confidence badge -- the row's left-bar marker classes are
         # the High-band signal here. TestBandFilterAndBanner's
         # test_checkbox_absent_when_orphan_has_two_high_band_candidates exercises the
         # non-checkboxable High case where text-bg-success itself renders.
-        self.assertIn('border-success', content)
+        self.assertIn('class="border-0 border-start border-4 border-success"', content)
 
     def test_non_staff_get_redirects(self):
         url = reverse('campaigns:attribution')

@@ -60,8 +60,7 @@ sentence reads cleanly at true completion.
       </td>
     </tr>
     {% for candidate in group.candidates %}
-    <tr class="{% if candidate.band == 'high' %}border-left border-success{% endif %}{% if not forloop.first %} border-top{% endif %}"
-        {% if candidate.band == 'high' %}style="border-left-width: 4px;"{% endif %}>
+    <tr class="{% if candidate.band == 'high' %}border-0 border-start border-4 border-success{% elif not forloop.first %}border-top{% endif %}">
       <td>
         {% if candidate.run.pk == group.sole_high_candidate_pk %}
         {% comment %}
@@ -166,8 +165,7 @@ form without nesting.
       </td>
     </tr>
     {% for candidate in group.candidates %}
-    <tr class="{% if candidate.band == 'high' %}border-left border-success{% endif %}{% if not forloop.first %} border-top{% endif %}"
-        {% if candidate.band == 'high' %}style="border-left-width: 4px;"{% endif %}>
+    <tr class="{% if candidate.band == 'high' %}border-0 border-start border-4 border-success{% elif not forloop.first %}border-top{% endif %}">
       <td>
         {% if candidate.run.pk == group.sole_high_candidate_pk %}
         {% comment %}
