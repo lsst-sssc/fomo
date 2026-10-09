@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 39-calendar-write-access
 source: [39-VERIFICATION.md]
 started: 2026-10-08T21:14:30Z
-updated: 2026-10-09T02:31:25.514Z
+updated: 2026-10-09T02:37:40Z
 ---
 
 ## Current Test
@@ -106,7 +106,16 @@ blocked: 0
   reason: "User reported: add the test"
   severity: minor
   test: 7
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "Test-coverage gap, no production bug: the request.user.is_staff term of the hint gate at src/templates/tom_calendar/partials/event_form.html:284 ({% elif action == \"update\" and request.user.is_staff and not event.telescope_label_meta.run %}) is the only thing keeping the 'Possible campaign run match' hint from signed-in non-staff users, and no test exercises it. EventModalAttributionHintTest opens the edit pop-up only as staff_user, superuser and anonymous; plain_user is used once, on the create form, where action == 'update' already hides the hint. Mutation check (scratch template copy, tracked tree untouched): with the gate weakened to is_authenticated all 24 existing runs still pass and only the proposed new test fails, showing the plain user's edit form followed by the hint, score 0.82 and the band=high attribution link."
+  artifacts:
+    - path: "solsys_code/tests/test_calendar_template.py"
+      issue: "EventModalAttributionHintTest (lines 785-998) has no signed-in non-staff edit pop-up test; plain_user (842), _signed_in_client (847), _modal_url (844) and unlinked_event_with_candidate (812) are already there to reuse"
+    - path: "src/templates/tom_calendar/partials/event_form.html"
+      issue: "line 284 is the untested gate; correct as written, no change needed (header item 4 already says staff-only, edit form only)"
+    - path: "solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff"
+      issue: "supporting only: pinned snapshot holds the line-284 text; a test-only fix leaves it unchanged"
+  missing:
+    - "Add test_signed_in_non_staff_does_not_see_hint to EventModalAttributionHintTest: GET _modal_url(unlinked_event_with_candidate) via _signed_in_client(plain_user); assert 200, assert hx-post=\"{update url}\" is in the body (proves the edit form rendered, not the create form or the anonymous card), assert 'Possible campaign run match' and the campaigns:attribution?band=high link are absent"
+    - "Optional: add a (plain_user, 'update', False) case to test_hint_is_gated_on_the_edit_form by iterating (user, action, shown) and setting request.user per case"
+    - "No template, snapshot or runbook change (test-only fix; paired-doc rule does not apply); after merge mark WR-04 fixed in 39-REVIEW-DISPOSITION.md"
+  debug_session: .planning/debug/non-staff-edit-popup-hint-test-missing.md
