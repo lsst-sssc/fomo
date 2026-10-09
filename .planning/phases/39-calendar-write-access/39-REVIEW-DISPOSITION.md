@@ -3,6 +3,10 @@ phase: 39
 review: 39-REVIEW.md
 titles: json
 findings:
+  - id: IN-08
+    severity: info
+    disposition: open
+    title: "The new HTTP test has no positive control of its own; whether its \"hint absent\" result means anything depends on a sibling test sharing the same fixture"
   - id: WR-02
     severity: warning
     disposition: open
@@ -51,26 +55,27 @@ findings:
     severity: critical
     disposition: skipped
     title: "Open self-registration lets anyone through the login guard, so any internet user can still create, edit and delete any calendar event"
-open: 9
-total: 12
-recorded: 2026-10-08T23:08:19.143Z
+open: 10
+total: 13
+recorded: 2026-10-09T04:04:49.204Z
 ---
 
 # Phase 39: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-02 | warning | open | - |
-| WR-03 | warning | open | - |
-| WR-04 | warning | fixed | resolved by test in 39-06 Task 1 (cadb56c); test_signed_in_non_staff_does_not_see_hint GETs the edit pop-up as a signed-in non-staff user and asserts the hint and its band=high link are absent; test_hint_is_gated_on_the_edit_form gains a (plain_user, update, False) row; both fail, and only they fail, when the event_form.html gate is weakened to request.user.is_authenticated (scratch-template mutation run); test-only, template and snapshot unchanged; UAT Test 7 / G-39-7. |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
-| IN-03 | info | open | - |
-| IN-04 | info | open | - |
-| IN-05 | info | open | - |
-| IN-06 | info | open | - |
-| IN-07 | info | open | - |
-| WR-01 | warning | fixed | resolved by documentation in 39-05 Task 2 (c71b7b0): the runbook now says the create and edit addresses show a bare, unstyled copy of the form, not to use it, and to go back to the calendar page; the residual token-in-URL risk is accepted as AR-39-02 (39-SECURITY.md). Round-3 review (bc0e22c) records it "Resolved by documentation". |
+| IN-08 | info | open | - |
+| WR-02 | warning | open | - (not in the current review) |
+| WR-03 | warning | open | - (not in the current review) |
+| WR-04 | warning | fixed | resolved by test in 39-06 Task 1 (cadb56c); test_signed_in_non_staff_does_not_see_hint GETs the edit pop-up as a signed-in non-staff user and asserts the hint and its band=high link are absent; test_hint_is_gated_on_the_edit_form gains a (plain_user, update, False) row; both fail, and only they fail, when the event_form.html gate is weakened to request.user.is_authenticated (scratch-template mutation run); test-only, template and snapshot unchanged; UAT Test 7 / G-39-7. (not in the current review) |
+| IN-01 | info | open | - (not in the current review) |
+| IN-02 | info | open | - (not in the current review) |
+| IN-03 | info | open | - (not in the current review) |
+| IN-04 | info | open | - (not in the current review) |
+| IN-05 | info | open | - (not in the current review) |
+| IN-06 | info | open | - (not in the current review) |
+| IN-07 | info | open | - (not in the current review) |
+| WR-01 | warning | fixed | resolved by documentation in 39-05 Task 2 (c71b7b0): the runbook now says the create and edit addresses show a bare, unstyled copy of the form, not to use it, and to go back to the calendar page; the residual token-in-URL risk is accepted as AR-39-02 (39-SECURITY.md). Round-3 review (bc0e22c) records it "Resolved by documentation". (not in the current review) |
 | CR-01 | critical | skipped | accepted risk (won't fix), Tim Lister 2026-10-08: "Self-signup is wanted; collaborators should be able to join without an operator; calendar edits are visible, attributable and easily reverted." TOM_REGISTRATION_STRATEGY, D-01 and the guard unchanged; see 39-SECURITY.md AR-39-01 and T-39-22 (not in the current review) |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
