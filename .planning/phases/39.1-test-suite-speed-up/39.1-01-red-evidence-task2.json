@@ -1,0 +1,10 @@
+{
+  "command": "python manage.py test --noinput solsys_code.tests.test_telescope_runs.TestCrossingSearchCost",
+  "exitCode": 1,
+  "output": "Note: NumExpr detected 32 cores but \"NUMEXPR_MAX_THREADS\" not set, so enforcing safe limit of 16.\nNumExpr defaulting to 16 threads.\nUsing fallback library next to module: /home/tlister/venv/devel_fomo311_venv/lib/python3.11/site-packages/spiceypy/utils/libcspice.so\nSystem check identified some issues:\n\nWARNINGS:\n?: (urls.W005) URL namespace 'calendar' isn't unique. You may not be able to reverse all URLs in this namespace\n\nSystem check identified 1 issue (0 silenced).\n.F\n======================================================================\nFAIL: test_two_crossing_night_needs_at_most_15_evaluations_and_200_samples (solsys_code.tests.test_telescope_runs.TestCrossingSearchCost.test_two_crossing_night_needs_at_most_15_evaluations_and_200_samples)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/home/tlister/git/fomo_devel/solsys_code/tests/test_telescope_runs.py\", line 693, in test_two_crossing_night_needs_at_most_15_evaluations_and_200_samples\n    self.assertLessEqual(spy.call_count, 15)\nAssertionError: 21 not less than or equal to 15\n\n----------------------------------------------------------------------\nRan 2 tests in 2.369s\n\nFAILED (failures=1)\nFound 2 test(s).\n",
+  "targetTest": "test_two_crossing_night_needs_at_most_15_evaluations_and_200_samples",
+  "targetFile": "solsys_code/tests/test_telescope_runs.py",
+  "expected": "<= 15 _solar_altitude calls and <= 200 samples",
+  "actual": "AssertionError: 21 not less than or equal to 15",
+  "semanticAssessment": "The target test ran and FAILed (FAIL header, not ERROR) on the planned call-count assertion: the Task 1 code still runs the pre-phase 1-minute scan (1 coarse + 20 single-time bisection calls = 21). The sibling empty-case test passes as planned (one evaluation under both algorithms). No import, fixture or collection fault."
+}

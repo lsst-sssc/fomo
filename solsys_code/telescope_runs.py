@@ -197,17 +197,25 @@ def _solar_altitude(times: Time, location) -> np.ndarray:
     return altaz.alt.deg
 
 
+# Number of bisection steps that refine every bracketed crossing in _find_crossing(). The coarse
+# bracket is 600 s wide, so 600 s / 2**14 = 0.037 s resolution, finer than the pre-phase 60 s / 2**10 = 0.059 s.
+_BISECTION_STEPS = 14
+
+
 def _find_crossing(
-    anchor: Time, location, threshold_deg: float, search_hours: float = 24, coarse_step_min: float = 1.0
+    anchor: Time, location, threshold_deg: float, search_hours: float = 24, coarse_step_min: float = 10.0
 ) -> list[Time]:
     """Finds UTC times where solar altitude crosses threshold_deg.
 
-    Performs a coarse scan over the window [anchor, anchor + search_hours],
-    then refines each sign change with bisection to sub-second precision.
-    Anchoring at local noon of the observing date (see _local_noon_utc) and
-    scanning forward search_hours=24 guarantees both the evening sunset/dark
-    crossing of that date and the following morning's sunrise/dark-end
-    crossing fall within the window, in chronological (set, then rise) order.
+    Performs a coarse scan over the closed window [anchor, anchor + search_hours] in one
+    AltAz transform (145 samples at the defaults), then refines every sign change together
+    with a vectorised bisection: each of the ``_BISECTION_STEPS`` steps is ONE transform over
+    the midpoints of all brackets, giving ~0.04 s resolution. A night with two crossings
+    therefore costs 15 transforms and 173 time samples (the earlier 1-minute scan cost 21
+    transforms and 1,461 samples). Anchoring at local noon of the observing date (see
+    _local_noon_utc) and scanning forward search_hours=24 guarantees both the evening
+    sunset/dark crossing of that date and the following morning's sunrise/dark-end crossing
+    fall within the window, in chronological (set, then rise) order.
 
     Args:
         anchor: astropy Time at the start of the search window (local noon).
@@ -217,28 +225,35 @@ def _find_crossing(
         coarse_step_min: coarse scan step size, in minutes.
 
     Returns:
-        list[Time]: UTC times of each altitude crossing, in chronological order.
+        list[Time]: UTC times of each altitude crossing, in chronological order; an empty
+            list when the altitude never crosses the threshold in the window.
     """
-    # +coarse_step_min so the window covers a full, closed [0, search_hours] range
-    # (np.arange's exclusive upper bound would otherwise leave the last minute unscanned).
-    offsets = np.arange(0, search_hours * 60 + coarse_step_min, coarse_step_min) * u.min
-    times = anchor + offsets
-    alt = _solar_altitude(times, location)
-    crossings = []
-    for i in range(len(alt) - 1):
-        if (alt[i] - threshold_deg) * (alt[i + 1] - threshold_deg) < 0:
-            # Bisection refine between times[i] and times[i+1]
-            lo, hi = times[i], times[i + 1]
-            lo_alt = alt[i]
-            for _ in range(10):  # ~1/1024 of 1-min step -> sub-second precision
-                mid = lo + (hi - lo) / 2
-                mid_alt = _solar_altitude(Time([mid]), location)[0]
-                if (mid_alt - threshold_deg) * (lo_alt - threshold_deg) < 0:
-                    hi = mid
-                else:
-                    lo, lo_alt = mid, mid_alt
-            crossings.append(lo)
-    return crossings
+    # Accepted limitation: a double crossing that falls entirely inside one coarse step (the
+    # altitude dips below the threshold and back within 10 minutes) shows no sign change and is
+    # missed. The earlier 1-minute grid had the same weakness at a smaller scale. It only arises
+    # where the sun's altitude extremum grazes the threshold, near the polar-day/night boundary,
+    # and sun_event() raises a clear ValueError whenever the crossing count is not 2.
+    n_steps = int(round(search_hours * 60 / coarse_step_min))
+    # Closed [0, search_hours] window: n_steps + 1 samples, in seconds from the anchor.
+    offsets = np.arange(0, n_steps + 1) * coarse_step_min * 60.0
+    alt = _solar_altitude(anchor + offsets * u.s, location) - threshold_deg
+    brackets = np.nonzero(alt[:-1] * alt[1:] < 0)[0]
+    if brackets.size == 0:
+        return []
+
+    lo = offsets[brackets]
+    hi = offsets[brackets + 1]
+    lo_val = alt[brackets]
+    for _ in range(_BISECTION_STEPS):
+        mid = (lo + hi) / 2
+        mid_val = _solar_altitude(anchor + mid * u.s, location) - threshold_deg
+        # A sign change between the lower end and the midpoint keeps the crossing in [lo, mid].
+        crossing_in_lower_half = mid_val * lo_val < 0
+        hi = np.where(crossing_in_lower_half, mid, hi)
+        lo = np.where(crossing_in_lower_half, lo, mid)
+        lo_val = np.where(crossing_in_lower_half, lo_val, mid_val)
+    # Lower bracket ends, as before; brackets are found in ascending order so these are chronological.
+    return [anchor + float(x) * u.s for x in lo]
 
 
 def _local_noon_utc(local_date: date_cls, tz_name: str) -> Time:

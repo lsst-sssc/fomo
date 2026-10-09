@@ -3,6 +3,8 @@ from unittest import mock
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import astropy.units as u
+import numpy as np
+from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from django.test import SimpleTestCase, TestCase
 
@@ -608,3 +610,129 @@ class TestSunEventMemo(SimpleTestCase):
                 sun_event(polar, date(2026, 6, 21), 'sun')
             self.assertEqual(spy.call_count, 0)
         self.assertEqual(str(first.exception), str(second.exception))
+
+
+def _dense_scan_reference(anchor, location, threshold_deg, search_hours=24):
+    """The Phase 1-validated 1-minute dense-scan crossing search, kept verbatim as the SPEED-02 oracle.
+
+    This is the pre-phase ``_find_crossing()`` body (1-minute grid with a closed window, then ten
+    single-time bisection steps per sign change, returning the lower bracket ends). The cheaper search
+    in ``solsys_code.telescope_runs`` is proven against it. It must never be edited.
+
+    Args:
+        anchor: astropy Time at the start of the search window.
+        location: astropy EarthLocation of the observer.
+        threshold_deg: solar altitude threshold in degrees.
+        search_hours: total width of the search window, in hours.
+
+    Returns:
+        list[Time]: UTC crossing times in chronological order.
+    """
+    coarse_step_min = 1.0
+    # +coarse_step_min so the window covers a full, closed [0, search_hours] range
+    # (np.arange's exclusive upper bound would otherwise leave the last minute unscanned).
+    offsets = np.arange(0, search_hours * 60 + coarse_step_min, coarse_step_min) * u.min
+    times = anchor + offsets
+    alt = telescope_runs._solar_altitude(times, location)
+    crossings = []
+    for i in range(len(alt) - 1):
+        if (alt[i] - threshold_deg) * (alt[i + 1] - threshold_deg) < 0:
+            # Bisection refine between times[i] and times[i+1]
+            lo, hi = times[i], times[i + 1]
+            lo_alt = alt[i]
+            for _ in range(10):  # ~1/1024 of 1-min step -> sub-second precision
+                mid = lo + (hi - lo) / 2
+                mid_alt = telescope_runs._solar_altitude(Time([mid]), location)[0]
+                if (mid_alt - threshold_deg) * (lo_alt - threshold_deg) < 0:
+                    hi = mid
+                else:
+                    lo, lo_alt = mid, mid_alt
+            crossings.append(lo)
+    return crossings
+
+
+# (lat, lon, altitude in m, timezone) of the Stage 1 sites; Magellan-Baade shares Magellan-Clay's position.
+STAGE1_SITE_GEOMETRY = {
+    'Magellan-Clay': (-29.0146, -70.6926, 2402, 'America/Santiago'),
+    'NTT': (-29.2567, -70.7300, 2347, 'America/Santiago'),
+    'FTS': (-31.2734, 149.0612, 1149, 'Australia/Sydney'),
+}
+
+# One date in each DST-change month for both zones (2026-04-05: Santiago and Sydney both leave DST),
+# plus the two solstices.
+ORACLE_DATES = (date(2026, 4, 5), date(2026, 6, 21), date(2026, 12, 21))
+
+# At 59.9 N / 10.75 E / 0 m (Europe/Oslo) the -15 degree threshold stops being crossed twice in spring.
+# Found once by running the dense-scan oracle above for each date from 2026-04-20 to 2026-05-10:
+# the last date with two crossings, and the first date after it with none.
+GRAZING_LAST_TWO_DATE = date(2026, 4, 30)
+GRAZING_FIRST_NONE_DATE = date(2026, 5, 1)
+
+
+def _earth_location(lat: float, lon: float, altitude: float) -> EarthLocation:
+    return EarthLocation(lon=lon * u.deg, lat=lat * u.deg, height=altitude * u.m)
+
+
+def _crossing_threshold(altitude: float, kind: str) -> float:
+    if kind == 'sun':
+        return -(0.833 + horizon_dip(altitude).to_value(u.deg))
+    return -15.0
+
+
+class TestCrossingSearchCost(SimpleTestCase):
+    """SPEED-02: a crossing search costs a handful of AltAz evaluations, not twenty-one."""
+
+    def test_two_crossing_night_needs_at_most_15_evaluations_and_200_samples(self):
+        lat, lon, altitude, tz = STAGE1_SITE_GEOMETRY['Magellan-Clay']
+        anchor = _local_noon_utc(date(2026, 6, 10), tz)
+        location = _earth_location(lat, lon, altitude)
+        threshold = _crossing_threshold(altitude, 'sun')
+        with mock.patch('solsys_code.telescope_runs._solar_altitude', wraps=telescope_runs._solar_altitude) as spy:
+            crossings = _find_crossing(anchor, location, threshold)
+        self.assertEqual(len(crossings), 2)
+        self.assertLessEqual(spy.call_count, 15)
+        samples = sum(call.args[0].size for call in spy.call_args_list)
+        self.assertLessEqual(samples, 200)
+
+    def test_no_crossing_returns_empty_after_one_evaluation(self):
+        location = _earth_location(78.0, 15.0, 0.0)
+        anchor = _local_noon_utc(date(2026, 6, 21), 'UTC')
+        threshold = _crossing_threshold(0.0, 'sun')
+        with mock.patch('solsys_code.telescope_runs._solar_altitude', wraps=telescope_runs._solar_altitude) as spy:
+            crossings = _find_crossing(anchor, location, threshold)
+        self.assertEqual(crossings, [])
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(_dense_scan_reference(anchor, location, threshold), [])
+
+
+class TestCrossingSearchMatchesDenseScan(SimpleTestCase):
+    """SPEED-02: the cheaper search agrees with the pre-phase algorithm to within a second."""
+
+    def test_matches_dense_scan_for_stage1_sites(self):
+        for name, (lat, lon, altitude, tz) in STAGE1_SITE_GEOMETRY.items():
+            location = _earth_location(lat, lon, altitude)
+            for night in ORACLE_DATES:
+                anchor = _local_noon_utc(night, tz)
+                for kind in ('sun', 'dark'):
+                    threshold = _crossing_threshold(altitude, kind)
+                    with self.subTest(site=name, date=str(night), kind=kind):
+                        reference = _dense_scan_reference(anchor, location, threshold)
+                        found = _find_crossing(anchor, location, threshold, search_hours=24)
+                        self.assertEqual(len(reference), 2)
+                        self.assertEqual(len(found), 2)
+                        # Setting before rising, strictly increasing.
+                        self.assertLess(found[0].jd, found[1].jd)
+                        for new, old in zip(found, reference, strict=True):
+                            self.assertLessEqual(abs((new - old).to_value(u.s)), 1.0)
+
+    def test_grazing_boundary_counts_match(self):
+        location = _earth_location(59.9, 10.75, 0.0)
+        for night, expected in ((GRAZING_LAST_TWO_DATE, 2), (GRAZING_FIRST_NONE_DATE, 0)):
+            anchor = _local_noon_utc(night, 'Europe/Oslo')
+            with self.subTest(date=str(night)):
+                reference = _dense_scan_reference(anchor, location, -15.0)
+                found = _find_crossing(anchor, location, threshold_deg=-15.0, search_hours=24)
+                self.assertEqual(len(reference), expected)
+                self.assertEqual(len(found), len(reference))
+                for new, old in zip(found, reference, strict=True):
+                    self.assertLessEqual(abs((new - old).to_value(u.s)), 1.0)
