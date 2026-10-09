@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 39-calendar-write-access
 source: [39-VERIFICATION.md]
 started: 2026-10-08T21:14:30Z
-updated: 2026-10-09T02:37:40Z
+updated: 2026-10-09T04:12:22.272Z
 ---
 
 ## Current Test
@@ -102,7 +102,9 @@ blocked: 0
   debug_session: .planning/debug/blank-new-event-popup.md
 - gap_id: G-39-7
   truth: "A repository test GETs the edit pop-up as a signed-in non-staff user and asserts the 'Possible campaign run match' hint is absent (39-REVIEW WR-04)"
-  status: failed
+  status: resolved
+  resolved_by: 39-06-PLAN.md
+  resolved_at: 2026-10-09
   reason: "User reported: add the test"
   severity: minor
   test: 7
