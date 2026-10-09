@@ -84,9 +84,9 @@ repos:
   - repo: local
     hooks:
       - id: django-test
-        name: Run Django unit tests in parallel (excluding functional and ephemeris_segfault)
-        description: Run the Django test suite in parallel worker processes with combined coverage, skipping the 'functional' Playwright tests and the 'ephemeris_segfault' class.
-        entry: bash -c "coverage erase && coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --parallel && coverage combine -q && coverage html"
+        name: Run Django unit tests in parallel (excluding functional, ephemeris_segfault and migration)
+        description: Run the Django test suite in parallel worker processes with combined coverage, skipping the 'functional' Playwright tests, the 'ephemeris_segfault' class and the 'migration'-tagged MigrationExecutor tests (CI runs those).
+        entry: bash -c "coverage erase && coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --exclude-tag migration --parallel && coverage combine -q && coverage html"
         language: system
         pass_filenames: false
         always_run: true
