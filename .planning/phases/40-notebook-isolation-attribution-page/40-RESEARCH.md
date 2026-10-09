@@ -457,11 +457,16 @@ def attribution_return_state(data) -> dict[str, str]:
 | A5 | `.text-muted` still renders in 5.3 so it is left alone | State of the Art | Cosmetic only |
 | A6 | Snapshot notebooks' output varying between regenerations is acceptable | Per-notebook verdicts | If reviewers expect reproducible outputs, those two notebooks need a different approach (a fixture database) |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All three were decided at planning (2026-10-09); each resolution names the plan and task that implements it.
 
 1. **Should the guard also reject database-path string literals (`'fomo_db.sqlite3'`, a bare `sqlite3` import) in notebook code?** D-11 lists three rules only. Today the literal appears only as the scratch file name inside the setup cell and in teardown prints, both of which move into the helper. A literal ban would close a route D-11 does not (`open('src/fomo_db.sqlite3', 'rb')`). Recommendation: add it as a fourth rule; it costs one AST pass and no notebook needs the literal after conversion. Planner's call.
+   **RESOLVED -- adopted.** The guard gains a fourth rule: no notebook code string may name `fomo_db.sqlite3` (a comment may; the check is AST-based, so only `ast.Constant` strings count). Implemented by **40-02 Task 1** as rule R7 (of R0-R11, defined in its interfaces block) in the rewritten `solsys_code/tests/test_pre_executed_notebooks.py`, with the synthetic-notebook tests `test_developer_database_literal_in_code_is_a_problem` and `test_developer_database_name_in_a_comment_is_not_a_problem`; recorded in 40-02's objective ("Research Open Question 1 -- adopted"). After conversion the literal lives only in the helper `docs/notebooks/fomo_nb_utils.py` (40-01 Task 1).
 2. **Does the helper print the closing "The developer database ... was never opened for writing" line in teardown?** The notebooks print it today (last cell of every notebook). Moving it into the helper keeps the committed output the same text; the guard only requires `Removed scratch database directory:`.
+   **RESOLVED -- yes.** `teardown_scratch_django()` prints both closing lines the notebooks print today: `Removed scratch database directory: <dir>` and then `The developer database (src/fomo_db.sqlite3) was never opened for writing.`, so the committed output keeps the same text. Implemented by **40-01 Task 1** (the helper in `docs/notebooks/fomo_nb_utils.py`; recorded in 40-01's objective under "Teardown (research Open Question 2, IN-17)" and in its interfaces block); every notebook's last cell becomes exactly `teardown_scratch_django(scratch_db_dir)` (40-01 Tasks 1 and 2 for four notebooks, 40-02 Task 1 for the other four), and the guard still requires only the `Removed scratch database directory:` line (40-02 rule R10).
 3. **`solsys_code/filters.py:63` still has `form-group col-md-3`.** Out of scope under D-20 (Python-built HTML not scanned); recommend one line in the plan noting it was seen and left.
+   **RESOLVED -- left alone and recorded.** `solsys_code/filters.py:63` (`css_class='form-group col-md-3'`, a Python-built crispy layout) is not changed in this phase: D-20 does not scan Python-built HTML and D-17 names only `campaign_tables.py:433`. Recorded in **40-03**'s objective ("Left alone"), and **40-03 Task 3** leaves the file unchanged -- its `<verify>` command fails if that `css_class` line is gone or the file has uncommitted changes.
 
 ## Environment Availability
 
