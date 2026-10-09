@@ -328,7 +328,21 @@ Plans:
   4. On the attribution page, High-band rows show their marker again, a template test asserts the marker is present in the rendered HTML, and the page's templates use Bootstrap 5.3 class names only
   5. A staff member working down the Dismissed list can press Undo on a row and land back on the same page with the Dismissed section still open, with no re-open or re-page between rows
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 40-01-PLAN.md — Shared notebook helper `docs/notebooks/fomo_nb_utils.py` (tracer: seeded from feature/skymap, tested by running it -- fresh routing, `mode=ro` snapshot, missing-database and `DATABASES`-override `RuntimeError` under `python -O`; `load_telescope_runs_demo` moved onto it); `backfill_lco_observations_demo` and `campaign_lifecycle_demo` (fresh) and `reconcile_campaign_runs_demo` (snapshot) converted and re-executed; CLAUDE.md map line (WARN-05, WARN-03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 40-02-PLAN.md — Guard rewrite (tracer: helper call first, no own Django setup or `FOMO_DATABASE_PATH`, no byte copy or `fomo_db.sqlite3` literal, execution counts 1..N, write-free asserts, no `arcmin deg`, dip pinned) landing in one commit with the last four notebooks moved onto the helper; README states the D-04 rule with per-mode lists pinned by a test; ROADMAP SC 1 and WARN-05 reworded; ledger WR-13/14/16/17, IN-13/14/17 (WARN-02, WARN-03, WARN-05, WARN-06)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 40-03-PLAN.md — High-band marker (tracer: `border-0 border-start border-4 border-success`, render test plus Chromium computed-style test); Bootstrap 5.3 names in all eight FOMO templates and `campaign_tables.py`; class-name guard over every repo-owned template directory (IN-12) (WARN-04)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 40-04-PLAN.md — Undo keeps the Dismissed section open on the same page (tracer: whitelisted `_redirect`, Undo forms carry the state, posting the real rendered form); every action keeps band/page/sort, last-page clamp, tampering dropped; browser test of SC 5; runbook text; `campaign_lifecycle_demo` marker and Undo cells re-executed last; ledger WR-15/18, IN-12/15 (WARN-07, WARN-04)
+
 **UI hint**: yes
 
 ### Phase 41: Todo Triage & Seed Notes

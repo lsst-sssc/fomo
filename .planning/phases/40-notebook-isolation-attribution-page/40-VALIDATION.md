@@ -54,6 +54,24 @@ Filled in by the planner and executor; requirement-level map from RESEARCH.md:
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
+### Task-level map (filled by the planner, 2026-10-09)
+
+| Task | Requirement | Automated command (log under `$HOME/tmp`) | Wave 0 file | Status |
+|------|-------------|--------------------------------------------|-------------|--------|
+| 40-01 T1 (tracer) | WARN-05, WARN-03 | `python manage.py test --noinput solsys_code.tests.test_notebook_helper solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_projector_demo_notebook` + seed/notebook AST checks | `docs/notebooks/fomo_nb_utils.py`, `solsys_code/tests/test_notebook_helper.py` (created here) | ⬜ pending |
+| 40-01 T2 | WARN-05 | notebook AST/output check for backfill, lifecycle, reconcile + the same three test modules | — | ⬜ pending |
+| 40-02 T1 (tracer) | WARN-02, WARN-03, WARN-06 | `python manage.py test --noinput solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper solsys_code.tests.test_projector_demo_notebook solsys_code.tests.test_import_campaign_csv` + WR-13 bypass replay via `manage.py shell` | guard rewrite in place | ⬜ pending |
+| 40-02 T2 | WARN-05, WARN-03 | `python manage.py test --noinput solsys_code.tests.test_pre_executed_notebooks` (README tests) + rule-sentence / assert-audit / ledger checks | — | ⬜ pending |
+| 40-03 T1 (tracer) | WARN-04 | `python manage.py test --noinput solsys_code.tests.test_attribution_template solsys_code.tests.test_campaign_attribution_views.TestEvidenceColumns` + the two named functional tests | — | ⬜ pending |
+| 40-03 T2 | WARN-04 | in-file class scan + `python manage.py test --noinput --parallel solsys_code.tests.test_campaign_views solsys_code.tests.test_campaign_approval solsys_code.tests.test_campaign_gap solsys_code.tests.test_campaign_attribution_views solsys_code.tests.test_attribution_template ...DataAttributes` | — | ⬜ pending |
+| 40-03 T3 | WARN-04 (IN-12) | `python manage.py test --noinput solsys_code.tests.test_bootstrap5_rendering.TestTemplatesUseBootstrap5ClassNames solsys_code.tests.test_bootstrap5_rendering.TestTemplatesUseBootstrap5DataAttributes solsys_code.tests.test_campaign_approval solsys_code.tests.test_campaign_submission` | — | ⬜ pending |
+| 40-04 T1 (tracer) | WARN-07 | `python manage.py test --noinput solsys_code.tests.test_campaign_attribution_views solsys_code.tests.test_attribution_template` + template boolean check | — | ⬜ pending |
+| 40-04 T2 | WARN-07 | same two modules (all five actions, clamp, tampering, IN-15) + include check | `src/templates/campaigns/partials/attribution_return_state.html` (created here) | ⬜ pending |
+| 40-04 T3 | WARN-07, WARN-04 | named functional Undo test + `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper` + lifecycle/runbook/ledger checks | — | ⬜ pending |
+
+The README-vs-notebook-modes item formerly listed under Manual-Only is automated by 40-02 T2
+(`test_readme_lists_each_notebook_under_its_mode`).
+
 ---
 
 ## Wave 0 Requirements
