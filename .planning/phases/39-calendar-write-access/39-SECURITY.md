@@ -31,6 +31,7 @@ created: "2026-10-08"
 | template layer -> attribution matcher | the hint tag hands the template's `event` value to an ORM lookup and to campaign_attribution (39-05) | template context value |
 | staff-only hint -> non-staff viewers | the hint can name a candidate run that is not yet publicly visible, so who sees it must not widen (39-05) | candidate run names |
 | operator docs -> operators | the runbook is read as fact about what the post-login create and edit pages do (39-05) | operator behaviour |
+| signed-in non-staff browser -> calendar:update-event (GET) | under D-01 and D-04 every signed-in account, self-registered ones included (AR-39-01), opens the edit pop-up, which reaches the staff-only hint branch; only its `is_staff` conjunct keeps the hint from that viewer (39-06) | request.user flags, `action`, `event` |
 
 ---
 
@@ -67,6 +68,8 @@ created: "2026-10-08"
 | T-39-27 | Information disclosure | the bare copy of the event form shown at the create or edit address after a CSRF-failure login: its Save is a native GET that carries the CSRF token in the query string (browser history, server logs) and silently drops the input (39-REVIEW WR-01) | low | accept | accepted risk AR-39-02: 39-05 Task 2 (commit c71b7b0) tells operators not to use the copy and to go back to the calendar page (telescope_runs_calendar.rst:2605-2607); the template `method="post"` hardening (39-REVIEW WR-01 item 2) was offered and not requested by the developer at UAT on 2026-10-08, so the residual token-in-URL risk if someone uses it anyway is accepted; not reachable by an anonymous visitor and not a write path | closed |
 | T-39-28 | Repudiation | the runbook's closing clause presented the post-login create and edit pages as harmless forms, so an operator types a change there and believes it saved | low | mitigate | 39-05 Task 2 (commit c71b7b0, runbook only: +4/-2) rewrote the clause to say the addresses show a bare, unstyled copy of the event form, that its Save saves nothing and silently discards what was typed, and to go back to the calendar page (rst:2605-2607); the Task 2 structural check requires those phrases, forbids the old clause and proves no other text in the runbook or docs/ changed | closed |
 | T-39-29 | Repudiation | event_form.html changes without its header list and pinned snapshot, so the record of how FOMO's copy differs from tomtoolkit 3.1.0 drifts (D-10, WARN-01) | low | mitigate | header item 4 now reads "edit form only" (event_form.html:25) and the snapshot was regenerated in the same commit 917a895 (`+{% elif action == "update" ...` at event_form_vs_tomtoolkit_3_1_0.diff:199, still exactly 10 regions); `test_body_diff_matches_pinned_snapshot` (test_calendar_template.py:2162) and the Task 1 structural check enforce it | closed |
+| T-39-30 | Information disclosure | the "Possible campaign run match" hint in event_form.html (candidate run name, score, attribution-queue band=high link): a later edit weakening its `request.user.is_staff` conjunct (for example to is_authenticated) would show a not-yet-public candidate run to every signed-in account, and until now only the regenerable byte snapshot would notice (39-REVIEW WR-04 / WR-02; T-27-21; UAT G-39-7) | medium | mitigate | 39-06 Task 1 (commit cadb56c, test module only): `test_signed_in_non_staff_does_not_see_hint` (test_calendar_template.py:1010, view level: plain_user GET of the edit pop-up is 200 with the update `hx-post` and neither the hint text nor the `?band=high` link) and the `(self.plain_user, 'update', False)` row of `test_hint_is_gated_on_the_edit_form` (:984, row at :993, template level); the scratch-template mutation run (gate weakened to `is_authenticated` under $HOME/tmp, tracked template untouched) ends `FAILED (failures=2)` with exactly those two checks while the real tree runs 13 OK; the gate itself (event_form.html:284) is unchanged | closed |
+| T-39-31 | Repudiation | 39-REVIEW-DISPOSITION.md marks WR-04 fixed without the test having landed, or citing the wrong commit, misstating the phase's open findings to Phase 41 triage and the ship decision | low | mitigate | 39-06 Task 2 (commit 8d0f26b, +3/-3, ledger only) ran after Task 1's commit; its check requires the WR-04 Source cell to cite the hash of the post-6ea4928 commit touching the test module (cadb56c), both test names, the is_authenticated mutation and G-39-7, `open:` 10 -> 9, and exactly three changed ledger lines (`OK: WR-04 recorded fixed`); no other row changed | closed |
 
 *Status: open · closed · open — below high threshold (non-blocking)*
 *Severity: critical > high > medium > low — only open threats at or above workflow.security_block_on count toward threats_open*
@@ -92,6 +95,7 @@ created: "2026-10-08"
 | 2026-10-08 | 19 | 19 | 0 | execute-phase verify:post (L1 grep-depth short-circuit: plan-time register, ASVS 1) |
 | 2026-10-08 | 24 | 24 | 0 | execute-phase verify:post after gap-closure plan 39-04 (L1 grep-depth short-circuit: plan-time register, ASVS 1; T-39-20, T-39-21, T-39-23, T-39-24 added from 39-04's threat model, T-39-22 recorded by the plan itself) |
 | 2026-10-08 | 29 | 29 | 0 | execute-phase verify:post after gap-closure plan 39-05 (L1 grep-depth short-circuit: plan-time register, ASVS 1; T-39-25, T-39-26, T-39-28, T-39-29 mitigated and T-39-27 accepted as AR-39-02 from 39-05's threat model; the shared T-39-SC supply-chain row stays accepted/no installs as in every plan of this phase and is not tabulated) |
+| 2026-10-09 | 31 | 31 | 0 | execute-phase verify:post after gap-closure plan 39-06 (L1 grep-depth short-circuit: plan-time register, ASVS 1; T-39-30 and T-39-31 mitigated from 39-06's threat model, test-only plan; the shared T-39-SC supply-chain row stays accepted/no installs and is not tabulated) |
 
 ---
 
@@ -102,7 +106,7 @@ created: "2026-10-08"
 - [x] `threats_open: 0` confirmed
 - [x] `status: verified` set in frontmatter
 
-**Approval:** verified 2026-10-08; re-verified 2026-10-08 after gap-closure plan 39-04 (24 threats, 24 closed, threats_open 0); re-verified 2026-10-08 after gap-closure plan 39-05 (29 threats, 29 closed, threats_open 0)
+**Approval:** verified 2026-10-08; re-verified 2026-10-08 after gap-closure plan 39-04 (24 threats, 24 closed, threats_open 0); re-verified 2026-10-08 after gap-closure plan 39-05 (29 threats, 29 closed, threats_open 0); re-verified 2026-10-09 after gap-closure plan 39-06 (31 threats, 31 closed, threats_open 0)
 
 ## Security Audit 2026-10-08
 
@@ -118,4 +122,12 @@ created: "2026-10-08"
 |---|---|
 | Threats found | 29 |
 | Closed | 29 |
+| Open | 0 |
+
+## Security Audit 2026-10-09
+
+| Metric | Count |
+|---|---|
+| Threats found | 31 |
+| Closed | 31 |
 | Open | 0 |

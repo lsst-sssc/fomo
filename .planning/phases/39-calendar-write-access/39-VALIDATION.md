@@ -52,6 +52,8 @@ created: "2026-10-08"
 | 39-04-03 | 04 | 3 | ACCESS-01 | T-39-22, T-39-24 | full suite OK with no skips; ruff clean twice; check only urls.W005; no migrations; tom_calendar files match tomtoolkit RECORD; CR-01 recorded as an accepted risk with the verbatim rationale in the runbook, 39-SECURITY.md (T-39-10 premise corrected, T-39-22 row, AR-39-01) and the review ledger, exactly three ledger lines changed | full suite + gates + records check | `python manage.py test --noinput solsys_code --exclude-tag=ephemeris_segfault` (plus the gate commands and the records check script in 39-04 Task 3 verify) | ✅ | ✅ green (2241 tests) |
 | 39-05-01 | 05 | 4 | ACCESS-01, ACCESS-02, WARN-01 | T-39-25, T-39-26, T-39-29 | staff and superuser GET /calendar/create/ (with/without ?date=, htmx or not) return 200 with the create form and no hint; the staff create form is byte-identical to a plain user's apart from the CSRF token; an invalid staff htmx create POST re-renders the form (200, HX-Retarget) and creates nothing; `high_band_attribution_candidates` returns [] for '' and None and never raises (isinstance guard, rest AST-identical to cf76780); the staff hint elif is gated on `action == "update"` and still shows on the edit form for staff and superusers; header item 4 and the pinned snapshot (10 regions) regenerated in the same commit; `<form>` block byte-identical | unit (tracer, TDD, RED recorded in `39-05-red-evidence-task1.json`) + structural python check | `python manage.py test --noinput solsys_code.tests.test_calendar_template` (+ the two named functional tests) | ✅ module exists — six tests added to `EventModalAttributionHintTest` by this task | ✅ green (103 + 2 functional) |
 | 39-05-02 | 05 | 4 | ACCESS-01 | T-39-27, T-39-28 | runbook paragraph `A write attempt while logged out changes nothing` says the create and edit addresses show a bare, unstyled copy of the event form, not to use it (its Save saves nothing and silently discards what was typed) and to go back to the calendar page; the 39-04 phrases and the verbatim accepted-risk rationale retained; nothing else under docs/ changed; full suite OK with no skips; ruff clean twice; check only urls.W005; no migrations; tom_calendar files match tomtoolkit RECORD | structural python check + full suite + gates | `python manage.py test --noinput solsys_code --exclude-tag=ephemeris_segfault` (plus the runbook check and the gate commands in 39-05 Task 2 verify) | ✅ | ✅ green (2247 tests) |
+| 39-06-01 | 06 | 5 | ACCESS-01, WARN-01 | T-39-30 | a signed-in NON-staff user opening the edit pop-up of an unlinked event with a High-band candidate gets 200 and the edit form (`hx-post` to its update URL) with neither the "Possible campaign run match" hint nor the `?band=high` attribution link; the template-level gate test loops over (staff, update, shown), (staff, create, hidden), (plain, update, hidden); a scratch-template mutant with the gate weakened to `is_authenticated` fails exactly those two checks (`FAILED (failures=2)`), the tracked template untouched; every other test, import and class AST-identical to 6ea4928 | unit (tracer) + mutation run + structural python check | `python manage.py test --noinput solsys_code.tests.test_calendar_template.EventModalAttributionHintTest` (13 tests) | ✅ module exists — `test_signed_in_non_staff_does_not_see_hint` added, gate test extended by this task | ✅ green (13 tests; full django-test hook passed in commit cadb56c) |
+| 39-06-02 | 06 | 5 | ACCESS-01 | T-39-31 | 39-REVIEW-DISPOSITION.md records WR-04 as `fixed` in front matter and table, `open:` 10 -> 9, the Source cell cites the Task 1 commit hash, 39-06, both test names, the is_authenticated mutation and G-39-7; exactly three ledger lines differ from 6ea4928 and the commit holds only the ledger | ledger structural python check | the ledger check script in 39-06 Task 2 verify (`OK: WR-04 recorded fixed (open 10 -> 9), citing cadb56c`) | ✅ | ✅ green (commit 8d0f26b, +3/-3 ledger only) |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -90,6 +92,8 @@ created: "2026-10-08"
 
 **Re-approval after gap closure 39-05:** approved 2026-10-08 (execute-phase verify:post audit — 12/12 tasks green: 39-05 template module 103 tests + 2 functional, RED evidence classified RED_EVIDENCE_OK, full suite 2247 OK incl. functional with no skips; the 2 manual-only items are retained unchanged; the `verify-failure-directions` check reports 52 commands, 0 blockers, 0 warnings)
 
+**Re-approval after gap closure 39-06:** approved 2026-10-09 (execute-phase verify:post audit — 14/14 tasks green: 39-06 `EventModalAttributionHintTest` 13 tests OK on the real tree and exactly the two new checks failing under the scratch-template mutant, full django-test hook passed in commit cadb56c; test-only plan, no paired doc affected; the 2 manual-only items are retained unchanged; the `verify-failure-directions` check reports 58 commands, 0 blockers, 0 warnings)
+
 ## Validation Audit 2026-10-08
 
 | Metric | Count |
@@ -118,4 +122,14 @@ created: "2026-10-08"
 | Resolved | 0 |
 | Escalated | 0 |
 | Tasks green | 12 |
+| Manual-only | 2 |
+
+## Validation Audit 2026-10-09
+
+| Metric | Count |
+|---|---|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Tasks green | 14 |
 | Manual-only | 2 |
