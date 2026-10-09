@@ -2,39 +2,39 @@
 gsd_state_version: "1.0"
 milestone: v2.5
 milestone_name: Main Sync & Consolidation
-current_phase: "39.1"
-current_phase_name: Test-Suite Speed-Up (INSERTED)
-status: verifying
-stopped_at: Completed 39.1-04-PLAN.md
-last_updated: "2026-10-09T14:10:01.510Z"
+current_phase: 40
+current_phase_name: Notebook Isolation & Attribution Page
+status: planning
+stopped_at: Phase 39.1 complete, ready to plan Phase 40
+last_updated: "2026-10-09T15:19:13.034Z"
 last_activity: 2026-10-09
-last_activity_desc: Phase 39.1 Plan 04 complete (CI after-timing, SPEED-03 and SPEED-04)
-state_head: f262b8dad81d989fa156f6b4a60293dddbf1a733
+last_activity_desc: Phase 39.1 complete, transitioned to Phase 40
+state_head: 3af72e72219b4de57fe1226441379c480f3574ae
 progress:
   total_phases: 6
-  completed_phases: 41
+  completed_phases: 42
   total_plans: 17
   completed_plans: 17
-  percent: 100
+  percent: 91
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39 complete)
+See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 **Core value:** The `issue37-telescope-runs-calendar` branch is back in step with `main` — same dependency floors, same tooling, same CI runner — and the debt v2.4 carried forward is either fixed or has a written decision, so the next feature milestone starts from a current, clean base.
-**Current focus:** Phase 39.1 — Test-Suite Speed-Up (INSERTED)
+**Current focus:** Phase 40 — Notebook Isolation & Attribution Page
 
 ## Current Position
 
-Phase: 39.1 (Test-Suite Speed-Up (INSERTED)) — EXECUTING
-Plan: 4 of 4 (Plan 4 of 4 complete)
-Status: Phase complete — ready for verification
-Last activity: 2026-10-09 — Phase 39.1 Plan 04 complete (snapshot 8cb2d2f published to draft PR #43; CI run 37941525172 green with --parallel; SPEED-03 and SPEED-04 complete)
+Phase: 40 — Notebook Isolation & Attribution Page
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-09 — Phase 39.1 complete, transitioned to Phase 40
 
-Progress: [██████████] 17/17 plans (100%)
+Progress: [████████████████████] 17/17 plans (100%)
 
 ## Performance Metrics
 
@@ -96,6 +96,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39.1]: 39.1-03: migration tests = the six MigrationExecutor TransactionTestCase classes, tagged @tag('migration'); excluded in the django-test hook only, CI keeps all 18
 - [Phase 39.1]: 39.1-03: MD5PasswordHasher lives in the argv[1]=='test' block of settings.py only; django-test hook measured 2276 s -> 78 s (29.2x), coverage 93% -> 93%, so coverage stays in the hook
 - [Phase 39.1]: 39.1-04: developer published the snapshot (commit 8cb2d2f) to draft PR #43; CI run 37941525172 green on 3.10-3.12 with --parallel, unit step 1019/1171/1140 s -> 163/110/160 s
+- [Phase 39.1]: UAT (2026-10-09): code-review WR-01 (a dark window shorter than one 10-minute coarse step, possible above about 51.5° latitude, returns no crossings and campaign_gap files that date as unknown) accepted as shipped; no code or doc change requested; no currently stored site is affected
 
 ### Pending Todos
 
@@ -123,7 +124,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 ### Blockers/Concerns
 
 - [Phase 39+]: PR #58 (`production-deploy` → `main`) switches `main`'s `settings.py` to `from .local_settings import *`. At the next sync with `main`, keep the branch's absolute `from fomo.local_settings import *` — its `ImportError` guard tolerates only that module name, and the relative form crashes every checkout without the file under `manage.py` (38-REVIEW WR-02).
-- [Phase 38 follow-ups]: the next `issue37-code-only` snapshot refresh (D-11 recipe) carries 38-07's two docs commits onto PR #43's diff; `CLAUDE.md:106` names `local_settings.py` without a path (PR #58 rewrites that line on `main`); REQUIREMENTS.md traceability table lacks PROP-01, SITE-10, DEP-01 (phase.complete warning).
+- [Phase 38 follow-ups]: 38-07's docs commits reached PR #43 in the 39.1-04 snapshot (8cb2d2f); still open: `CLAUDE.md:106` names `local_settings.py` without a path (PR #58 rewrites that line on `main`); REQUIREMENTS.md traceability table lacks PROP-01, SITE-10, DEP-01 (phase.complete warning).
 - [Phase 40]: WARN-05 names `docs/notebooks/pre_executed/README`; the real file is `docs/notebooks/README.md`.
 - [Phase 42]: REVERIFY-02 routes fixes into "the TRIAGE-02 gap-closure phase", which runs before Phase 42. A re-verification gap fixed this milestone needs a further phase inserted after 42, then a re-run of that report.
 - [Phase 41]: TRIAGE-03 needs the TOM Toolkit Slack "multi proposal support" thread content from the developer.
@@ -167,12 +168,13 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-09T14:10:01.321Z
-**Stopped at:** Completed 39.1-04-PLAN.md
+**Last session:** 2026-10-09T15:20:14Z
+**Stopped at:** Phase 39.1 complete, ready to plan Phase 40
 **Resume file:** None
 
 ## Operator Next Steps
 
-- Discuss Phase 40 with /gsd-discuss-phase 40 (notebook isolation: every pre-executed demo notebook builds its own scratch DB with a guard test; attribution page under Bootstrap 5.3 — WR-13 to WR-18)
+- Discuss Phase 40 with /gsd-discuss-phase 40 (notebook isolation: every pre-executed demo notebook builds its own scratch DB with a guard test; attribution page under Bootstrap 5.3 — WR-13 to WR-18). Code commits now run the full django-test hook in about 80 s; `SKIP=django-test` is only for .planning-only commits or a deliberately red work-in-progress commit
+- Carried from Phase 39.1: review WR-01 accepted as shipped at UAT (sub-10-minute dark windows above about 51.5° latitude); info items IN-01..IN-06 in 39.1-REVIEW.md go to Phase 41 triage with the Phase 39 ledger; Phase 41 closes todo 2026-10-08 (sun_event cache) as fixed in 39.1 and todo 2026-10-07 (campaign table query-count test / shared cache) the same way
 - Carried from Phase 39: review ledger findings WR-02, WR-03, IN-01..IN-08 go to Phase 41 triage; UAT decisions D-01 (any logged-in user may write) and AR-39-01/AR-39-02 stand
-- Carried from Phase 38: next `issue37-code-only` snapshot refresh (D-11) for PR #43; `CLAUDE.md:106` path; keep `fomo.local_settings` import at the next main sync (PR #58)
+- Carried from Phase 38: `CLAUDE.md:106` path; keep `fomo.local_settings` import at the next main sync (PR #58); REQUIREMENTS.md traceability table lacks PROP-01, SITE-10, DEP-01

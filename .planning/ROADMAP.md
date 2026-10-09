@@ -145,7 +145,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 
 - [x] **Phase 38: Sync with main** - Merge `origin/main` into the branch and adopt exactly what `main` requires (tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9, LINCC template v2.2.0, the Django runner in CI), drop the dead pytest setup, get the full suite green, and rewrite draft PR #43's description for v2.4 (completed 2026-10-07)
 - [x] **Phase 39: Calendar Write Access** - An anonymous visitor can no longer create, change or delete a calendar event, the month view stops offering them the controls, and the event pop-up template's header comment says truthfully how it differs from upstream (completed 2026-10-08)
-- [ ] **Phase 39.1: Test-Suite Speed-Up (INSERTED)** - The unit-test suite the `django-test` hook and CI run finishes in about a minute instead of about ten (memoised `sun_event()`, cheaper crossing search, `--parallel`, fast test hasher, tagged migration tests) so code commits stop needing `SKIP=django-test`, with the 2-minute skycalc sun-event accuracy kept
+- [x] **Phase 39.1: Test-Suite Speed-Up (INSERTED)** - The unit-test suite the `django-test` hook and CI run finishes in about a minute instead of about ten (memoised `sun_event()`, cheaper crossing search, `--parallel`, fast test hasher, tagged migration tests) so code commits stop needing `SKIP=django-test`, with the 2-minute skycalc sun-event accuracy kept (completed 2026-10-09)
 - [ ] **Phase 40: Notebook Isolation & Attribution Page** - Every pre-executed demo notebook runs on its own scratch database with a guard that catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3, closing the last six Phase 37.1 review warnings
 - [ ] **Phase 41: Todo Triage & Seed Notes** - Every pending todo and backlog Phase 999.1 gets a fix-now / drop / park decision with a reason, fix-now items are set up as an inserted phase, and the Proposal-record seed records upstream's multi-proposal direction
 - [ ] **Phase 42: Re-verify the v2.4 Phases** - The five stale v2.4 verification reports are re-run against the final HEAD and refreshed in their archived directories, and the v2.4 milestone record states the real per-phase outcome instead of an override
@@ -288,7 +288,7 @@ Plans:
   4. The CI unit-test matrix and the pre-commit hook run the suite with `--parallel`, coverage still reports a combined figure, and the shared-cache race from todo 2026-10-07 is fixed rather than retried
   5. Production settings are unchanged: the fast password hasher applies only under the test runner, and `telescope_runs_demo.ipynb` is re-executed with the memoised code and committed with output
 
-**Plans**: 4/4 plans executed
+**Plans**: 4/4 plans complete
 
 Plans:
 
@@ -419,7 +419,7 @@ Plans:
 | 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 17/17 | Complete    | 2026-10-06 |
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
-| 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 4/4 | In Progress | - |
+| 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 4/4 | Complete    | 2026-10-09 |
 | 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
