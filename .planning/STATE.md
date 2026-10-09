@@ -4,18 +4,18 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: "39.1"
 current_phase_name: Test-Suite Speed-Up (INSERTED)
-status: executing
-stopped_at: Completed 39.1-03-PLAN.md
-last_updated: "2026-10-09T13:47:32.617Z"
+status: verifying
+stopped_at: Completed 39.1-04-PLAN.md
+last_updated: "2026-10-09T14:10:01.510Z"
 last_activity: 2026-10-09
-last_activity_desc: Phase 39.1 Plan 02 complete (SPEED-03)
-state_head: ed0621a9d7156008425a2d7f380c81213462f50a
+last_activity_desc: Phase 39.1 Plan 04 complete (CI after-timing, SPEED-03 and SPEED-04)
+state_head: f262b8dad81d989fa156f6b4a60293dddbf1a733
 progress:
   total_phases: 6
   completed_phases: 41
   total_plans: 17
-  completed_plans: 16
-  percent: 94
+  completed_plans: 17
+  percent: 100
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39 complete)
 ## Current Position
 
 Phase: 39.1 (Test-Suite Speed-Up (INSERTED)) — EXECUTING
-Plan: 4 of 4 (Plan 3 of 4 complete)
-Status: Ready to execute
-Last activity: 2026-10-09 — Phase 39.1 Plan 03 complete (SPEED-04 local half: hook 2276 s -> 78 s)
+Plan: 4 of 4 (Plan 4 of 4 complete)
+Status: Phase complete — ready for verification
+Last activity: 2026-10-09 — Phase 39.1 Plan 04 complete (snapshot 8cb2d2f published to draft PR #43; CI run 37941525172 green with --parallel; SPEED-03 and SPEED-04 complete)
 
-Progress: [█████████░] 16/17 plans ([█████████░] 94%)
+Progress: [██████████] 17/17 plans (100%)
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [█████████░] 16/17 plans ([███████�
 | Phase 39.1 P01 | 90 min | 3 tasks | 6 files |
 | Phase 39.1 P02 | 4h 28m | 3 tasks | 9 files |
 | Phase 39.1 P03 | 22 min | 3 tasks | 11 files |
+| Phase 39.1 P04 | 45 min | 3 tasks | 2 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -94,6 +95,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39.1]: Phase 39.1: tblib approved by the developer and added to the dev extra
 - [Phase 39.1]: 39.1-03: migration tests = the six MigrationExecutor TransactionTestCase classes, tagged @tag('migration'); excluded in the django-test hook only, CI keeps all 18
 - [Phase 39.1]: 39.1-03: MD5PasswordHasher lives in the argv[1]=='test' block of settings.py only; django-test hook measured 2276 s -> 78 s (29.2x), coverage 93% -> 93%, so coverage stays in the hook
+- [Phase 39.1]: 39.1-04: developer published the snapshot (commit 8cb2d2f) to draft PR #43; CI run 37941525172 green on 3.10-3.12 with --parallel, unit step 1019/1171/1140 s -> 163/110/160 s
 
 ### Pending Todos
 
@@ -165,8 +167,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-09T13:47:32.429Z
-**Stopped at:** Completed 39.1-03-PLAN.md
+**Last session:** 2026-10-09T14:10:01.321Z
+**Stopped at:** Completed 39.1-04-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
