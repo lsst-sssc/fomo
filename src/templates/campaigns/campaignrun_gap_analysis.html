@@ -3,7 +3,7 @@
 {% block title %}{{ campaign.name }} — Coverage Gaps{% endblock %}
 
 {% block content %}
-<h4 class="font-weight-bold mb-4">{{ campaign.name }} — Coverage Gaps</h4>
+<h4 class="fw-bold mb-4">{{ campaign.name }} — Coverage Gaps</h4>
 
 {% if not gap_analysis_available %}
 <p class="text-muted mb-4">
@@ -36,7 +36,7 @@
 </ul>
 {% else %}
 <div class="mb-4">
-  <h5 class="font-weight-bold">No gaps found</h5>
+  <h5 class="fw-bold">No gaps found</h5>
   <p>
     Every observable night in this window is already claimed by an approved run window or by an
     observation on the campaign's calendar. Try widening the date range (up to 180 days) or
@@ -47,15 +47,15 @@
 
 {% if result.claimed_dates %}
 <div class="mb-4">
-  <h5 class="font-weight-bold">Claimed nights</h5>
+  <h5 class="fw-bold">Claimed nights</h5>
   <ul class="list-unstyled mb-0">
     {% for d in result.claimed_dates %}
     <li>
       {{ d }}
       {% if d in result.observation_claimed_dates %}
-      <span class="badge badge-info">observed / scheduled</span>
+      <span class="badge text-bg-info">observed / scheduled</span>
       {% else %}
-      <span class="badge badge-light" style="border: 1px solid #6c757d;">approved run</span>
+      <span class="badge text-bg-light" style="border: 1px solid #6c757d;">approved run</span>
       {% endif %}
     </li>
     {% endfor %}
@@ -65,7 +65,7 @@
 
 {% if result.claimed_site_unknown_count > 0 %}
 <div class="alert alert-secondary mb-4">
-  <h5 class="font-weight-bold mb-1"><i class="fa fa-question-circle mr-2"></i>Site unknown</h5>
+  <h5 class="fw-bold mb-1"><i class="fa fa-question-circle me-2"></i>Site unknown</h5>
   <p class="mb-0">
     {{ result.claimed_site_unknown_count }} observation(s) on this campaign's calendar could not
     be assigned to a site. They are counted here, not ignored, and close no gap on this page.
@@ -82,7 +82,7 @@
 {% if result.undated_runs or result.unattributed_runs %}
 <div class="alert alert-warning mb-4">
   {% if result.undated_runs %}
-  <h5 class="font-weight-bold mb-1"><i class="fa fa-exclamation-circle mr-2"></i>Needs review: undated runs</h5>
+  <h5 class="fw-bold mb-1"><i class="fa fa-exclamation-circle me-2"></i>Needs review: undated runs</h5>
   <p class="mb-0">
     {{ result.undated_runs|length }} run(s) for this campaign have no observation date or start
     time and could not be checked against these dates.
@@ -99,7 +99,7 @@
 
 {% if result.pending_narrowing_runs %}
 <div class="alert alert-info mb-4">
-  <h5 class="font-weight-bold mb-1"><i class="fa fa-clock-o mr-2"></i>Pending narrowing: space-mission runs</h5>
+  <h5 class="fw-bold mb-1"><i class="fa fa-clock-o me-2"></i>Pending narrowing: space-mission runs</h5>
   <p class="mb-0">
     {{ result.pending_narrowing_runs|length }} space-mission run(s) haven't narrowed to a
     specific night yet and aren't counted as claiming any date.

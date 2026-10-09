@@ -21,13 +21,13 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <h4 class="font-weight-bold mb-0">{{ campaign.name }} — Observing Runs</h4>
+  <h4 class="fw-bold mb-0">{{ campaign.name }} — Observing Runs</h4>
   <div class="d-flex align-items-center">
     {% if gap_analysis_available %}
-    <a class="btn btn-primary mr-2" href="{% url 'campaigns:gap_analysis' pk=campaign.pk %}">Show Coverage Gaps</a>
+    <a class="btn btn-primary me-2" href="{% url 'campaigns:gap_analysis' pk=campaign.pk %}">Show Coverage Gaps</a>
     {% else %}
-    <button type="button" class="btn btn-primary disabled mr-2" disabled aria-disabled="true">Show Coverage Gaps</button>
-    <small class="text-muted mr-2">
+    <button type="button" class="btn btn-primary disabled me-2" disabled aria-disabled="true">Show Coverage Gaps</button>
+    <small class="text-muted me-2">
       Coverage-gap analysis needs at least one campaign target and at least one run with a resolved site.
     </small>
     {% endif %}
@@ -37,8 +37,8 @@
 
 <div class="card bg-light p-3 mb-4">
   <form method="get">
-    <div class="form-group">
-      <label class="font-weight-bold">{{ filter.form.run_status.label }}</label>
+    <div class="mb-3">
+      <label class="fw-bold">{{ filter.form.run_status.label }}</label>
       <div>
         {% for choice in filter.form.run_status %}
         <div class="form-check form-check-inline">
@@ -48,14 +48,14 @@
         {% endfor %}
       </div>
     </div>
-    <div class="form-group">
-      <label class="font-weight-bold" for="{{ filter.form.open_to_collaboration.id_for_label }}">
+    <div class="mb-3">
+      <label class="fw-bold" for="{{ filter.form.open_to_collaboration.id_for_label }}">
         Open to collaboration?
       </label>
       {% with value=filter.form.open_to_collaboration.value %}
       <select name="{{ filter.form.open_to_collaboration.html_name }}"
               id="{{ filter.form.open_to_collaboration.id_for_label }}"
-              class="form-control w-auto">
+              class="form-select w-auto">
         <option value="unknown" {% if not value or value == 'unknown' %}selected{% endif %}>Any</option>
         <option value="true" {% if value == 'true' %}selected{% endif %}>Yes</option>
         <option value="false" {% if value == 'false' %}selected{% endif %}>No</option>
@@ -87,7 +87,7 @@ pop-up) are unchanged and never read `unknown_runs`.
   </div>
   <div class="mt-1">
     {% for segment in rollup_segments %}
-    <span class="mr-3" title="{{ segment.label }}">
+    <span class="me-3" title="{{ segment.label }}">
       {{ segment.label }}: {{ segment.marker }}
       {% if not segment.known %}not yet known{% elif segment.unknown_runs %}at least {% if segment.is_estimate %}&approx;{% endif %}{{ segment.count }} ({{ segment.unknown_runs }} run{{ segment.unknown_runs|pluralize }} not yet known){% elif segment.is_estimate %}&approx;{{ segment.count }}{% else %}{{ segment.count }}{% endif %}
     </span>

@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-  <h4 class="font-weight-bold mb-0">Campaigns</h4>
+  <h4 class="fw-bold mb-0">Campaigns</h4>
   <div>
     {% if request.user.is_staff %}
     {# G-37.1-1-nav: always shown to staff, unlike the count-gated banner below, because an empty queue is the normal state since 37.1. #}
@@ -26,7 +26,7 @@ site_review_count (27.1-03) plus attribution_count (28-04, D-02).
 {% if pending_count or site_review_count %}
 <div class="alert alert-warning d-flex justify-content-between align-items-center mb-4">
   <span>
-    <i class="fa fa-exclamation-circle mr-2"></i>
+    <i class="fa fa-exclamation-circle me-2"></i>
     {% if pending_count %}{{ pending_count }} submission{{ pending_count|pluralize }} pending review{% endif %}
     {% if pending_count and site_review_count %}&middot;{% endif %}
     {% if site_review_count %}{{ site_review_count }} run{{ site_review_count|pluralize }} needing site review{% endif %}
@@ -37,7 +37,7 @@ site_review_count (27.1-03) plus attribution_count (28-04, D-02).
 {% if attribution_count %}
 <div class="alert alert-warning d-flex justify-content-between align-items-center mb-4">
   <span>
-    <i class="fa fa-exclamation-circle mr-2"></i>
+    <i class="fa fa-exclamation-circle me-2"></i>
     {{ attribution_count }} orphan{{ attribution_count|pluralize }} awaiting attribution
   </span>
   <a href="{% url 'campaigns:attribution' %}" class="btn btn-sm btn-warning">Attribution queue</a>

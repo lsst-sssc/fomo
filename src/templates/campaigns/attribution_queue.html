@@ -3,11 +3,11 @@
 {% block title %}Attribution{% endblock %}
 
 {% block content %}
-<h4 class="font-weight-bold mb-4">Attribution</h4>
+<h4 class="fw-bold mb-4">Attribution</h4>
 
-<form method="get" class="form-inline mb-4">
-  <label class="small font-weight-bold mr-2" for="band-filter">Filter by confidence:</label>
-  <select name="band" id="band-filter" class="form-control form-control-sm" onchange="this.form.submit()">
+<form method="get" class="d-flex align-items-center gap-2 mb-4">
+  <label class="small fw-bold" for="band-filter">Filter by confidence:</label>
+  <select name="band" id="band-filter" class="form-select form-select-sm" onchange="this.form.submit()">
     <option value="" {% if not band %}selected{% endif %}>All</option>
     <option value="high" {% if band == 'high' %}selected{% endif %}>High</option>
     <option value="medium" {% if band == 'medium' %}selected{% endif %}>Medium</option>
@@ -24,7 +24,7 @@ empty). unattributable_count renders as "None" at zero rather than "0 orphans" s
 sentence reads cleanly at true completion.
 {% endcomment %}
 <div class="text-center text-muted p-4 bg-light mb-4">
-  <h5 class="font-weight-bold mb-2">Attribution complete</h5>
+  <h5 class="fw-bold mb-2">Attribution complete</h5>
   <p class="mb-0">
     Every calendar event and observation record with a candidate run has been confirmed or
     dismissed.
@@ -39,7 +39,7 @@ sentence reads cleanly at true completion.
 </div>
 {% endif %}
 
-<h5 class="font-weight-bold mb-3">Calendar events awaiting attribution</h5>
+<h5 class="fw-bold mb-3">Calendar events awaiting attribution</h5>
 <p class="small text-muted">
   Only events and records with at least one candidate run are listed here — an orphan with no
   candidate never appears.
@@ -50,10 +50,10 @@ sentence reads cleanly at true completion.
   {% for group in event_groups %}
   <tbody>
     <tr class="bg-light">
-      <td colspan="7" class="small font-weight-bold">
+      <td colspan="7" class="small fw-bold">
         {{ group.identity_label }} ({{ group.window_label }})
         {% if group.candidates|length < group.total_candidate_count %}
-        <span class="text-muted font-weight-normal">
+        <span class="text-muted fw-normal">
           — showing top {{ group.candidates|length }} of {{ group.total_candidate_count }} candidates
         </span>
         {% endif %}
@@ -81,10 +81,10 @@ sentence reads cleanly at true completion.
         <span class="badge text-bg-secondary">Low</span>
         {% endif %}
       </td>
-      <td><span class="small font-weight-bold">Telescope:</span> {{ candidate.telescope_evidence }}</td>
-      <td><span class="small font-weight-bold">Date overlap:</span> {{ candidate.date_evidence }}</td>
-      <td><span class="small font-weight-bold">Campaign:</span> {{ candidate.campaign_evidence }}</td>
-      <td><span class="small font-weight-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
+      <td><span class="small fw-bold">Telescope:</span> {{ candidate.telescope_evidence }}</td>
+      <td><span class="small fw-bold">Date overlap:</span> {{ candidate.date_evidence }}</td>
+      <td><span class="small fw-bold">Campaign:</span> {{ candidate.campaign_evidence }}</td>
+      <td><span class="small fw-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
       <td><span class="badge text-bg-light border">{{ candidate.score }}</span></td>
       <td>
         {% comment %}
@@ -139,12 +139,12 @@ form without nesting.
 
 {% else %}
 <div class="text-center text-muted p-4 bg-light mb-4">
-  <h5 class="font-weight-bold mb-2">No calendar events awaiting attribution</h5>
+  <h5 class="fw-bold mb-2">No calendar events awaiting attribution</h5>
   <p class="mb-0">Every calendar event with a candidate run has been confirmed or dismissed.</p>
 </div>
 {% endif %}
 
-<h5 class="font-weight-bold mb-3 mt-4">Observation records awaiting attribution</h5>
+<h5 class="fw-bold mb-3 mt-4">Observation records awaiting attribution</h5>
 <p class="small text-muted">
   Only events and records with at least one candidate run are listed here — an orphan with no
   candidate never appears.
@@ -155,10 +155,10 @@ form without nesting.
   {% for group in record_groups %}
   <tbody>
     <tr class="bg-light">
-      <td colspan="7" class="small font-weight-bold">
+      <td colspan="7" class="small fw-bold">
         {{ group.identity_label }} ({{ group.window_label }})
         {% if group.candidates|length < group.total_candidate_count %}
-        <span class="text-muted font-weight-normal">
+        <span class="text-muted fw-normal">
           — showing top {{ group.candidates|length }} of {{ group.total_candidate_count }} candidates
         </span>
         {% endif %}
@@ -182,10 +182,10 @@ form without nesting.
         <span class="badge text-bg-secondary">Low</span>
         {% endif %}
       </td>
-      <td><span class="small font-weight-bold">Telescope:</span> {{ candidate.telescope_evidence }}</td>
-      <td><span class="small font-weight-bold">Date overlap:</span> {{ candidate.date_evidence }}</td>
-      <td><span class="small font-weight-bold">Campaign:</span> {{ candidate.campaign_evidence }}</td>
-      <td><span class="small font-weight-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
+      <td><span class="small fw-bold">Telescope:</span> {{ candidate.telescope_evidence }}</td>
+      <td><span class="small fw-bold">Date overlap:</span> {{ candidate.date_evidence }}</td>
+      <td><span class="small fw-bold">Campaign:</span> {{ candidate.campaign_evidence }}</td>
+      <td><span class="small fw-bold">Instrument similarity:</span> {{ candidate.instrument_evidence }}</td>
       <td><span class="badge text-bg-light border">{{ candidate.score }}</span></td>
       <td>
         {% comment %}
@@ -224,7 +224,7 @@ rather than wrapping it.
 
 {% else %}
 <div class="text-center text-muted p-4 bg-light mb-4">
-  <h5 class="font-weight-bold mb-2">No observation records awaiting attribution</h5>
+  <h5 class="fw-bold mb-2">No observation records awaiting attribution</h5>
   <p class="mb-0">Every observation record with a candidate run has been confirmed or dismissed.</p>
 </div>
 {% endif %}
@@ -244,8 +244,8 @@ while its own table is being paged or sorted -- a page or sort link inside it re
 which would otherwise fold it shut again. Only the field NAMES are tested against request.GET;
 no query-string value is echoed into the page.
 {% endcomment %}
-<h5 class="font-weight-bold mb-3 mt-4">
-  <button class="btn btn-link p-0 font-weight-bold{% if dismissed_table.prefixed_page_field in request.GET or dismissed_table.prefixed_order_by_field in request.GET %}{% else %} collapsed{% endif %}"
+<h5 class="fw-bold mb-3 mt-4">
+  <button class="btn btn-link p-0 fw-bold{% if dismissed_table.prefixed_page_field in request.GET or dismissed_table.prefixed_order_by_field in request.GET %}{% else %} collapsed{% endif %}"
           type="button" data-bs-toggle="collapse" data-bs-target="#attribution-dismissed-section"
           aria-expanded="{% if dismissed_table.prefixed_page_field in request.GET or dismissed_table.prefixed_order_by_field in request.GET %}true{% else %}false{% endif %}"
           aria-controls="attribution-dismissed-section">
@@ -256,8 +256,8 @@ no query-string value is echoed into the page.
   {% render_table dismissed_table %}
 </div>
 
-<h5 class="font-weight-bold mb-3 mt-4">
-  <button class="btn btn-link p-0 font-weight-bold" type="button" data-bs-toggle="collapse"
+<h5 class="fw-bold mb-3 mt-4">
+  <button class="btn btn-link p-0 fw-bold" type="button" data-bs-toggle="collapse"
           data-bs-target="#attribution-confirmed-section" aria-expanded="true"
           aria-controls="attribution-confirmed-section">
     Confirmed
