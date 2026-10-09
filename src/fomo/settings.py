@@ -186,8 +186,8 @@ CACHES = {
     }
 }
 
-# Test-only overrides, active only when Django's test command is the entry point
-# (`python manage.py test`, `coverage run manage.py test`, `django-admin test` and
+# Test-only overrides (cache and password hasher), active only when Django's test command is
+# the entry point (`python manage.py test`, `coverage run manage.py test`, `django-admin test` and
 # `python -m django test` all put 'test' at argv[1], the position Django's ManagementUtility
 # reads the subcommand from; runserver, shell, testserver and WSGI servers never do), so
 # production and runserver settings are untouched.
@@ -197,11 +197,18 @@ CACHES = {
 # dev runserver share (todo 2026-10-07 race; bug #3 in test_campaign_approval.py). Each test
 # process therefore gets a private LocMemCache.
 #
+# The password hasher: Django's testing docs recommend a fast hasher ("Speeding up the
+# tests"); the suite hashes a few hundred test passwords at PBKDF2's 1,000,000 iterations.
+# MD5 is acceptable here only because test databases hold no real credentials and this guard
+# keeps it out of every non-test process (runserver, shell, WSGI). Never copy it into
+# local_settings.py.
+#
 # This block MUST stay above the `local_settings` fold tail at the end of this file, because
 # test_settings_api_key_fold executes the file from that anchor to the end in a bare
-# namespace. local_settings.py is imported afterwards and could override CACHES, so a host
-# that runs the suite must not set CACHES there.
+# namespace. local_settings.py is imported afterwards and could override CACHES or
+# PASSWORD_HASHERS, so a host that runs the suite must not set either there.
 if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
     CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
 
 # TOM Specific configuration
