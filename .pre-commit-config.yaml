@@ -76,14 +76,17 @@ repos:
     # TestEphemeris (solsys_code/tests/test_views.py) is tagged 'ephemeris_segfault'
     # because the native ASSIST integrator crashes the whole test process, so it is
     # excluded here and in CI.
+    # The suite runs with `--parallel` (one worker per CPU) and each worker writes its own
+    # coverage file, merged by `coverage combine`; `coverage erase` first drops files an
+    # interrupted run left behind.
     # This hook takes about 10 minutes; for work-in-progress commits use
     # `SKIP=django-test git commit ...`.
   - repo: local
     hooks:
       - id: django-test
-        name: Run Django unit tests (excluding functional and ephemeris_segfault)
-        description: Run the Django test suite with coverage, skipping the 'functional' Playwright tests and the 'ephemeris_segfault' class.
-        entry: bash -c "coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault && coverage html"
+        name: Run Django unit tests in parallel (excluding functional and ephemeris_segfault)
+        description: Run the Django test suite in parallel worker processes with combined coverage, skipping the 'functional' Playwright tests and the 'ephemeris_segfault' class.
+        entry: bash -c "coverage erase && coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --parallel && coverage combine -q && coverage html"
         language: system
         pass_filenames: false
         always_run: true

@@ -38,7 +38,8 @@ jobs:
         if [ -f requirements.txt ]; then uv pip install --system -r requirements.txt; fi
     - name: Run Django unit tests with coverage
       run: |
-        coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault
+        coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --parallel
+        coverage combine
         coverage xml
     - name: Upload coverage report to codecov
       uses: codecov/codecov-action@v7

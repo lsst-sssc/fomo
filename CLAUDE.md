@@ -27,10 +27,10 @@ python manage.py fetch_jplsbdb_objects --orbit_class IEO
 
 # Tests — the Django test runner is the only test runner (see "Testing" below):
 python manage.py test solsys_code --exclude-tag=ephemeris_segfault   # full local suite, incl. Playwright browser tests (needs `playwright install chromium`)
-python manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault   # what pre-commit and the CI unit-test matrix run
+python manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --parallel   # what pre-commit and the CI unit-test matrix run (both under coverage)
 python manage.py test --tag functional         # Playwright browser tests only (CI functional-tests job)
 python manage.py test solsys_code.tests.test_views.TestSplitNumberUnitRegex   # single Django test
-coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault && coverage report   # with coverage
+coverage erase && coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --parallel && coverage combine && coverage report   # with coverage (combine the per-process data files first)
 
 # Lint / format: run through pre-commit, which pins ruff to the version .pre-commit-config.yaml
 # enforces (v0.16.9) -- an unpinned `ruff` on PATH can report findings the enforced gate does not
@@ -92,7 +92,12 @@ template's pytest tooling was removed in the v2.2.0 update (issue #54); do not r
 Tests that need a real browser (`StaticLiveServerTestCase` + Playwright) are tagged
 `@tag('functional')` so pre-commit and the CI unit-test matrix can skip them with
 `--exclude-tag functional`; the CI `functional-tests` job runs them with `--tag functional`.
-Coverage is measured with `coverage run manage.py test` (`[tool.coverage.run]` in `pyproject.toml`).
+The unit suite runs in parallel worker processes (`--parallel`, one per CPU). `[tool.coverage.run]` in
+`pyproject.toml` sets `concurrency = ["multiprocessing"]` and `parallel = true`, so each process writes its own
+`.coverage.*` file and `coverage combine` must run before `coverage report`/`html`/`xml`, after a
+`coverage erase` that drops files an interrupted run left behind. Under the test command
+`src/fomo/settings.py` gives each test process its own `LocMemCache`, so workers never share or clear each
+other's cache. `tblib` (dev extra) carries a failing worker's traceback back to the console.
 
 `TestEphemeris` in `solsys_code/tests/test_views.py` is tagged `@tag('ephemeris_segfault')` because the
 native ASSIST integrator crashes the whole test process instead of failing a single test. Every
@@ -121,7 +126,10 @@ locally. It still runs when you name it directly.
   CI/pre-commit files assume pytest; after each `copier update` the test steps in
   `testing-and-coverage.yml`, `smoke-test.yml` and `.pre-commit-config.yaml` must be re-pointed at
   `manage.py test`, and the `ruff-pre-commit` rev (stale upstream) re-bumped — these are deliberate local
-  divergences, as are the `--exclude-tag ephemeris_segfault` on the test steps and the pre-executed-notebook
+  divergences, as are the `--exclude-tag ephemeris_segfault` on the test steps, `--parallel` with
+  `coverage erase`/`coverage combine` on the CI unit-test step and the `django-test` hook, the
+  `concurrency`/`parallel` keys in `[tool.coverage.run]` (the daily smoke test stays serial on purpose: it is
+  the one whole-suite run in a single process), and the pre-executed-notebook
   hook path `docs/notebooks/pre_executed/`. Answer `custom_install: custom`, never `retrofit` (which strips
   the ruff config).
 - **Verify the checked-out branch before any branch-implicit git command** (`rebase`, `reset`,
