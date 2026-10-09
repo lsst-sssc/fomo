@@ -23,21 +23,60 @@ For notebooks that require large datasets, access to third party APIs, large CPU
 For more information look here: https://lincc-ppt.readthedocs.io/en/latest/practices/sphinx.html#python-notebooks
 
 Or if you still have questions contact us: https://lincc-ppt.readthedocs.io/en/latest/source/contact.html
+
 ## Pre-executed notebooks never touch the developer database
 
-Every notebook under `pre_executed/` that sets Django up must, before `django.setup()`,
-create a `/tmp/fomo-notebook-db-*` directory with `tempfile.mkdtemp`, point
-`FOMO_DATABASE_PATH` at a database inside it with a plain assignment (never `setdefault`, so
-an inherited value cannot win), check that Django resolved that path, and print
-`Resolved database: ...`. It then either migrates a fresh database and creates every row it
-needs (most notebooks), or takes a read-only snapshot of `src/fomo_db.sqlite3` with SQLite's
-online backup when it needs the real records (`project_observation_calendar_demo`). Its last
-code cell removes the directory.
+No pre-executed notebook byte-copies or writes the developer database (`src/fomo_db.sqlite3`); a notebook that needs real rows reads it only through a read-only online-backup snapshot, and every other notebook starts from a fresh migrated database.
 
-To regenerate a notebook, run `pre-commit run ruff-format --files <notebook>`, then, from this
-`pre_executed/` directory, `jupyter nbconvert --to notebook --execute --inplace <notebook>`.
-Never export `FOMO_DATABASE_PATH` yourself -- the setup cell sets it -- and commit the notebook
-with its output.
+### Notebooks that read a read-only snapshot
 
-`solsys_code/tests/test_pre_executed_notebooks.py` enforces this for every notebook in
-`pre_executed/`. It reads each notebook's JSON and never executes one.
+- `project_observation_calendar_demo.ipynb` -- reports on the real LCO/SOAR observation corpus and runs the real one-time takeover sweep, so it needs the developer database's rows.
+- `reconcile_campaign_runs_demo.ipynb` -- reconciles the real campaign runs and calendar events and runs the classical-allocation cutover against them.
+
+### Notebooks that start from a fresh migrated database
+
+- `backfill_lco_observations_demo.ipynb`
+- `campaign_lifecycle_demo.ipynb`
+- `import_campaign_csv_demo.ipynb`
+- `load_telescope_runs_demo.ipynb`
+- `sync_gemini_observation_calendar_demo.ipynb`
+- `telescope_runs_demo.ipynb`
+
+Each of these creates every row it shows (or seeds the few `Observatory` rows it needs), so nothing in the
+developer database is needed and a copy would only carry unrelated rows into the output.
+
+### How a notebook uses the helper
+
+All eight notebooks use `docs/notebooks/fomo_nb_utils.py`. The setup cell puts the repo root and
+`docs/notebooks` on `sys.path`, imports `setup_scratch_django` and `teardown_scratch_django`, and calls
+
+```python
+scratch_db_dir = setup_scratch_django(repo_root_path, mode='fresh')  # or mode='snapshot'
+```
+
+before anything imports Django. The last cell calls `teardown_scratch_django(scratch_db_dir)`.
+
+The setup function creates a `/tmp/fomo-notebook-db-*` directory, points `FOMO_DATABASE_PATH` at a database in
+it with a plain assignment (never `setdefault`, so an inherited value cannot win), and in snapshot mode fills it
+with SQLite's online backup of `src/fomo_db.sqlite3`, opened through a read-only (`mode=ro`) connection so the
+unattended runner can write the developer database at the same moment. It then runs `django.setup()`, raises a
+`RuntimeError` if Django resolved any other database (for example because a `local_settings.py` overrides
+`DATABASES`; a real `raise`, so it also fires under `python -O`), migrates the scratch database to head and prints
+`Resolved database: ...`. The teardown closes Django's connections and removes the directory.
+
+To regenerate a notebook, run `pre-commit run ruff-format --files <notebook>`, then, from this `pre_executed/`
+directory, `env TMPDIR=/tmp jupyter nbconvert --to notebook --execute --inplace <notebook>`, or choose
+*Restart and Run All* in Jupyter. Re-running the setup cell in a kernel that has already set Django up raises
+`RuntimeError`; restart the kernel instead. Never export `FOMO_DATABASE_PATH` yourself -- the helper sets it --
+and commit the notebook with its output.
+
+The two snapshot notebooks need a populated `src/fomo_db.sqlite3` (they raise `RuntimeError` without one), and the
+numbers they print change from one regeneration to the next because the developer database changes.
+
+A snapshot holds a full copy of the developer database. If a run fails before the teardown cell, delete any
+leftover `/tmp/fomo-notebook-db-*` directory yourself.
+
+`solsys_code/tests/test_pre_executed_notebooks.py` checks every notebook in `pre_executed/`: it calls the helper
+first, never sets Django up or routes the database itself, never byte-copies, and shows output from one fresh run.
+It reads each notebook's JSON and never executes one. `solsys_code/tests/test_notebook_helper.py` runs the helper
+itself, and a test in the first module keeps the two lists above equal to each notebook's `mode`.

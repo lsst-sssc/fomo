@@ -84,6 +84,15 @@ UNPARSEABLE_SUSPECT_TEXT = ('django.setup', DB_ENV_VAR, 'shutil.copy', DEVELOPER
 # Text that must never reach a committed notebook (snapshot output comes from the developer database).
 CREDENTIAL_TEXT = re.compile(r'api_key|Authorization|token=|pbkdf2_sha256\$', re.IGNORECASE)
 HORIZON_DIP_LINE = re.compile(r'Las Campanas \(2402 m\): ([0-9.]+) deg')
+README_PATH = REPO_ROOT / 'docs' / 'notebooks' / 'README.md'
+README_SNAPSHOT_HEADING = '### Notebooks that read a read-only snapshot'
+README_FRESH_HEADING = '### Notebooks that start from a fresh migrated database'
+# The rule the notebooks actually follow (D-04), in the same words in the README, ROADMAP.md and REQUIREMENTS.md.
+ISOLATION_RULE = (
+    'No pre-executed notebook byte-copies or writes the developer database (`src/fomo_db.sqlite3`); '
+    'a notebook that needs real rows reads it only through a read-only online-backup snapshot, '
+    'and every other notebook starts from a fresh migrated database.'
+)
 
 
 def _cell_source(cell: dict) -> str:
@@ -756,3 +765,35 @@ class TestPreExecutedNotebooksUseTheHelper(SimpleTestCase):
             with self.subTest(notebook=path.name):
                 match = CREDENTIAL_TEXT.search(path.read_text(encoding='utf-8'))
                 self.assertIsNone(match, f'{path.name} contains credential-shaped text {match and match.group(0)!r}')
+
+
+class TestReadmeStatesTheIsolationRule(SimpleTestCase):
+    """``docs/notebooks/README.md`` says what the notebooks do, and its two lists match each notebook's mode."""
+
+    @staticmethod
+    def _listed_notebooks(readme: str, heading: str) -> set[str]:
+        """Return the backticked ``*.ipynb`` names in the bullets under ``heading``, up to the next heading."""
+        start = readme.index(heading) + len(heading)
+        following = re.search(r'^#{1,6} ', readme[start:], re.MULTILINE)
+        section = readme[start : start + following.start()] if following else readme[start:]
+        return set(re.findall(r'^- `([^`]+\.ipynb)`', section, re.MULTILINE))
+
+    def test_readme_states_the_rule_in_the_d04_words(self):
+        self.assertIn(ISOLATION_RULE, README_PATH.read_text(encoding='utf-8'))
+
+    def test_readme_lists_each_notebook_under_its_mode(self):
+        readme = README_PATH.read_text(encoding='utf-8')
+        listed = {
+            'snapshot': self._listed_notebooks(readme, README_SNAPSHOT_HEADING),
+            'fresh': self._listed_notebooks(readme, README_FRESH_HEADING),
+        }
+        actual = {mode: set() for mode in SCRATCH_MODES}
+        for path in sorted(NOTEBOOK_DIR.glob('*.ipynb')):
+            actual[notebook_mode(_load_notebook(path))].add(path.name)
+        self.assertEqual(listed['snapshot'], actual['snapshot'])
+        self.assertEqual(listed['fresh'], actual['fresh'])
+        self.assertEqual(listed['snapshot'] | listed['fresh'], set(EXPECTED_NOTEBOOKS))
+        self.assertFalse(listed['snapshot'] & listed['fresh'])
+        self.assertEqual(
+            listed['snapshot'], {'project_observation_calendar_demo.ipynb', 'reconcile_campaign_runs_demo.ipynb'}
+        )
