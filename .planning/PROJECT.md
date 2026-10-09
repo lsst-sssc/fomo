@@ -118,6 +118,11 @@ Validated in Phase 27: all five CANON requirements (CANON-01 through CANON-05) a
 
 **Why now:** the branch's merge base with `main` is two months old and the draft PR predates all of v2.4. `main` has moved its tooling (ruff 0.16.9, the Django runner in CI, TOM 3.1.0) and the proposal-record design in SEED-5pe should not be made against TOM 3.0.1 while upstream is discussing multi-proposal support.
 
+**Progress:**
+
+- ✅ Phase 38 "Sync with main" — 2026-10-08 (7/7 plans). `origin/main` merged (not rebased), tooling floors adopted (tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9, Django runner in CI, `coverage`), dead pytest configuration dropped, PR #43 refreshed as a draft on the `issue37-code-only` snapshot with CI green on 3.10-3.12; G-38-1 closed by documentation (`src/fomo/local_settings.py` is the canonical location).
+- ✅ Phase 39 "Calendar Write Access" — 2026-10-09 (6/6 plans: 3 original across 2 waves + 3 gap-closure — 39-04 from verification/review (CSRF-failure refusal path documented and tested, upstream "Save and Edit" label restored with a pinned body-diff snapshot, CR-01 open self-registration recorded as accepted risk AR-39-01), 39-05 from UAT (G-39-3 runbook bare-form warning; G-39-4 staff "+ New Event" pop-up 500 fixed with an `isinstance` guard on `high_band_attribution_candidates` and an action-first gate on the staff hint), 39-06 from UAT (G-39-7 / review WR-04: test-only pin of the hint's staff conjunct at view and template level, proven non-vacuous by a scratch-template mutation run)). ACCESS-01, ACCESS-02 and WARN-01 shipped: `solsys_code/calendar_access.py` + `calendar_urls.py` guard all five `tom_calendar` write routes at FOMO's URL conf (any logged-in user may write, D-01; `require_POST` on delete-event/create-todo/update-todo; refused writes redirect to login with `next=/calendar/`), the anonymous month view and pop-up are read-only (`cal-event-card`, no create control), and `event_form.html`'s header lists every difference from tomtoolkit 3.1.0's upstream template with the body diff pinned in `solsys_code/tests/data/event_form_vs_tomtoolkit_3_1_0.diff`. Final verification passed 64/64 must-haves; UAT 7 tests, 4 passed and 3 issues all resolved by executed gap plans; security 31 threats / 0 open (2 accepted risks); Nyquist validated 14/14 tasks; code review ledger 10 of 13 findings open (WR-02, WR-03, IN-01..IN-08 — Phase 41 triage candidates; WR-01, WR-04 fixed, CR-01 accepted).
+
 ## Core Value
 
 Stage 1 (v1.0): Sun-event times accurate to within 2 minutes of the Las Campanas skycalc reference tool — the foundation that Stages 2-4 build on. Also: validated the GSD discuss→plan→execute→verify loop end-to-end on this codebase.
@@ -713,4 +718,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-08 after Phase 38 (Sync with main complete: merged with `main`, tooling floors adopted, PR #43 refreshed; next Phase 39 Calendar Write Access).*
+*Last updated: 2026-10-09 after Phase 39 (Calendar Write Access complete: anonymous calendar read-only, event_form.html override provenance pinned; next Phase 40 Notebook Isolation & Attribution Page).*

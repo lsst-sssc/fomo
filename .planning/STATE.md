@@ -22,19 +22,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-08 — Phase 38 complete)
+See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39 complete)
 
 **Core value:** The `issue37-telescope-runs-calendar` branch is back in step with `main` — same dependency floors, same tooling, same CI runner — and the debt v2.4 carried forward is either fixed or has a written decision, so the next feature milestone starts from a current, clean base.
-**Current focus:** Phase 39 — Calendar Write Access
+**Current focus:** Phase 40 — Notebook Isolation & Attribution Page
 
 ## Current Position
 
 Phase: 40 — Notebook Isolation & Attribution Page
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-10-08 — Phase 39 complete, transitioned to Phase 40
+Last activity: 2026-10-09 — Phase 39 complete, transitioned to Phase 40
 
-Progress: [████████████████████] 7/7 plans ([█████████░] 91%)
+Progress: [████████████████████] 13/13 plans (100%)
 
 ## Performance Metrics
 
@@ -157,5 +157,6 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Operator Next Steps
 
-- Discuss Phase 39 with /gsd-discuss-phase 39 (calendar write access: who may still write — any logged-in user or staff only — and whether the todo URLs are guarded too)
+- Discuss Phase 40 with /gsd-discuss-phase 40 (notebook isolation: every pre-executed demo notebook builds its own scratch DB with a guard test; attribution page under Bootstrap 5.3 — WR-13 to WR-18)
+- Carried from Phase 39: review ledger findings WR-02, WR-03, IN-01..IN-08 go to Phase 41 triage; UAT decisions D-01 (any logged-in user may write) and AR-39-01/AR-39-02 stand
 - Carried from Phase 38: next `issue37-code-only` snapshot refresh (D-11) for PR #43; `CLAUDE.md:106` path; keep `fomo.local_settings` import at the next main sync (PR #58)
