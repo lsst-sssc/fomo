@@ -288,7 +288,7 @@ Plans:
   4. The CI unit-test matrix and the pre-commit hook run the suite with `--parallel`, coverage still reports a combined figure, and the shared-cache race from todo 2026-10-07 is fixed rather than retried
   5. Production settings are unchanged: the fast password hasher applies only under the test runner, and `telescope_runs_demo.ipynb` is re-executed with the memoised code and committed with output
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 
@@ -299,7 +299,7 @@ Plans:
 - [x] 39.1-02-PLAN.md — Piece 3 (tracer: test-only per-process `LocMemCache` under `argv[1] == 'test'`, above the local-settings fold tail, plus `override_settings` on the two cache-clearing class hierarchies -- the 2026-10-07 race fixed, five `--parallel 4` runs green); blocking-human tblib legitimacy check; `--parallel` with `coverage erase`/`combine` in the django-test hook and the CI unit step, coverage `multiprocessing`/`parallel` config, CLAUDE.md coverage commands (SPEED-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 39.1-03-PLAN.md — Piece 4 (tracer: `@tag('migration')` on the six MigrationExecutor classes, excluded by the hook only); MD5 hasher under the test command only; after timings beside the before ones (hook <= 120 s and >= 5x faster) and CLAUDE.md, hook comment and codebase TESTING.md updated (SPEED-04)
+- [x] 39.1-03-PLAN.md — Piece 4 (tracer: `@tag('migration')` on the six MigrationExecutor classes, excluded by the hook only); MD5 hasher under the test command only; after timings beside the before ones (hook <= 120 s and >= 5x faster) and CLAUDE.md, hook comment and codebase TESTING.md updated (SPEED-04)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 39.1-04-PLAN.md — CI after-timing (tracer: D-11 snapshot staged in a worktree, scope and leak checked); developer decides publish or hold; publish records the parallel unit-test CI durations on PR #43, hold records a dated deferral with the local CI-sized proxy (SPEED-03, SPEED-04)
@@ -419,7 +419,7 @@ Plans:
 | 37.1. Close gap: ALLOC-06 — exact-identity system links on ingest (INSERTED) | v2.4 | 17/17 | Complete    | 2026-10-06 |
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
-| 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 2/4 | In Progress | - |
+| 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 3/4 | In Progress | - |
 | 40. Notebook Isolation & Attribution Page | v2.5 | 0/TBD | Not started | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |

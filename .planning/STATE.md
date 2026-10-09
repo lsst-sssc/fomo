@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: "39.1"
 current_phase_name: Test-Suite Speed-Up (INSERTED)
 status: executing
-stopped_at: Completed 39.1-02-PLAN.md
-last_updated: "2026-10-09T13:22:35.177Z"
+stopped_at: Completed 39.1-03-PLAN.md
+last_updated: "2026-10-09T13:47:32.617Z"
 last_activity: 2026-10-09
 last_activity_desc: Phase 39.1 Plan 02 complete (SPEED-03)
-state_head: 57e9c34c5b6b6eb223828198490b6921ba076fa1
+state_head: ed0621a9d7156008425a2d7f380c81213462f50a
 progress:
   total_phases: 6
   completed_phases: 41
   total_plans: 17
-  completed_plans: 15
-  percent: 88
+  completed_plans: 16
+  percent: 94
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39 complete)
 ## Current Position
 
 Phase: 39.1 (Test-Suite Speed-Up (INSERTED)) — EXECUTING
-Plan: 3 of 4 (Plan 2 of 4 complete)
+Plan: 4 of 4 (Plan 3 of 4 complete)
 Status: Ready to execute
-Last activity: 2026-10-09 — Phase 39.1 Plan 02 complete (SPEED-03)
+Last activity: 2026-10-09 — Phase 39.1 Plan 03 complete (SPEED-04 local half: hook 2276 s -> 78 s)
 
-Progress: [█████████░] 15/17 plans (88%)
+Progress: [█████████░] 16/17 plans ([█████████░] 94%)
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [█████████░] 15/17 plans (88%)
 | Phase 39 P06 | 41 min | 2 tasks | 2 files |
 | Phase 39.1 P01 | 90 min | 3 tasks | 6 files |
 | Phase 39.1 P02 | 4h 28m | 3 tasks | 9 files |
+| Phase 39.1 P03 | 22 min | 3 tasks | 11 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -91,6 +92,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39.1]: Phase 39.1: --parallel with no worker count in the django-test hook and CI, hook keeps coverage, daily smoke test stays serial on purpose
 - [Phase 39.1]: Phase 39.1: coverage config-file form (concurrency multiprocessing, parallel true) works; hook starts with coverage erase and runs coverage combine before reporting
 - [Phase 39.1]: Phase 39.1: tblib approved by the developer and added to the dev extra
+- [Phase 39.1]: 39.1-03: migration tests = the six MigrationExecutor TransactionTestCase classes, tagged @tag('migration'); excluded in the django-test hook only, CI keeps all 18
+- [Phase 39.1]: 39.1-03: MD5PasswordHasher lives in the argv[1]=='test' block of settings.py only; django-test hook measured 2276 s -> 78 s (29.2x), coverage 93% -> 93%, so coverage stays in the hook
 
 ### Pending Todos
 
@@ -162,8 +165,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-09T13:22:35.018Z
-**Stopped at:** Completed 39.1-02-PLAN.md
+**Last session:** 2026-10-09T13:47:32.429Z
+**Stopped at:** Completed 39.1-03-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
