@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: executing
-stopped_at: Completed 40-01-PLAN.md
-last_updated: "2026-10-09T23:15:45.622Z"
+stopped_at: Completed 40-02-PLAN.md
+last_updated: "2026-10-09T23:34:07.568Z"
 last_activity: 2026-10-09
 last_activity_desc: Phase 40 execution started
-state_head: c760c61c8685dfaf20b814b5071bc6832ed138bd
+state_head: 9bdc79d4c791f2b97444d5144e00328b599de0d7
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 21
-  completed_plans: 18
-  percent: 86
+  completed_plans: 19
+  percent: 90
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 ## Current Position
 
 Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-10-09 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 86%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 90%)
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 39.1 P03 | 22 min | 3 tasks | 11 files |
 | Phase 39.1 P04 | 45 min | 3 tasks | 2 files |
 | Phase 40 P01 | 70 min | 2 tasks | 7 files |
+| Phase 40 P02 | 20 min | 2 tasks | 9 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -99,6 +100,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 39.1]: 39.1-04: developer published the snapshot (commit 8cb2d2f) to draft PR #43; CI run 37941525172 green on 3.10-3.12 with --parallel, unit step 1019/1171/1140 s -> 163/110/160 s
 - [Phase 39.1]: UAT (2026-10-09): code-review WR-01 (a dark window shorter than one 10-minute coarse step, possible above about 51.5° latitude, returns no crossings and campaign_gap files that date as unknown) accepted as shipped; no code or doc change requested; no currently stored site is affected
 - [Phase 40]: Phase 40-01: notebook DB setup moved into docs/notebooks/fomo_nb_utils.py (setup_scratch_django / teardown_scratch_django); RuntimeError path check survives python -O; reconcile_campaign_runs_demo uses mode='snapshot' (mode=ro online backup), load_telescope_runs, backfill_lco and campaign_lifecycle use mode='fresh'
+- [Phase 40]: 40-02: notebook guard checks current source (AST rules R0-R11) rather than committed output; all eight notebooks call setup_scratch_django; README/ROADMAP/REQUIREMENTS share one isolation-rule sentence pinned by a test
 
 ### Pending Todos
 
@@ -170,8 +172,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-09T23:15:45.581Z
-**Stopped at:** Completed 40-01-PLAN.md
+**Last session:** 2026-10-09T23:34:07.526Z
+**Stopped at:** Completed 40-02-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
