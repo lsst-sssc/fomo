@@ -1,0 +1,738 @@
+from datetime import date, datetime, timedelta, timezone
+from unittest import mock
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+import astropy.units as u
+import numpy as np
+from astropy.coordinates import EarthLocation
+from astropy.time import Time
+from django.test import SimpleTestCase, TestCase
+
+from solsys_code import telescope_runs
+from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.telescope_runs import (
+    SITES,
+    ParsedRun,
+    _find_crossing,
+    _local_noon_utc,
+    get_site,
+    horizon_dip,
+    parse_run_line,
+    sun_event,
+)
+
+# LCO skycalc reference sunset/sunrise (UTC) for Las Campanas, June 2026.
+# June 10 is the design-doc-anchored reference (sunset 21:59 UTC / sunrise
+# 11:25 UTC, matching the -18 degree twilight cross-check below to the
+# second). June 1/20/30 are validated via internal seasonal-consistency
+# (smooth day-to-day drift toward the June solstice) per RESEARCH.md Open
+# Question 1's internal-consistency fallback (user-approved 2026-06-12).
+LAS_CAMPANAS_SUN_REFERENCE_UTC = {
+    date(2026, 6, 1): ('2026-06-01T21:59:00', '2026-06-02T11:22:00'),
+    date(2026, 6, 10): ('2026-06-10T21:59:00', '2026-06-11T11:25:00'),
+    date(2026, 6, 20): ('2026-06-20T22:00:00', '2026-06-21T11:29:00'),
+    date(2026, 6, 30): ('2026-06-30T22:03:00', '2026-07-01T11:30:00'),
+}
+
+# -18 degree astronomical twilight crossings for Las Campanas, June 10 2026,
+# from the design doc / RESEARCH.md (exact match to computed values).
+TWILIGHT_18DEG_JUN10_UTC = ('2026-06-10T23:16:00', '2026-06-11T10:08:00')
+
+
+class TestTelescopeRuns(TestCase):
+    @classmethod
+    def setUpTestData(cls) -> None:
+        for obscode, fields in {
+            '268': dict(
+                name='Magellan Clay Telescope',
+                short_name='Magellan-Clay',
+                lat=-29.0146,
+                lon=-70.6926,
+                altitude=2402,
+                timezone='America/Santiago',
+            ),
+            '269': dict(
+                name='Magellan Baade Telescope',
+                short_name='Magellan-Baade',
+                lat=-29.0146,
+                lon=-70.6926,
+                altitude=2402,
+                timezone='America/Santiago',
+            ),
+            '809': dict(
+                name='ESO, La Silla',
+                short_name='NTT',
+                lat=-29.2567,
+                lon=-70.7300,
+                altitude=2347,
+                timezone='America/Santiago',
+            ),
+            'E10': dict(
+                name='Siding Spring Observatory',
+                short_name='FTS',
+                lat=-31.2734,
+                lon=149.0612,
+                altitude=1149,
+                timezone='Australia/Sydney',
+            ),
+        }.items():
+            Observatory.objects.update_or_create(obscode=obscode, defaults=fields)
+
+    def setUp(self) -> None:
+        self.precision = 6
+        return super().setUp()
+
+    def _assert_time_close(self, computed: Time, expected_iso: str, max_seconds: float = 120.0) -> None:
+        expected = datetime.fromisoformat(expected_iso).replace(tzinfo=timezone.utc)
+        computed_dt = computed.to_datetime(timezone=timezone.utc)
+        delta = abs((computed_dt - expected).total_seconds())
+        self.assertLessEqual(delta, max_seconds, f'{computed_dt} not within {max_seconds}s of {expected}')
+
+    def test_get_site_returns_observatory(self):
+        site = get_site('Magellan-Clay')
+        self.assertEqual(site.obscode, '268')
+        location = site.to_earth_location()
+        self.assertIsNotNone(location)
+
+    def test_get_site_timezone(self):
+        self.assertEqual(get_site('NTT').timezone, 'America/Santiago')
+        self.assertEqual(get_site('FTS').timezone, 'Australia/Sydney')
+
+    def test_get_site_unknown(self):
+        with self.assertRaises(Observatory.DoesNotExist):
+            get_site('NoSuchTelescope')
+
+    def test_seeded_records(self):
+        self.assertEqual(Observatory.objects.filter(obscode__in=['268', '269', '809', 'E10']).count(), 4)
+        clay = Observatory.objects.get(obscode='268')
+        self.assertAlmostEqual(clay.lat, -29.0146, self.precision)
+        self.assertAlmostEqual(clay.lon, -70.6926, self.precision)
+        self.assertAlmostEqual(clay.altitude, 2402, self.precision)
+        self.assertEqual(clay.timezone, 'America/Santiago')
+
+        fts = Observatory.objects.get(obscode='E10')
+        self.assertAlmostEqual(fts.lat, -31.2734, self.precision)
+        self.assertAlmostEqual(fts.lon, 149.0612, self.precision)
+        self.assertAlmostEqual(fts.altitude, 1149, self.precision)
+        self.assertEqual(fts.timezone, 'Australia/Sydney')
+
+    def test_horizon_dip(self):
+        self.assertAlmostEqual(horizon_dip(2402).to_value(u.deg), 1.44, delta=0.02)
+
+    def test_horizon_dip_zero_at_sea_level(self):
+        # An observer at sea level has no elevated horizon to depress.
+        self.assertEqual(horizon_dip(0).to_value(u.arcmin), 0.0)
+
+    def test_horizon_dip_zero_for_below_sea_level_altitude(self):
+        # A small negative geodetic height is physically normal for real,
+        # near-sea-level MPC sites (e.g. obscode 434 "S. Benedetto Po" round-
+        # trips to -18.83 m through MPC's 5-decimal parallax constants). The dip
+        # is 0 there, not a crash -- otherwise the site's calendar projection is
+        # permanently stranded. See debug/negative-altitude-horizon-dip.
+        self.assertEqual(horizon_dip(-18.834226888866702).to_value(u.arcmin), 0.0)
+        self.assertEqual(horizon_dip(-10).to_value(u.arcmin), 0.0)
+
+    def test_horizon_dip_raises_on_none_altitude(self):
+        with self.assertRaises(ValueError):
+            horizon_dip(None)
+
+    def test_sun_event_succeeds_for_below_sea_level_site(self):
+        # Regression for debug/negative-altitude-horizon-dip: resolving the real
+        # MPC obscode 434 "S. Benedetto Po" wrote a placeholder-replacing
+        # Observatory whose parallax-derived altitude is -18.83 m (a rounding
+        # artifact of MPC's 5-decimal parallax constants for a ~19 m real site).
+        # horizon_dip() used to raise ValueError on that, so sun_event() crashed
+        # and the run was stranded in Sites Needing Review. It must now compute a
+        # normal sunset/sunrise (dip=0) instead.
+        site = Observatory.objects.create(
+            obscode='434',
+            name='S. Benedetto Po',
+            short_name='S. Benedetto Po',
+            lat=45.05201000489035,
+            lon=10.9206,
+            altitude=-18.834226888866702,
+            timezone='Europe/Rome',
+        )
+        sunset, sunrise = sun_event(site, date(2026, 6, 10), 'sun')
+        self.assertIsInstance(sunset, Time)
+        self.assertIsInstance(sunrise, Time)
+        # Chronological (set then rise) within the 24 h post-noon window.
+        self.assertLess(sunset.to_datetime(), sunrise.to_datetime())
+
+    def test_sun_event_sun(self):
+        site = get_site('Magellan-Clay')
+        sunset, sunrise = sun_event(site, date(2026, 6, 10), 'sun')
+        self.assertIsInstance(sunset, Time)
+        self.assertIsInstance(sunrise, Time)
+        self._assert_time_close(sunset, '2026-06-10T21:59:00')
+        self._assert_time_close(sunrise, '2026-06-11T11:25:00')
+
+    def test_sun_event_dark(self):
+        site = get_site('Magellan-Clay')
+        sunset, _ = sun_event(site, date(2026, 6, 10), 'sun')
+        dark_start, dark_end = sun_event(site, date(2026, 6, 10), 'dark')
+        self.assertIsInstance(dark_start, Time)
+        self.assertIsInstance(dark_end, Time)
+        # Dark window begins after sunset (sun further below horizon)
+        self.assertGreater(dark_start.jd, sunset.jd)
+
+    def test_sun_event_bad_kind(self):
+        site = get_site('Magellan-Clay')
+        with self.assertRaises(ValueError):
+            sun_event(site, date(2026, 6, 10), 'badkind')
+
+    def test_sites_dict_contents(self):
+        self.assertEqual(SITES['Magellan-Clay'], '268')
+        self.assertEqual(SITES['Magellan-Baade'], '269')
+        self.assertEqual(SITES['NTT'], '809')
+        self.assertEqual(SITES['FTS'], 'E10')
+
+    def test_sunset_sunrise_validation(self):
+        """EPHEM-04: Las Campanas sun-event times for Jun 1/10/20/30 2026 match the skycalc reference within 2 min."""
+        site = get_site('Magellan-Clay')
+        for d, (sunset_ref, sunrise_ref) in LAS_CAMPANAS_SUN_REFERENCE_UTC.items():
+            sunset, sunrise = sun_event(site, d, 'sun')
+            self._assert_time_close(sunset, sunset_ref)
+            self._assert_time_close(sunrise, sunrise_ref)
+            # Sunset precedes the following morning's sunrise.
+            self.assertLess(sunset.jd, sunrise.jd)
+            # The -15 degree dark window sits strictly inside the sun-to-sun window.
+            dark_start, dark_end = sun_event(site, d, 'dark')
+            self.assertGreater(dark_start.jd, sunset.jd)
+            self.assertLess(dark_end.jd, sunrise.jd)
+
+    def test_twilight_18deg_crosscheck(self):
+        """EPHEM-05: -18 degree twilight crossings for Jun 10 2026 match 23:16:00/10:08:00 UTC (19:16/06:08 local)."""
+        site = get_site('Magellan-Clay')
+        anchor = _local_noon_utc(date(2026, 6, 10), site.timezone)
+        location = site.to_earth_location()
+        crossings = _find_crossing(anchor, location, threshold_deg=-18.0, search_hours=24)
+        twilight_end, twilight_start = crossings[0], crossings[1]
+
+        twi_end_ref, twi_start_ref = TWILIGHT_18DEG_JUN10_UTC
+        self._assert_time_close(twilight_end, twi_end_ref)
+        self._assert_time_close(twilight_start, twi_start_ref)
+
+        santiago = ZoneInfo('America/Santiago')
+        twilight_end_local = twilight_end.to_datetime(timezone=timezone.utc).astimezone(santiago)
+        twilight_start_local = twilight_start.to_datetime(timezone=timezone.utc).astimezone(santiago)
+        self.assertEqual((twilight_end_local.hour, twilight_end_local.minute), (19, 16))
+        self.assertEqual((twilight_start_local.hour, twilight_start_local.minute), (6, 8))
+
+    def test_sun_event_raises_on_midnight_sun(self):
+        """sun_event raises ValueError (not IndexError) when the sun never sets, e.g. a
+        high-latitude site near the summer solstice (no sunset/sunrise crossing pair)."""
+        svalbard = Observatory.objects.create(
+            obscode='Z99',
+            name='Polar Test Site',
+            short_name='Polar',
+            lat=78.0,
+            lon=15.0,
+            altitude=0.0,
+            timezone='UTC',
+        )
+        with self.assertRaises(ValueError):
+            sun_event(svalbard, date(2026, 6, 21), 'sun')
+
+    def test_sun_event_raises_on_missing_timezone(self):
+        """sun_event raises a clear ValueError (not a bare ZoneInfoNotFoundError) when
+        Observatory.timezone is unset (its default is '')."""
+        no_tz_site = Observatory.objects.create(
+            obscode='Z98',
+            name='No Timezone Test Site',
+            short_name='NoTZ',
+            lat=-29.0146,
+            lon=-70.6926,
+            altitude=2402,
+        )
+        self.assertEqual(no_tz_site.timezone, '')
+        with self.assertRaises(ValueError):
+            sun_event(no_tz_site, date(2026, 6, 10), 'sun')
+
+    def test_timezone_dst_resolution(self):
+        """EPHEM-06: America/Santiago and Australia/Sydney resolve to the correct UTC offsets across DST boundaries."""
+        santiago = ZoneInfo('America/Santiago')
+        self.assertEqual(datetime(2026, 6, 15, 12, tzinfo=santiago).utcoffset(), timedelta(hours=-4))
+        self.assertEqual(datetime(2026, 1, 15, 12, tzinfo=santiago).utcoffset(), timedelta(hours=-3))
+
+        sydney = ZoneInfo('Australia/Sydney')
+        self.assertEqual(datetime(2026, 7, 15, 12, tzinfo=sydney).utcoffset(), timedelta(hours=10))
+        self.assertEqual(datetime(2026, 1, 15, 12, tzinfo=sydney).utcoffset(), timedelta(hours=11))
+
+    def test_parse_run_line_ntt_efosc2_allocation(self):
+        """ROADMAP SC1 / PARSE-01: 'NTT EFOSC2 allocation 9-13 July' parses to the documented fields."""
+        result = parse_run_line('NTT EFOSC2 allocation 9-13 July')
+        self.assertEqual(
+            result,
+            ParsedRun(
+                telescope='NTT',
+                instrument='EFOSC2',
+                status='allocation',
+                year=date.today().year,
+                month=7,
+                day1=9,
+                start_window=None,
+                day2=13,
+                end_window=None,
+            ),
+        )
+
+    def test_parse_run_line_ambiguous_magellan_imacs(self):
+        """ROADMAP SC1 error fixture / D-01: bare 'Magellan' raises ValueError naming both Magellan SITES keys."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_run_line('Magellan IMACS 13-19 July (proposed)')
+        self.assertIn('Magellan-Clay', str(ctx.exception))
+        self.assertIn('Magellan-Baade', str(ctx.exception))
+
+    def test_parse_run_line_ambiguous_magellan_proto_lightspeed(self):
+        """ROADMAP SC2 / D-01: 'Magellan Proto-Lightspeed Jul 8-12 (proposed)' raises ambiguous-Magellan ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_run_line('Magellan Proto-Lightspeed Jul 8-12 (proposed)')
+        self.assertIn('Magellan-Clay', str(ctx.exception))
+        self.assertIn('Magellan-Baade', str(ctx.exception))
+
+    def test_parse_run_line_magellan_first_half(self):
+        """First half of the night parsing"""
+        result = parse_run_line('Magellan-Clay Lightspeed 18-20 July BoN-0626')
+        self.assertEqual(
+            result,
+            ParsedRun(
+                telescope='Magellan-Clay',
+                instrument='Lightspeed',
+                status='allocation',
+                year=date.today().year,
+                month=7,
+                day1=18,
+                start_window='BoN',
+                day2=20,
+                end_window='0626',
+            ),
+        )
+
+    def test_parse_run_line_magellan_second_half(self):
+        """Second half of the night parsing"""
+        result = parse_run_line('Magellan-Clay LDSS3 18-20 July 0646-EoN')
+        self.assertEqual(
+            result,
+            ParsedRun(
+                telescope='Magellan-Clay',
+                instrument='LDSS3',
+                status='allocation',
+                year=date.today().year,
+                month=7,
+                day1=18,
+                start_window='0646',
+                day2=20,
+                end_window='EoN',
+            ),
+        )
+
+    def test_parse_run_line_second_half_bare_time(self):
+        with self.assertRaises(ValueError):
+            parse_run_line('Magellan-Clay LDSS3 18-20 July 0646')
+
+    def test_parse_run_line_second_half_missing_EoN(self):
+        with self.assertRaises(ValueError):
+            parse_run_line('Magellan-Clay LDSS3 18-20 July 0646-')
+
+    def test_parse_run_line_second_half_wrong_EoN(self):
+        with self.assertRaises(ValueError):
+            parse_run_line('Magellan-Clay LDSS3 18-20 July 0646-foo')
+
+    def test_parse_run_line_proto_lightspeed_hyphenated_instrument(self):
+        """ROADMAP SC2 / PARSE-02: hyphenated 'Proto-Lightspeed' parses as one token, month-after-range ordering."""
+        result = parse_run_line('NTT Proto-Lightspeed Jul 8-12 (proposed)')
+        self.assertEqual(
+            result,
+            ParsedRun(
+                telescope='NTT',
+                instrument='Proto-Lightspeed',
+                status='proposed',
+                year=date.today().year,
+                month=7,
+                day1=8,
+                start_window=None,
+                day2=12,
+                end_window=None,
+            ),
+        )
+
+    def test_parse_run_line_no_year_defaults_to_current_year(self):
+        """ROADMAP SC3 / PARSE-03: a run line with no year present defaults year to the current year."""
+        result = parse_run_line('FTS Spectral confirmed 5-7 Jan')
+        self.assertEqual(result.year, date.today().year)
+
+    def test_parse_run_line_cross_month_range_raises(self):
+        """PR-REVIEW-F2: a genuine cross-month range now fails fast at parse time instead of
+        being parsed into a ParsedRun the loader always rejects downstream."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_run_line('NTT EFOSC2 28 December-2 January')
+        self.assertIn('Cross-month', str(ctx.exception))
+
+    def test_parse_run_line_partial_night_token_with_garbage_prefix_raises(self):
+        """PR-REVIEW-F3: fullmatch anchoring rejects a partial-night token with surrounding
+        garbage (e.g. 'xBoN-0626') instead of substring-matching the well-formed 'BoN-0626'
+        inside it."""
+        with self.assertRaises(ValueError):
+            parse_run_line('Magellan-Clay Lightspeed 18-20 July xBoN-0626')
+
+    def test_parse_run_line_no_status_defaults_to_allocation(self):
+        """D-05: a run line with no status defaults to status='allocation'."""
+        result = parse_run_line('NTT EFOSC2 9-13 July')
+        self.assertEqual(result.status, 'allocation')
+
+    def test_parse_run_line_unknown_status_raises(self):
+        """D-06: a status word not in KNOWN_STATUSES raises ValueError."""
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 banana 9-13 July')
+
+    def test_parse_run_line_unknown_telescope_raises(self):
+        """D-01: a telescope token matching no SITES key raises ValueError."""
+        with self.assertRaises(ValueError):
+            parse_run_line('Hubble X 1-2 July')
+
+    def test_parse_run_line_empty_line_raises(self):
+        """D-07: an empty line raises ValueError."""
+        with self.assertRaises(ValueError):
+            parse_run_line('')
+
+    def test_parse_run_line_proposal_token(self):
+        """D-01: a bracketed [proposal] token parses to ParsedRun.proposal, with every other
+        field identical to the same line without the token."""
+        with_proposal = parse_run_line('NTT EFOSC2 allocation 9-13 July [0110.C-0234]')
+        without_proposal = parse_run_line('NTT EFOSC2 allocation 9-13 July')
+        self.assertEqual(with_proposal.proposal, '0110.C-0234')
+        self.assertEqual(
+            with_proposal,
+            ParsedRun(
+                telescope=without_proposal.telescope,
+                instrument=without_proposal.instrument,
+                status=without_proposal.status,
+                year=without_proposal.year,
+                month=without_proposal.month,
+                day1=without_proposal.day1,
+                day2=without_proposal.day2,
+                start_window=without_proposal.start_window,
+                end_window=without_proposal.end_window,
+                proposal='0110.C-0234',
+            ),
+        )
+
+    def test_parse_run_line_no_proposal_token_defaults_to_none(self):
+        """D-01: a line with no bracketed token parses with proposal=None."""
+        result = parse_run_line('NTT EFOSC2 allocation 9-13 July')
+        self.assertIsNone(result.proposal)
+
+    def test_parse_run_line_proposal_token_with_partial_night_window(self):
+        """D-01: the bracketed proposal token does not consume or corrupt a trailing
+        partial-night window token."""
+        result = parse_run_line('NTT EFOSC2 allocation 9-13 July [0110.C-0234] BoN-0626')
+        self.assertEqual(result.proposal, '0110.C-0234')
+        self.assertEqual(result.start_window, 'BoN')
+        self.assertEqual(result.end_window, '0626')
+        self.assertEqual(result.status, 'allocation')
+
+    def test_parse_run_line_empty_proposal_token_raises(self):
+        """D-01: an empty or whitespace-only bracketed token raises ValueError naming it."""
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 allocation 9-13 July []')
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 allocation 9-13 July [   ]')
+
+    def test_parse_run_line_two_proposal_tokens_raises(self):
+        """D-01: two bracketed tokens on one line raise ValueError."""
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 allocation 9-13 July [0110.C-0234] [0111.C-0001]')
+
+    def test_parse_run_line_proposal_token_disjoint_from_status_grammar(self):
+        """D-01: a bracketed token containing a status word is taken as a proposal, not a
+        status -- the two grammars are disjoint."""
+        result = parse_run_line('NTT EFOSC2 allocation 9-13 July [cancelled]')
+        self.assertEqual(result.status, 'allocation')
+        self.assertEqual(result.proposal, 'cancelled')
+
+    def test_parse_run_line_unbalanced_proposal_bracket_raises(self):
+        """D-01: an unbalanced bracket raises ValueError rather than silently parsing the
+        remainder as an instrument or a leftover status."""
+        with self.assertRaises(ValueError):
+            parse_run_line('NTT EFOSC2 allocation 9-13 July [0110.C-0234')
+
+
+# A site no other test uses (coordinates in particular), so the first sun_event() call for it is a
+# cache miss in any process, whatever ran before. Used unsaved: sun_event() reads attributes only.
+MEMO_PROBE_SITE_FIELDS = dict(
+    obscode='Z97',
+    name='Memo probe site',
+    short_name='MemoProbe',
+    lat=-30.1234,
+    lon=-70.5678,
+    altitude=2000.0,
+    timezone='America/Santiago',
+)
+
+
+class TestSunEventMemo(SimpleTestCase):
+    """SPEED-01: sun_event() runs the crossing search once per site, night and kind per process."""
+
+    def setUp(self):
+        telescope_runs._cached_crossings.cache_clear()
+        super().setUp()
+
+    @staticmethod
+    def _probe_site(**overrides) -> Observatory:
+        return Observatory(**{**MEMO_PROBE_SITE_FIELDS, **overrides})
+
+    @staticmethod
+    def _threshold(site: Observatory, kind: str) -> float:
+        if kind == 'sun':
+            return -(0.833 + horizon_dip(site.altitude).to_value(u.deg))
+        return -15.0
+
+    def test_second_call_makes_no_new_altaz_transform(self):
+        site = Observatory(**MEMO_PROBE_SITE_FIELDS)
+        with mock.patch('solsys_code.telescope_runs._solar_altitude', wraps=telescope_runs._solar_altitude) as spy:
+            sun_event(site, date(2026, 8, 17), 'sun')
+            self.assertGreaterEqual(spy.call_count, 1)
+            spy.reset_mock()
+            sun_event(site, date(2026, 8, 17), 'sun')
+            self.assertEqual(spy.call_count, 0, 'the second identical call repeated the AltAz transform')
+
+    def test_second_call_runs_the_crossing_search_once(self):
+        site = Observatory(**MEMO_PROBE_SITE_FIELDS)
+        with mock.patch('solsys_code.telescope_runs._find_crossing', wraps=telescope_runs._find_crossing) as spy:
+            sun_event(site, date(2026, 8, 18), 'dark')
+            sun_event(site, date(2026, 8, 18), 'dark')
+        self.assertEqual(spy.call_count, 1)
+
+    def test_mutating_a_returned_time_does_not_change_the_next_result(self):
+        site = self._probe_site()
+        first = sun_event(site, date(2026, 8, 19), 'sun')
+        recorded = (first[0].jd1, first[0].jd2)
+        first[0].format = 'jd'
+        second = sun_event(site, date(2026, 8, 19), 'sun')
+        self.assertEqual(second[0].format, 'datetime')
+        self.assertIsNot(second[0], first[0])
+        self.assertEqual((second[0].jd1, second[0].jd2), recorded)
+
+    def test_result_is_bit_identical_to_a_direct_search(self):
+        site = self._probe_site()
+        for kind in ('sun', 'dark'):
+            with self.subTest(kind=kind):
+                night = date(2026, 8, 20)
+                direct = telescope_runs._find_crossing(
+                    _local_noon_utc(night, site.timezone),
+                    site.to_earth_location(),
+                    self._threshold(site, kind),
+                    search_hours=24,
+                )
+                memoised = sun_event(site, night, kind)
+                self.assertEqual(len(direct), 2)
+                for got, want in zip(memoised, direct, strict=True):
+                    self.assertEqual((got.jd1, got.jd2), (want.jd1, want.jd2))
+
+    def test_each_key_component_is_its_own_entry(self):
+        base_date = date(2026, 8, 21)
+        base_site = self._probe_site()
+        sun_event(base_site, base_date, 'sun')
+        cases = {
+            'date +1 day': (base_site, date(2026, 8, 22), 'sun'),
+            'date -1 day': (base_site, date(2026, 8, 20), 'sun'),
+            'kind sun->dark': (base_site, base_date, 'dark'),
+            'altitude +1 m': (self._probe_site(altitude=2001.0), base_date, 'sun'),
+            'latitude +0.0001 deg': (self._probe_site(lat=-30.1233), base_date, 'sun'),
+            'timezone name': (self._probe_site(timezone='America/Argentina/Buenos_Aires'), base_date, 'sun'),
+        }
+        for label, (site, night, kind) in cases.items():
+            with self.subTest(label):
+                before = telescope_runs._cached_crossings.cache_info()
+                sun_event(site, night, kind)
+                after = telescope_runs._cached_crossings.cache_info()
+                self.assertEqual(after.misses - before.misses, 1)
+                self.assertEqual(after.hits - before.hits, 0)
+        before = telescope_runs._cached_crossings.cache_info()
+        sun_event(base_site, base_date, 'sun')
+        after = telescope_runs._cached_crossings.cache_info()
+        self.assertEqual(after.hits - before.hits, 1)
+        self.assertEqual(after.misses - before.misses, 0)
+
+    def test_equal_coordinates_share_one_entry(self):
+        clay = dict(
+            lat=-29.0146, lon=-70.6926, altitude=2402, timezone='America/Santiago', name='Clay-valued', obscode='Z96'
+        )
+        baade = {**clay, 'name': 'Baade-valued', 'obscode': 'Z95'}
+        night = date(2026, 8, 22)
+        sun_event(Observatory(short_name='Magellan-Clay', **clay), night, 'sun')
+        before = telescope_runs._cached_crossings.cache_info()
+        sun_event(Observatory(short_name='Magellan-Baade', **baade), night, 'sun')
+        after = telescope_runs._cached_crossings.cache_info()
+        self.assertEqual(after.hits - before.hits, 1)
+        self.assertEqual(after.misses - before.misses, 0)
+
+    def test_cache_is_bounded(self):
+        self.assertEqual(telescope_runs._cached_crossings.cache_info().maxsize, 4096)
+
+    def test_validation_runs_before_the_cache(self):
+        no_timezone = self._probe_site(timezone='')
+        no_position = self._probe_site(lon=None, lat=None, altitude=None, timezone='UTC')
+        for label, site in (('blank timezone', no_timezone), ('no coordinates', no_position)):
+            with self.subTest(label):
+                before = telescope_runs._cached_crossings.cache_info()
+                with self.assertRaises(ValueError):
+                    sun_event(site, date(2026, 8, 23), 'sun')
+                after = telescope_runs._cached_crossings.cache_info()
+                self.assertEqual(after.misses, before.misses)
+                self.assertEqual(after.currsize, before.currsize)
+
+    def test_unknown_timezone_still_raises_and_is_not_cached(self):
+        site = self._probe_site(timezone='America/Santigo')
+        before = telescope_runs._cached_crossings.cache_info()
+        with self.assertRaises(ZoneInfoNotFoundError):
+            sun_event(site, date(2026, 8, 24), 'sun')
+        after = telescope_runs._cached_crossings.cache_info()
+        self.assertEqual(after.currsize, before.currsize)
+
+    def test_polar_no_crossing_raises_every_time_without_recomputing(self):
+        polar = Observatory(
+            obscode='Z94',
+            name='Polar memo probe',
+            short_name='PolarMemo',
+            lat=78.0,
+            lon=15.0,
+            altitude=0.0,
+            timezone='UTC',
+        )
+        with mock.patch('solsys_code.telescope_runs._solar_altitude', wraps=telescope_runs._solar_altitude) as spy:
+            with self.assertRaises(ValueError) as first:
+                sun_event(polar, date(2026, 6, 21), 'sun')
+            self.assertIn('PolarMemo', str(first.exception))
+            spy.reset_mock()
+            with self.assertRaises(ValueError) as second:
+                sun_event(polar, date(2026, 6, 21), 'sun')
+            self.assertEqual(spy.call_count, 0)
+        self.assertEqual(str(first.exception), str(second.exception))
+
+
+def _dense_scan_reference(anchor, location, threshold_deg, search_hours=24):
+    """The Phase 1-validated 1-minute dense-scan crossing search, kept verbatim as the SPEED-02 oracle.
+
+    This is the pre-phase ``_find_crossing()`` body (1-minute grid with a closed window, then ten
+    single-time bisection steps per sign change, returning the lower bracket ends). The cheaper search
+    in ``solsys_code.telescope_runs`` is proven against it. It must never be edited.
+
+    Args:
+        anchor: astropy Time at the start of the search window.
+        location: astropy EarthLocation of the observer.
+        threshold_deg: solar altitude threshold in degrees.
+        search_hours: total width of the search window, in hours.
+
+    Returns:
+        list[Time]: UTC crossing times in chronological order.
+    """
+    coarse_step_min = 1.0
+    # +coarse_step_min so the window covers a full, closed [0, search_hours] range
+    # (np.arange's exclusive upper bound would otherwise leave the last minute unscanned).
+    offsets = np.arange(0, search_hours * 60 + coarse_step_min, coarse_step_min) * u.min
+    times = anchor + offsets
+    alt = telescope_runs._solar_altitude(times, location)
+    crossings = []
+    for i in range(len(alt) - 1):
+        if (alt[i] - threshold_deg) * (alt[i + 1] - threshold_deg) < 0:
+            # Bisection refine between times[i] and times[i+1]
+            lo, hi = times[i], times[i + 1]
+            lo_alt = alt[i]
+            for _ in range(10):  # ~1/1024 of 1-min step -> sub-second precision
+                mid = lo + (hi - lo) / 2
+                mid_alt = telescope_runs._solar_altitude(Time([mid]), location)[0]
+                if (mid_alt - threshold_deg) * (lo_alt - threshold_deg) < 0:
+                    hi = mid
+                else:
+                    lo, lo_alt = mid, mid_alt
+            crossings.append(lo)
+    return crossings
+
+
+# (lat, lon, altitude in m, timezone) of the Stage 1 sites; Magellan-Baade shares Magellan-Clay's position.
+STAGE1_SITE_GEOMETRY = {
+    'Magellan-Clay': (-29.0146, -70.6926, 2402, 'America/Santiago'),
+    'NTT': (-29.2567, -70.7300, 2347, 'America/Santiago'),
+    'FTS': (-31.2734, 149.0612, 1149, 'Australia/Sydney'),
+}
+
+# One date in each DST-change month for both zones (2026-04-05: Santiago and Sydney both leave DST),
+# plus the two solstices.
+ORACLE_DATES = (date(2026, 4, 5), date(2026, 6, 21), date(2026, 12, 21))
+
+# At 59.9 N / 10.75 E / 0 m (Europe/Oslo) the -15 degree threshold stops being crossed twice in spring.
+# Found once by running the dense-scan oracle above for each date from 2026-04-20 to 2026-05-10:
+# the last date with two crossings, and the first date after it with none.
+GRAZING_LAST_TWO_DATE = date(2026, 4, 30)
+GRAZING_FIRST_NONE_DATE = date(2026, 5, 1)
+
+
+def _earth_location(lat: float, lon: float, altitude: float) -> EarthLocation:
+    return EarthLocation(lon=lon * u.deg, lat=lat * u.deg, height=altitude * u.m)
+
+
+def _crossing_threshold(altitude: float, kind: str) -> float:
+    if kind == 'sun':
+        return -(0.833 + horizon_dip(altitude).to_value(u.deg))
+    return -15.0
+
+
+class TestCrossingSearchCost(SimpleTestCase):
+    """SPEED-02: a crossing search costs a handful of AltAz evaluations, not twenty-one."""
+
+    def test_two_crossing_night_needs_at_most_15_evaluations_and_200_samples(self):
+        lat, lon, altitude, tz = STAGE1_SITE_GEOMETRY['Magellan-Clay']
+        anchor = _local_noon_utc(date(2026, 6, 10), tz)
+        location = _earth_location(lat, lon, altitude)
+        threshold = _crossing_threshold(altitude, 'sun')
+        with mock.patch('solsys_code.telescope_runs._solar_altitude', wraps=telescope_runs._solar_altitude) as spy:
+            crossings = _find_crossing(anchor, location, threshold)
+        self.assertEqual(len(crossings), 2)
+        self.assertLessEqual(spy.call_count, 15)
+        samples = sum(call.args[0].size for call in spy.call_args_list)
+        self.assertLessEqual(samples, 200)
+
+    def test_no_crossing_returns_empty_after_one_evaluation(self):
+        location = _earth_location(78.0, 15.0, 0.0)
+        anchor = _local_noon_utc(date(2026, 6, 21), 'UTC')
+        threshold = _crossing_threshold(0.0, 'sun')
+        with mock.patch('solsys_code.telescope_runs._solar_altitude', wraps=telescope_runs._solar_altitude) as spy:
+            crossings = _find_crossing(anchor, location, threshold)
+        self.assertEqual(crossings, [])
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(_dense_scan_reference(anchor, location, threshold), [])
+
+
+class TestCrossingSearchMatchesDenseScan(SimpleTestCase):
+    """SPEED-02: the cheaper search agrees with the pre-phase algorithm to within a second."""
+
+    def test_matches_dense_scan_for_stage1_sites(self):
+        for name, (lat, lon, altitude, tz) in STAGE1_SITE_GEOMETRY.items():
+            location = _earth_location(lat, lon, altitude)
+            for night in ORACLE_DATES:
+                anchor = _local_noon_utc(night, tz)
+                for kind in ('sun', 'dark'):
+                    threshold = _crossing_threshold(altitude, kind)
+                    with self.subTest(site=name, date=str(night), kind=kind):
+                        reference = _dense_scan_reference(anchor, location, threshold)
+                        found = _find_crossing(anchor, location, threshold, search_hours=24)
+                        self.assertEqual(len(reference), 2)
+                        self.assertEqual(len(found), 2)
+                        # Setting before rising, strictly increasing.
+                        self.assertLess(found[0].jd, found[1].jd)
+                        for new, old in zip(found, reference, strict=True):
+                            self.assertLessEqual(abs((new - old).to_value(u.s)), 1.0)
+
+    def test_grazing_boundary_counts_match(self):
+        location = _earth_location(59.9, 10.75, 0.0)
+        for night, expected in ((GRAZING_LAST_TWO_DATE, 2), (GRAZING_FIRST_NONE_DATE, 0)):
+            anchor = _local_noon_utc(night, 'Europe/Oslo')
+            with self.subTest(date=str(night)):
+                reference = _dense_scan_reference(anchor, location, -15.0)
+                found = _find_crossing(anchor, location, threshold_deg=-15.0, search_hours=24)
+                self.assertEqual(len(reference), expected)
+                self.assertEqual(len(found), len(reference))
+                for new, old in zip(found, reference, strict=True):
+                    self.assertLessEqual(abs((new - old).to_value(u.s)), 1.0)

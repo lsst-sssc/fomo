@@ -1,0 +1,1 @@
+{% for campaign in campaigns %}<a class="btn btn-info mr-2 mb-2" href="{% url 'campaigns:table' pk=campaign.pk %}">View {{ campaign.name }} Runs</a>{% endfor %}

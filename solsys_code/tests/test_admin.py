@@ -1,0 +1,1540 @@
+"""Tests for solsys_code/admin.py -- proves the load-bearing admin constraints via the
+admin test client rather than by eyeballing the ModelAdmin class definitions:
+
+- CampaignRun and CalendarEventMeta are both reachable under /admin/solsys_code/.
+- approval_status is visible-but-non-editable in the CampaignRun change form (T-jpd-01: no
+  admin path to APPROVED that bypasses CampaignRunDecisionView.post()'s calendar projection
+  + D-06 clobber guard).
+- contact_person/contact_email never appear in the CampaignRun change-list (T-jpd-02: PII is
+  not scannable across rows) but remain editable in the detail/change view.
+- CalendarEventMeta's event__title search path resolves without a FieldError.
+- Phase 27 Plan 05 (CANON-05/D-06/D-07/D-19): the CalendarEventMetaInline and
+  CampaignRunObservationInline are reachable on the CampaignRun change page,
+  CampaignRunAdmin.save_formset stamps confirmed_by/confirmed_at on newly created
+  CampaignRunObservation rows only, and the source/telescope_class list_filter entries work.
+- Plan 27.1-02 (criteria 4/6): CampaignRun/CalendarEventMeta label distinguishability
+  against the real 11-row companion-record shape, the CalendarEventMetaAdmin.run
+  autocomplete endpoint, and the source provenance lock on an already-approved WEB run.
+- Plan 27.1-05 (closing criterion 6, WR-03): the lock now covers every web-sourced row at
+  any approval status, and SourceProvenanceTwoStepBypassTests pins the cross-path
+  edit-then-approve sequence that used to bypass it.
+"""
+
+import re
+from datetime import date, datetime
+from datetime import timezone as dt_timezone
+from unittest.mock import patch
+
+from django.contrib import admin as django_admin
+from django.contrib.auth.models import User
+from django.forms.models import model_to_dict
+from django.test import RequestFactory, TestCase
+from django.urls import reverse
+from django.utils import timezone
+from tom_calendar.models import CalendarEvent
+from tom_observations.models import ObservationGroup, ObservationRecord
+from tom_targets.models import Target, TargetList
+from tom_targets.tests.factories import NonSiderealTargetFactory, SiderealTargetFactory
+
+from solsys_code.admin import (
+    CalendarEventMetaAdmin,
+    CalendarEventMetaInline,
+    CampaignRunAdmin,
+    CampaignRunObservationInline,
+    ProposalTimeAllocationAdmin,
+    WatchedProposalAdmin,
+)
+from solsys_code.campaign_utils import UNLINK_CLEARED_FIELDS
+from solsys_code.models import (
+    CalendarEventMeta,
+    CampaignRun,
+    CampaignRunObservation,
+    ObservationRecordDismissal,
+    ProposalTimeAllocation,
+    WatchedProposal,
+)
+from solsys_code.solsys_code_observatory.models import Observatory
+
+PII_CONTACT_PERSON = 'Zztestcontact'
+PII_CONTACT_EMAIL = 'pii-secret@example.test'
+
+
+class AdminRegistrationAndGatingTests(TestCase):
+    """T-jpd-01/T-jpd-02: approval_status read-only, PII gated from the change-list."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(username='adminuser', email='admin@example.test', password='pw')
+        cls.campaign = TargetList.objects.create(name='3I/ATLAS')
+        # NOTE: not named `cls.run` -- unittest.TestCase.run() is the method the test
+        # framework itself invokes to execute each test; shadowing it with an attribute
+        # breaks test execution with `TypeError: 'CampaignRun' object is not callable`.
+        cls.campaign_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='LCO-1m-Sinistro',
+            contact_person=PII_CONTACT_PERSON,
+            contact_email=PII_CONTACT_EMAIL,
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def test_campaignrun_changelist_loads(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_changelist'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_calendareventmeta_changelist_loads(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_changelist'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_calendareventmeta_search_resolves(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_changelist'), {'q': 'anything'})
+        self.assertEqual(response.status_code, 200)
+
+    def test_approval_status_is_readonly_in_change_form(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Pending Review', content)
+        self.assertNotIn('name="approval_status"', content)
+
+    def test_contact_fields_editable_in_change_form(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        content = response.content.decode()
+        self.assertIn('name="contact_person"', content)
+        self.assertIn('name="contact_email"', content)
+
+    def test_pii_not_rendered_in_changelist(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_changelist'))
+        content = response.content.decode()
+        self.assertNotIn(PII_CONTACT_PERSON, content)
+        self.assertNotIn(PII_CONTACT_EMAIL, content)
+        self.assertIn('LCO-1m-Sinistro', content)
+
+
+class CalendarEventMetaStandaloneAdminPkFreezeTests(TestCase):
+    """CR-02: the WR-08 primary-key freeze must cover the STANDALONE
+    ``CalendarEventMetaAdmin`` change form, not just ``CalendarEventMetaInline``.
+
+    ``CalendarEventMeta.event`` is an explicitly declared
+    ``OneToOneField(primary_key=True)``, which Django treats as editable, so it renders as a
+    live ``<select>`` on the standalone change form. Re-pointing it makes ``instance.pk`` a
+    value absent from the table, so ``instance.save()`` issues an UPDATE matching 0 rows and
+    falls back to an INSERT -- leaving the original row behind as a duplicate with orphaned
+    ``is_verified``/``run`` history (migration 0008's header comment), or silently clobbering
+    the target event's own companion row if it already has one.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='pkfreezeadmin', email='pkfreeze@example.test', password='pw'
+        )
+        cls.original_event = CalendarEvent.objects.create(
+            title='Original standalone event',
+            start_time=datetime(2025, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.other_event = CalendarEvent.objects.create(
+            title='Hijack target standalone event',
+            start_time=datetime(2025, 9, 3, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 9, 4, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.meta = CalendarEventMeta.objects.create(event=cls.original_event, is_verified=True)
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def test_change_form_does_not_expose_event_as_editable(self) -> None:
+        """The pk must not render as an editable widget on the change form."""
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_change', args=[self.original_event.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('name="event"', response.content.decode())
+
+    def test_add_form_still_exposes_event(self) -> None:
+        """Freezing on change must not break linking a new event -- add stays editable, so
+        the link remains re-pointable by delete + re-add."""
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_add'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="event"', response.content.decode())
+
+    def test_posting_a_different_event_pk_does_not_duplicate_the_row(self) -> None:
+        """The reproduction case: one row in, one row out, still pointing at its own event.
+
+        WR-08: the response and a genuinely-changed editable field are both asserted, because
+        every "nothing was duplicated" assertion below is equally satisfied by a POST that
+        403'd, 500'd, or re-rendered the change form with errors and saved nothing. Without
+        those two checks this test cannot tell "the pk freeze held" from "the write path was
+        never reached", and a future change that breaks the change view outright would leave
+        it green.
+        """
+        response = self.client.post(
+            reverse('admin:solsys_code_calendareventmeta_change', args=[self.original_event.pk]),
+            {'event': str(self.other_event.pk), 'is_verified': '', '_save': 'Save'},
+        )
+
+        # 302 = the admin processed the save and redirected, rather than re-rendering the
+        # form (200) or refusing the request.
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(CalendarEventMeta.objects.count(), 1)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.event_id, self.original_event.pk)
+        # is_verified started True (setUpTestData); it is False now only if the form really
+        # saved -- so the pk freeze held on a POST that genuinely wrote.
+        self.assertFalse(self.meta.is_verified)
+        self.assertFalse(CalendarEventMeta.objects.filter(event=self.other_event).exists())
+
+
+class CalendarEventMetaStandaloneAdminAuditStampTests(TestCase):
+    """Closes 28-VERIFICATION.md truth 6 / 28-REVIEW.md CR-02: the standalone
+    ``CalendarEventMetaAdmin`` change/add page is the same "primary staff surface for
+    hand-linking a run to an event" 27.1-02's docstring names -- and, unlike the
+    ``CampaignRunAdmin``/``CalendarEventMetaInline`` path proven by
+    ``test_save_formset_stamps_calendar_event_meta_on_run_transition`` (which only covers the
+    inline/formset path), it had no equivalent protection or stamping at all.
+
+    Deliberately exercises the standalone page through ``self.client``, not
+    ``CampaignRunAdmin.save_formset()`` directly -- that is what makes this class distinct
+    from ``CampaignRunAdminInlinesTests``.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='cem-standalone-acting', email='cem-acting@example.test', password='pw'
+        )
+        # The fabricated/prior attributor -- never the user performing the POST in any test.
+        cls.other_staffer = User.objects.create_superuser(
+            username='cem-standalone-other', email='cem-other@example.test', password='pw'
+        )
+        cls.campaign = TargetList.objects.create(name='CR-02 Standalone Audit Stamp')
+        cls.run_a = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start='2026-08-01',
+            window_end='2026-08-05',
+        )
+        cls.run_b = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start='2026-08-06',
+            window_end='2026-08-10',
+        )
+        cls.event = CalendarEvent.objects.create(
+            title='CR-02 standalone audit event',
+            start_time=datetime(2026, 8, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 8, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.meta = CalendarEventMeta.objects.create(event=cls.event, run=None, is_verified=True)
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def _change_url(self):
+        return reverse('admin:solsys_code_calendareventmeta_change', args=[self.event.pk])
+
+    def _link_to_run_a_with_other_staffer(self, original_confirmed_at):
+        """Helper: put the row into an already-linked-to-run_a state, stamped by
+        ``other_staffer`` at a fixed timestamp -- the starting state tests 5-7 each need,
+        built per-test rather than mutating shared ``setUpTestData`` state.
+
+        Explicitly forces ``is_verified=False`` rather than relying on ``cls.meta``'s
+        original ``setUpTestData`` value: ``cls.meta`` is a shared Python object reference
+        across every test method in this class, and Django's per-test transaction rollback
+        resets the DATABASE row but not any in-memory attribute a prior test method left on
+        that same object -- so a test running after ``test_linking_a_run_stamps_...`` (which
+        also flips ``is_verified``) cannot safely assume the object still reads True in
+        memory. Setting it explicitly here makes each test's starting state independent of
+        execution order.
+        """
+        self.meta.run = self.run_a
+        self.meta.is_verified = False
+        self.meta.confirmed_by = self.other_staffer
+        self.meta.confirmed_at = original_confirmed_at
+        self.meta.save()
+
+    def test_change_form_does_not_expose_the_audit_fields_as_editable(self) -> None:
+        response = self.client.get(self._change_url())
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('name="confirmed_by"', content)
+        self.assertNotIn('name="confirmed_at"', content)
+
+    def test_add_form_does_not_expose_the_audit_fields_as_editable(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_add'))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('name="confirmed_by"', content)
+        self.assertNotIn('name="confirmed_at"', content)
+        # Control: the page genuinely rendered the add form, not an error page.
+        self.assertIn('name="event"', content)
+
+    def test_linking_a_run_stamps_the_acting_user_and_a_time(self) -> None:
+        response = self.client.post(
+            self._change_url(),
+            {'run': str(self.run_a.pk), 'is_verified': '', '_save': 'Save'},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.run_id, self.run_a.pk)
+        self.assertEqual(self.meta.confirmed_by, self.superuser)
+        self.assertIsNotNone(self.meta.confirmed_at)
+        # WR-08-style control: is_verified started True (setUpTestData); it is False now
+        # only if the form genuinely saved.
+        self.assertFalse(self.meta.is_verified)
+
+    def test_hand_typed_audit_values_do_not_bind(self) -> None:
+        before = timezone.now()
+        response = self.client.post(
+            self._change_url(),
+            {
+                'run': str(self.run_a.pk),
+                'is_verified': '',
+                'confirmed_by': str(self.other_staffer.pk),
+                'confirmed_at': '2020-01-01 00:00:00',
+                '_save': 'Save',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.run_id, self.run_a.pk)
+        # Value comparison, not a mere non-null check -- a null-only assertion would pass
+        # even if the fabricated values had actually bound.
+        self.assertEqual(self.meta.confirmed_by, self.superuser)
+        self.assertNotEqual(self.meta.confirmed_by, self.other_staffer)
+        self.assertGreaterEqual(self.meta.confirmed_at, before)
+
+    def test_unrelated_edit_does_not_restamp(self) -> None:
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        self._link_to_run_a_with_other_staffer(original_confirmed_at)
+
+        response = self.client.post(
+            self._change_url(),
+            {'run': str(self.run_a.pk), 'is_verified': 'on', '_save': 'Save'},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.run_id, self.run_a.pk)
+        self.assertEqual(self.meta.confirmed_by, self.other_staffer)
+        self.assertEqual(self.meta.confirmed_at, original_confirmed_at)
+        # Control: is_verified genuinely changed (started False from the helper's .save()
+        # call, which did not set it -- default is False), so the write path was reached.
+        self.assertTrue(self.meta.is_verified)
+
+    def test_clearing_the_run_clears_the_audit_fields(self) -> None:
+        """33-REVIEW.md WR-02 drift guard: the post-clear assertion below iterates
+        ``UNLINK_CLEARED_FIELDS`` rather than naming ``run``/``confirmed_by``/``confirmed_at``
+        by hand, so this test needs no edit if a fourth key is ever added to that set --
+        iterating the exported set is what makes it a drift guard rather than a duplicate of
+        the constant's own field list."""
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        self._link_to_run_a_with_other_staffer(original_confirmed_at)
+        event_snapshot = {
+            'title': self.event.title,
+            'start_time': self.event.start_time,
+            'end_time': self.event.end_time,
+        }
+        event_count_before = CalendarEvent.objects.count()
+        meta_count_before = CalendarEventMeta.objects.count()
+
+        response = self.client.post(
+            self._change_url(),
+            {'run': '', 'is_verified': 'on', '_save': 'Save'},
+        )
+        self.assertEqual(response.status_code, 302)
+
+        # Plan 33-04 Task 3 (33-REVIEWS.md Agreed Concern 3): re-fetch from the database,
+        # never inspect the in-memory `self.meta` instance directly -- a helper `.update()`
+        # left un-synchronised with an `obj.save()` re-persist would pass an in-memory check
+        # and fail this one.
+        stored = CalendarEventMeta.objects.get(pk=self.event.pk)
+        for field, expected_value in UNLINK_CLEARED_FIELDS.items():
+            self.assertEqual(getattr(stored, field), expected_value)
+        # ROADMAP criterion 4: clearing the link only ever changes the three link/audit
+        # values -- is_verified and the CalendarEvent itself are untouched, and nothing is
+        # deleted.
+        self.assertTrue(stored.is_verified)
+        self.event.refresh_from_db()
+        for field, value in event_snapshot.items():
+            self.assertEqual(getattr(self.event, field), value)
+        self.assertEqual(CalendarEvent.objects.count(), event_count_before)
+        self.assertEqual(CalendarEventMeta.objects.count(), meta_count_before)
+
+    def test_clearing_the_run_honours_a_fourth_key_added_to_unlink_cleared_fields(self) -> None:
+        """33-REVIEW.md WR-02, fourth-key drift proof: iterating today's three keys (the test
+        above) cannot distinguish a real loop from three hand-written assignments -- a set
+        with three keys iterated three times looks the same either way. Patching a fourth,
+        sentinel key into ``UNLINK_CLEARED_FIELDS`` and asserting the admin's in-memory clear
+        path (``CalendarEventMetaAdmin.save_model()`` branch 2) honours it, with no edit to
+        ``admin.py``, is what actually proves the branch derives its field set from the
+        constant rather than naming three fields by hand.
+
+        The sentinel is a plain, non-model attribute -- ``CalendarEventMeta`` has only two
+        other nullable columns and both are the PROJ-04 carrier fields this plan's
+        prohibitions forbid touching, so a real field would need a migration and would risk
+        writing a forbidden column. ``patch.dict`` mutates the same dict object the admin's
+        function-local import resolves at call time, so the patched key is visible to
+        ``save_model()`` without any import juggling.
+        """
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        self._link_to_run_a_with_other_staffer(original_confirmed_at)
+
+        with patch.dict('solsys_code.campaign_utils.UNLINK_CLEARED_FIELDS', {'_wr02_sentinel': None}):
+            obj = CalendarEventMeta.objects.get(pk=self.event.pk)
+            obj._wr02_sentinel = 'not-yet-cleared'
+            obj.run = None
+
+            request = RequestFactory().post(self._change_url())
+            request.user = self.superuser
+            CalendarEventMetaAdmin(CalendarEventMeta, django_admin.site).save_model(request, obj, None, True)
+
+            self.assertIsNone(obj._wr02_sentinel)
+            self.assertIsNone(obj.run_id)
+            self.assertIsNone(obj.confirmed_by_id)
+            self.assertIsNone(obj.confirmed_at)
+
+    def test_repointing_the_run_restamps_to_the_acting_user(self) -> None:
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        self._link_to_run_a_with_other_staffer(original_confirmed_at)
+
+        response = self.client.post(
+            self._change_url(),
+            {'run': str(self.run_b.pk), 'is_verified': 'on', '_save': 'Save'},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertEqual(self.meta.run_id, self.run_b.pk)
+        self.assertEqual(self.meta.confirmed_by, self.superuser)
+        self.assertGreater(self.meta.confirmed_at, original_confirmed_at)
+
+
+class TargetAdminChangelistAndTypeFilterTests(TestCase):
+    """quick-260722-uhh: the Target change-list loads and the 'By type' filter separates
+    SIDEREAL from NON_SIDEREAL rows (tom_targets' own bare ModelAdmin has neither)."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='targetadminuser', email='targetadmin@example.test', password='pw'
+        )
+        cls.sidereal_target = SiderealTargetFactory(name='Test Sidereal Star')
+        cls.non_sidereal_target = NonSiderealTargetFactory(name='Test NonSidereal Comet')
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def _target_changelist_url_name(self) -> str:
+        # Target = get_target_model_class() (tom_targets/models.py), which resolves to
+        # BaseTarget here (no TARGET_MODEL_CLASS override in settings.py) -- so the admin
+        # URL name is keyed off app_label/model_name ('tom_targets'/'basetarget'), not the
+        # literal string 'target'.
+        return f'admin:{Target._meta.app_label}_{Target._meta.model_name}_changelist'
+
+    def test_target_changelist_loads(self) -> None:
+        response = self.client.get(reverse(self._target_changelist_url_name()))
+        self.assertEqual(response.status_code, 200)
+
+    def test_type_filter_shows_only_sidereal(self) -> None:
+        response = self.client.get(
+            reverse(self._target_changelist_url_name()), {'type__exact': self.sidereal_target.type}
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(self.sidereal_target.name, content)
+        self.assertNotIn(self.non_sidereal_target.name, content)
+
+    def test_type_filter_shows_only_non_sidereal(self) -> None:
+        response = self.client.get(
+            reverse(self._target_changelist_url_name()), {'type__exact': self.non_sidereal_target.type}
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn(self.non_sidereal_target.name, content)
+        self.assertNotIn(self.sidereal_target.name, content)
+
+
+class CampaignRunAdminInlinesTests(TestCase):
+    """Phase 27 Plan 05 (CANON-05/D-06/D-07/D-19): the two new inlines, save_formset's
+    attribution stamping, and the two new list_filter entries. Phase 28 (D-12) extends
+    save_formset's stamping to CalendarEventMeta's confirmed_by/confirmed_at on a genuine
+    run-link transition, mirroring the CampaignRunObservation contract.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='inlineadminuser', email='inlineadmin@example.test', password='pw'
+        )
+        # Kept separate from cls.staff_user/cls.other_staff_user (the confirming staffers) --
+        # ObservationRecord.user is on_delete=DO_NOTHING, mirroring test_campaign_run_observation.py.
+        cls.record_owner = User.objects.create(username='record-owner-inline')
+        # Superusers, not merely is_staff=True: DeleteProtectedModelForm.has_changed()
+        # (django.contrib.admin.options) short-circuits to False -- treating a genuinely
+        # changed inline form as unchanged -- when request.user lacks the inline model's own
+        # add/change permission, even though is_staff is True. A superuser bypasses that
+        # per-model permission check, matching how a real staff admin with the inline visible
+        # to them would be provisioned.
+        cls.staff_user = User.objects.create_superuser(
+            username='confirming-staffer', email='cs@example.test', password='pw'
+        )
+        cls.other_staff_user = User.objects.create_superuser(
+            username='other-staffer', email='os@example.test', password='pw'
+        )
+        cls.campaign = TargetList.objects.create(name='3I/ATLAS Inline Test')
+        cls.target = NonSiderealTargetFactory.create()
+        cls.campaign_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN/MuSCAT3',
+            window_start='2025-07-04',
+            window_end='2025-07-04',
+        )
+        cls.record_1 = ObservationRecord.objects.create(
+            target=cls.target,
+            user=cls.record_owner,
+            facility='LCO',
+            observation_id='333333',
+            status='PENDING',
+            parameters={'proposal': 'TEST'},
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+        self.factory = RequestFactory()
+
+    def _staff_request(self, user):
+        request = self.factory.post(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        request.user = user
+        return request
+
+    def test_both_inline_formsets_are_reachable_on_the_change_page(self) -> None:
+        """CANON-05: derive the two formset prefixes from the response HTML rather than
+        assuming them, then assert both are present. related_name is what Django's default
+        inline prefix derives from -- calendar_event_metas (CalendarEventMeta.run) and
+        observation_links (CampaignRunObservation.run).
+        """
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        observed_prefixes = set(re.findall(r'name="([\w_]+)-TOTAL_FORMS"', content))
+        self.assertIn('calendar_event_metas', observed_prefixes)
+        self.assertIn('observation_links', observed_prefixes)
+
+    def test_calendar_event_meta_inline_renders_no_editable_attribution_field(self) -> None:
+        """33-REVIEW.md WR-06: `CalendarEventMetaInline` declares `fk_name = 'run'`, so
+        Django's `BaseInlineFormSet.add_fields()` binds `run` back onto the child form only
+        as a hidden `InlineForeignKeyField` (the internal parent-linkage Django needs to
+        validate the row belongs to this `CampaignRun` on POST) -- never as a visible,
+        editable widget a staff member could change. Derives the inline's own prefix from
+        the rendered HTML the same way `test_both_inline_formsets_are_reachable_on_the_change_page`
+        does, confirms the hidden linkage field is present (control: the row genuinely
+        rendered), then asserts no `<select>` widget for `run` exists on that row -- if a
+        future change drops `fk_name`, an editable widget reappears and this test goes red,
+        keeping the corrected docstring and runbook bullet true rather than assumed."""
+        event = CalendarEvent.objects.create(
+            title='WR-06 inline attribution-field probe',
+            start_time=datetime(2025, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=event, run=self.campaign_run, is_verified=True)
+
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        observed_prefixes = set(re.findall(r'name="([\w_]+)-TOTAL_FORMS"', content))
+        self.assertIn('calendar_event_metas', observed_prefixes)
+        # Control: the hidden parent-linkage field is present, so the row genuinely rendered.
+        self.assertIn('type="hidden" name="calendar_event_metas-0-run"', content)
+        # The actual claim: no editable <select> widget for the attribution exists.
+        self.assertNotIn('<select name="calendar_event_metas-0-run"', content)
+
+    def test_inline_shows_system_label_for_a_link_with_no_confirmer(self) -> None:
+        """37.1 D-05: a CampaignRunObservation with confirmed_by None is a system link and
+        the inline labels it 'System (exact match)'; confirmed_by is still not a form input."""
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self.record_1, confirmed_at=timezone.now()
+        )
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('System (exact match)', content)
+        self.assertNotIn('name="observation_links-0-confirmed_by"', content)
+
+    def test_inline_shows_the_staff_username_for_a_staff_confirmed_link(self) -> None:
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self.record_1,
+            confirmed_by=self.other_staff_user,
+            confirmed_at=timezone.now(),
+        )
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        content = response.content.decode()
+        self.assertIn('other-staffer', content)
+        self.assertNotIn('System (exact match)', content)
+        self.assertNotIn('name="observation_links-0-confirmed_by"', content)
+
+    def test_save_formset_stamps_confirmed_by_and_confirmed_at_on_create(self) -> None:
+        """D-07: a newly created CampaignRunObservation row is stamped with the acting
+        staff user and a non-null confirmed_at."""
+        request = self._staff_request(self.staff_user)
+        inline = CampaignRunObservationInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '0',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            f'{prefix}-0-observation_record': str(self.record_1.pk),
+            f'{prefix}-0-id': '',
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        admin_instance = CampaignRunAdmin(CampaignRun, django_admin.site)
+        admin_instance.save_formset(request, None, formset, change=False)
+
+        link = CampaignRunObservation.objects.get(run=self.campaign_run, observation_record=self.record_1)
+        self.assertEqual(link.confirmed_by, self.staff_user)
+        self.assertIsNotNone(link.confirmed_at)
+
+    def test_save_formset_does_not_restamp_on_edit(self) -> None:
+        """D-07: editing an existing CampaignRunObservation row through the admin must not
+        overwrite its original confirmed_by/confirmed_at."""
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        link = CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self.record_1,
+            confirmed_by=self.other_staff_user,
+            confirmed_at=original_confirmed_at,
+        )
+        request = self._staff_request(self.staff_user)
+        inline = CampaignRunObservationInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '1',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            f'{prefix}-0-id': str(link.pk),
+            f'{prefix}-0-observation_record': str(self.record_1.pk),
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        admin_instance = CampaignRunAdmin(CampaignRun, django_admin.site)
+        admin_instance.save_formset(request, None, formset, change=True)
+
+        link.refresh_from_db()
+        self.assertEqual(link.confirmed_by, self.other_staff_user)
+        self.assertEqual(link.confirmed_at, original_confirmed_at)
+
+    def test_inline_cannot_re_point_an_existing_link_to_another_record(self) -> None:
+        """37.1 WR-04: a saved link's observation_record is frozen, so re-pointing a system
+        link cannot produce a human-chosen pair that still reads as a machine link."""
+        record_2 = ObservationRecord.objects.create(
+            target=self.target,
+            user=self.record_owner,
+            facility='LCO',
+            observation_id='333334',
+            status='PENDING',
+            parameters={'proposal': 'TEST'},
+        )
+        link = CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self.record_1, confirmed_at=timezone.now()
+        )
+        request = self._staff_request(self.staff_user)
+        inline = CampaignRunObservationInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request, obj=self.campaign_run)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '1',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            f'{prefix}-0-id': str(link.pk),
+            f'{prefix}-0-observation_record': str(record_2.pk),
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        CampaignRunAdmin(CampaignRun, django_admin.site).save_formset(request, None, formset, change=True)
+
+        link.refresh_from_db()
+        self.assertEqual(link.observation_record_id, self.record_1.pk)
+        self.assertIsNone(link.confirmed_by)
+
+    def test_blank_inline_row_keeps_an_editable_record_picker(self) -> None:
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self.record_1, confirmed_at=timezone.now()
+        )
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.campaign_run.pk]))
+        content = response.content.decode()
+        self.assertIn('name="observation_links-__prefix__-observation_record"', content)
+        self.assertRegex(content, r'<select[^>]*name="observation_links-0-observation_record"[^>]*disabled')
+
+    def _delete_link_through_inline(self, link) -> None:
+        """Submit the run's observation-link inline with ``link``'s row marked for deletion."""
+        request = self._staff_request(self.staff_user)
+        inline = CampaignRunObservationInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request, obj=self.campaign_run)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '1',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            f'{prefix}-0-id': str(link.pk),
+            f'{prefix}-0-observation_record': str(link.observation_record_id),
+            f'{prefix}-0-DELETE': 'on',
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        admin_instance = CampaignRunAdmin(CampaignRun, django_admin.site)
+        admin_instance.save_formset(request, None, formset, change=True)
+
+    def test_deleting_a_system_link_in_the_inline_writes_a_dismissal(self) -> None:
+        """37.1 WR-01: removing a machine link in the admin is a human decision, so it writes
+        the same dismissal the attribution page's Undo does -- otherwise the next discovery
+        tick would re-create the link."""
+        link = CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self.record_1, confirmed_at=timezone.now()
+        )
+
+        self._delete_link_through_inline(link)
+
+        self.assertFalse(CampaignRunObservation.objects.filter(pk=link.pk).exists())
+        dismissal = ObservationRecordDismissal.objects.get(observation_record=self.record_1, run=self.campaign_run)
+        self.assertEqual(dismissal.dismissed_by, self.staff_user)
+        self.assertIsNotNone(dismissal.dismissed_at)
+
+    def test_deleting_a_staff_link_in_the_inline_writes_a_dismissal(self) -> None:
+        """37.1 WR-08: a staff-confirmed link removed in the admin is a human decision too.
+        Without a dismissal the next sweep would re-create the pair as a 'System (exact
+        match)' link, overriding the staff member's decision -- so the inline writes the same
+        dismissal the attribution page's Undo does for staff links and system links alike."""
+        link = CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self.record_1,
+            confirmed_by=self.other_staff_user,
+            confirmed_at=timezone.now(),
+        )
+
+        self._delete_link_through_inline(link)
+
+        self.assertFalse(CampaignRunObservation.objects.filter(pk=link.pk).exists())
+        dismissal = ObservationRecordDismissal.objects.get(observation_record=self.record_1, run=self.campaign_run)
+        self.assertEqual(dismissal.dismissed_by, self.staff_user)
+        self.assertIsNotNone(dismissal.dismissed_at)
+
+    def test_save_formset_stamps_calendar_event_meta_on_run_transition(self) -> None:
+        """D-12: linking a previously-unowned CalendarEvent to a run through the inline is a
+        genuine None-to-not-None `run_id` transition, so it is stamped with the acting staff
+        user and a non-null confirmed_at -- exactly as the observation-side inline is
+        (28-CONTEXT.md D-12 reopens Phase 27's D-05 bare-FK decision).
+
+        No CalendarEventMeta row exists yet for this event (unlike the real shape, where
+        telescope-label resolution seeds one first) -- Django's uniqueness validation on
+        `event` (a OneToOneField declared `primary_key=True`) rejects an "add" formset row
+        whose event pk already has a companion row, so this inline can only create-and-link
+        in one step, never re-point an existing unowned row. That is a genuine mechanical
+        limit of this admin surface, not a test simplification -- the standalone
+        CalendarEventMetaAdmin's own `run` autocomplete field is the only path that edits an
+        already-existing row, and it does not flow through this save_formset override.
+        `CampaignRunAdmin.save_formset`'s `prior_run_id` lookup treats "no row exists yet"
+        the same as "row exists with run=None" -- both mean "not owned by any run" -- so the
+        transition condition fires identically either way.
+        """
+        event = CalendarEvent.objects.create(
+            title='Inline test event',
+            start_time=datetime(2025, 7, 4, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 7, 5, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        request = self._staff_request(self.staff_user)
+        inline = CalendarEventMetaInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '0',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            f'{prefix}-0-event': str(event.pk),
+            f'{prefix}-0-is_verified': 'on',
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        admin_instance = CampaignRunAdmin(CampaignRun, django_admin.site)
+        admin_instance.save_formset(request, None, formset, change=False)
+
+        meta = CalendarEventMeta.objects.get(event=event)
+        self.assertEqual(meta.run_id, self.campaign_run.pk)
+        self.assertEqual(meta.confirmed_by, self.staff_user)
+        self.assertIsNotNone(meta.confirmed_at)
+
+    def test_save_formset_does_not_restamp_calendar_event_meta_on_unrelated_edit(self) -> None:
+        """D-12: a CalendarEventMeta row that already has a `run` and a `confirmed_by` keeps
+        both unchanged when some other field (`is_verified`) is edited through the inline --
+        mirrors the CampaignRunObservation edit-does-not-restamp contract above."""
+        event = CalendarEvent.objects.create(
+            title='Already-owned inline event',
+            start_time=datetime(2025, 7, 6, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 7, 7, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        original_confirmed_at = datetime(2026, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        meta = CalendarEventMeta.objects.create(
+            event=event,
+            run=self.campaign_run,
+            is_verified=True,
+            confirmed_by=self.other_staff_user,
+            confirmed_at=original_confirmed_at,
+        )
+        request = self._staff_request(self.staff_user)
+        inline = CalendarEventMetaInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request, obj=self.campaign_run)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '1',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            # `event` doubles as this model's declared primary key, so there is no separate
+            # hidden `id` field -- submitting it at its own (frozen) value is what an
+            # unrelated edit through this inline looks like.
+            f'{prefix}-0-event': str(event.pk),
+            # Omitting is_verified (an unchecked checkbox is simply absent from POST data)
+            # is the "unrelated edit": True -> False, with run untouched.
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        admin_instance = CampaignRunAdmin(CampaignRun, django_admin.site)
+        admin_instance.save_formset(request, None, formset, change=True)
+
+        meta.refresh_from_db()
+        self.assertEqual(meta.run_id, self.campaign_run.pk)
+        self.assertFalse(meta.is_verified)
+        self.assertEqual(meta.confirmed_by, self.other_staff_user)
+        self.assertEqual(meta.confirmed_at, original_confirmed_at)
+
+    def test_calendar_event_meta_inline_freezes_event_on_existing_rows(self) -> None:
+        """WR-08: `event` is the model's primary key, so re-pointing it on an existing row
+        would INSERT a second row and orphan the original instead of moving the link.
+        The inline's formset disables the field on saved rows (and only on saved rows), so
+        a submitted event pk for an existing row is ignored, no duplicate is written, and
+        the blank "Add another" row keeps a usable widget."""
+        original_event = CalendarEvent.objects.create(
+            title='Original inline event',
+            start_time=datetime(2025, 8, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 8, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        other_event = CalendarEvent.objects.create(
+            title='Hijack target event',
+            start_time=datetime(2025, 8, 3, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2025, 8, 4, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        CalendarEventMeta.objects.create(event=original_event, run=self.campaign_run, is_verified=True)
+
+        request = self._staff_request(self.staff_user)
+        inline = CalendarEventMetaInline(CampaignRun, django_admin.site)
+        formset_class = inline.get_formset(request, obj=self.campaign_run)
+        prefix = formset_class.get_default_prefix()
+        data = {
+            f'{prefix}-TOTAL_FORMS': '1',
+            f'{prefix}-INITIAL_FORMS': '1',
+            f'{prefix}-MIN_NUM_FORMS': '0',
+            f'{prefix}-MAX_NUM_FORMS': '1000',
+            # The hijack attempt: point the existing row's pk at a different CalendarEvent.
+            f'{prefix}-0-event': str(other_event.pk),
+            f'{prefix}-0-is_verified': 'on',
+        }
+        formset = formset_class(data=data, instance=self.campaign_run)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        self.assertTrue(formset.forms[0].fields['event'].disabled)
+        # The blank add row must stay editable, or linking a new event from an existing
+        # run's change page would be impossible.
+        self.assertFalse(formset.empty_form.fields['event'].disabled)
+
+        admin_instance = CampaignRunAdmin(CampaignRun, django_admin.site)
+        admin_instance.save_formset(request, None, formset, change=True)
+
+        self.assertEqual(CalendarEventMeta.objects.filter(run=self.campaign_run).count(), 1)
+        self.assertTrue(CalendarEventMeta.objects.filter(event=original_event).exists())
+        self.assertFalse(CalendarEventMeta.objects.filter(event=other_event).exists())
+
+    def test_source_and_telescope_class_filters_return_200_and_appear_in_sidebar(self) -> None:
+        """D-19: both new list_filter entries are usable and show up in the filter sidebar."""
+        response = self.client.get(
+            reverse('admin:solsys_code_campaignrun_changelist'), {'source': CampaignRun.Source.CSV_IMPORT}
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        # Django's admin filter sidebar renders "By {field.verbose_name}" -- match the
+        # model's actual verbose_name text, not the bare field name.
+        self.assertIn('By Ingest source', content)
+        self.assertIn('By Telescope class allocation', content)
+
+        response = self.client.get(
+            reverse('admin:solsys_code_campaignrun_changelist'), {'telescope_class': CampaignRun.TelescopeClass.ONE_M0}
+        )
+        self.assertEqual(response.status_code, 200)
+
+
+class CalendarEventMetaLabelLegibilityTests(TestCase):
+    """27.1-02 criterion 4: CalendarEventMeta.__str__ against the real 11-row companion-record
+    shape measured from the live dev DB. 7 of the 11 titles are byte-identical, which is what
+    made the picker unusable before Task 1's fix -- the event start date is load-bearing.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='calmeta-label-admin', email='calmeta-label@example.test', password='pw'
+        )
+        # (title, start_date) pairs measured from the live dev DB (2026-07-30).
+        fixture_rows = [
+            ('[CANCELLED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 7)),
+            ('COJ-2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 8)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 10)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 11)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 12)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 14)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 16)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 17)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 18)),
+            ('[EXPIRED] 2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 20)),
+            ('2m0 2M0-SCICAM-MUSCAT', date(2026, 7, 19)),
+        ]
+        assert len(fixture_rows) == 11
+        for title, start_date in fixture_rows:
+            event = CalendarEvent.objects.create(
+                title=title,
+                start_time=datetime(start_date.year, start_date.month, start_date.day, 22, 0, tzinfo=dt_timezone.utc),
+                end_time=datetime(start_date.year, start_date.month, start_date.day, 23, 0, tzinfo=dt_timezone.utc),
+            )
+            CalendarEventMeta.objects.create(event=event, is_verified=True)
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def test_11_companion_rows_have_11_distinct_labels(self) -> None:
+        self.assertEqual(len({str(m) for m in CalendarEventMeta.objects.all()}), 11)
+
+    def test_pre_fix_title_alone_would_have_collided(self) -> None:
+        """Documents why the date is load-bearing: the event title alone is not distinct
+        across all 11 rows (7 share the identical [EXPIRED] title)."""
+        self.assertLess(len({m.event.title for m in CalendarEventMeta.objects.all()}), 11)
+
+    def test_changelist_renders_a_date_staff_can_scan_by(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_calendareventmeta_changelist'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('2026-07-07', response.content.decode())
+
+
+class CampaignRunLabelLegibilityTests(TestCase):
+    """27.1-02 criterion 4: CampaignRun.__str__ covers every site_label branch and the real
+    pk 27/28 TBD-collision case."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='camprun-label-admin', email='camprun-label@example.test', password='pw'
+        )
+        cls.campaign = TargetList.objects.create(name='Label Legibility Campaign')
+        cls.observatory = Observatory.objects.create(
+            obscode='TST1',
+            name='Label Legibility Test Site',
+            short_name='LLTS',
+            lat=1.0,
+            lon=2.0,
+            altitude=100.0,
+        )
+        cls.site_resolved_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-site-resolved',
+            window_start=date(2026, 1, 1),
+            window_end=date(2026, 1, 1),
+            site=cls.observatory,
+        )
+        cls.classed_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-classed',
+            window_start=date(2026, 1, 2),
+            window_end=date(2026, 1, 2),
+            telescope_class=CampaignRun.TelescopeClass.ONE_M0,
+        )
+        cls.site_raw_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-site-raw',
+            window_start=date(2026, 1, 3),
+            window_end=date(2026, 1, 3),
+            site_raw='Some Unresolved Site Text',
+        )
+        cls.bare_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-bare',
+            window_start=date(2026, 1, 4),
+            window_end=date(2026, 1, 4),
+        )
+        # The real pk 27/28 collision: same campaign, same telescope_instrument, both TBD --
+        # only distinguishable via pk and (per the TBD natural-key constraint) contact_person.
+        cls.tbd_run_1 = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='JWST',
+            contact_person='Label Test Contact A',
+        )
+        cls.tbd_run_2 = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='JWST',
+            contact_person='Label Test Contact B',
+        )
+        cls.pii_run = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='FTN-pii',
+            window_start=date(2026, 1, 5),
+            window_end=date(2026, 1, 5),
+            contact_person=PII_CONTACT_PERSON,
+            contact_email=PII_CONTACT_EMAIL,
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def _all_runs(self):
+        return [
+            self.site_resolved_run,
+            self.classed_run,
+            self.site_raw_run,
+            self.bare_run,
+            self.tbd_run_1,
+            self.tbd_run_2,
+            self.pii_run,
+        ]
+
+    def test_all_labels_distinct_and_none_contains_the_literal_none(self) -> None:
+        labels = [str(r) for r in self._all_runs()]
+        self.assertEqual(len(set(labels)), len(labels))
+        for label in labels:
+            self.assertNotIn('None', label)
+
+    def test_tbd_runs_labelled_tbd_and_distinguishable(self) -> None:
+        label_1 = str(self.tbd_run_1)
+        label_2 = str(self.tbd_run_2)
+        self.assertIn('TBD', label_1)
+        self.assertIn('TBD', label_2)
+        self.assertNotEqual(label_1, label_2)
+
+    def test_site_resolved_label_contains_obscode(self) -> None:
+        self.assertIn(self.observatory.obscode, str(self.site_resolved_run))
+
+    def test_classed_run_label_contains_class_discriminator(self) -> None:
+        self.assertIn('class 1m0', str(self.classed_run))
+
+    def test_site_raw_run_label_contains_raw_discriminator(self) -> None:
+        self.assertIn('raw ', str(self.site_raw_run))
+
+    def test_bare_run_label_contains_no_site(self) -> None:
+        self.assertIn('no site', str(self.bare_run))
+
+    def test_pii_run_label_excludes_contact_fields(self) -> None:
+        label = str(self.pii_run)
+        self.assertNotIn(PII_CONTACT_PERSON, label)
+        self.assertNotIn(PII_CONTACT_EMAIL, label)
+
+    def test_autocomplete_endpoint_resolves_with_discriminating_text_and_no_pii(self) -> None:
+        """The picker the UAT gap's second 'missing' item asks for: a search box, not a
+        44-option flat <select>."""
+        response = self.client.get(
+            reverse('admin:autocomplete'),
+            {
+                'app_label': 'solsys_code',
+                'model_name': 'calendareventmeta',
+                'field_name': 'run',
+                'term': 'FTN-pii',
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        results = payload['results']
+        self.assertTrue(results)
+        self.assertTrue(any('FTN-pii' in result['text'] for result in results))
+        self.assertFalse(any(PII_CONTACT_PERSON in result['text'] for result in results))
+
+
+class SourceProvenanceLockTests(TestCase):
+    """27.1-05 (closing criterion 6, WR-03): `source` is non-overwritable on every
+    `source == WEB` run, at any approval status, and stays editable on every non-WEB row
+    of every approval status (D-19 preserved)."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='source-lock-admin', email='source-lock@example.test', password='pw'
+        )
+        cls.campaign = TargetList.objects.create(name='Source Lock Campaign')
+        cls.approved_web = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Source-Lock-Approved-Web',
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+        cls.pending_web = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Source-Lock-Pending-Web',
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+        cls.rejected_web = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Source-Lock-Rejected-Web',
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.REJECTED,
+        )
+        cls.approved_legacy = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Source-Lock-Approved-Legacy',
+            source=CampaignRun.Source.LEGACY,
+            approval_status=CampaignRun.ApprovalStatus.APPROVED,
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+        self.factory = RequestFactory()
+        self.admin_obj = CampaignRunAdmin(CampaignRun, django_admin.site)
+
+    def _staff_request(self):
+        request = self.factory.get(reverse('admin:solsys_code_campaignrun_changelist'))
+        request.user = self.superuser
+        return request
+
+    def test_source_withheld_on_every_web_row(self) -> None:
+        request = self._staff_request()
+        self.assertIn('source', self.admin_obj.get_readonly_fields(request, self.approved_web))
+        self.assertIn('source', self.admin_obj.get_readonly_fields(request, self.pending_web))
+        self.assertIn('source', self.admin_obj.get_readonly_fields(request, self.rejected_web))
+        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, self.approved_legacy))
+        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, None))
+
+    def test_approval_status_lock_survives_for_all_four(self) -> None:
+        request = self._staff_request()
+        for obj in (self.approved_web, self.pending_web, self.rejected_web, self.approved_legacy, None):
+            self.assertIn('approval_status', self.admin_obj.get_readonly_fields(request, obj))
+
+    def test_source_field_absent_from_generated_form_on_every_web_row(self) -> None:
+        request = self._staff_request()
+        approved_form = self.admin_obj.get_form(request, obj=self.approved_web, change=True)
+        pending_form = self.admin_obj.get_form(request, obj=self.pending_web, change=True)
+        legacy_form = self.admin_obj.get_form(request, obj=self.approved_legacy, change=True)
+        self.assertNotIn('source', approved_form.base_fields)
+        self.assertNotIn('source', pending_form.base_fields)
+        self.assertIn('source', legacy_form.base_fields)
+
+    def test_submitted_source_value_cannot_bind_on_approved_web(self) -> None:
+        """End-to-end: a POSTed source value on an approved WEB run cannot bind, since
+        Django excludes readonly fields from the generated ModelForm entirely."""
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.approved_web, change=True)
+        data = model_to_dict(self.approved_web, exclude=['id'])
+        data['source'] = CampaignRun.Source.CSV_IMPORT
+        form = form_class(data=data, instance=self.approved_web)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.approved_web.refresh_from_db()
+        self.assertEqual(self.approved_web.source, CampaignRun.Source.WEB)
+
+    def test_submitted_source_value_cannot_bind_on_pending_web(self) -> None:
+        """27.1-05: this is the write half of the two-step sequence 27.1-05 closes -- a
+        submitted value on a pending WEB row no longer binds, since Django excludes readonly
+        fields from the generated ModelForm entirely."""
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.pending_web, change=True)
+        data = model_to_dict(self.pending_web, exclude=['id'])
+        data['source'] = CampaignRun.Source.CSV_IMPORT
+        form = form_class(data=data, instance=self.pending_web)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.pending_web.refresh_from_db()
+        self.assertEqual(self.pending_web.source, CampaignRun.Source.WEB)
+
+    def test_submitted_source_value_does_bind_on_non_web_row(self) -> None:
+        """The lock is scoped to web rows, not blanket: the same write against a non-web
+        row succeeds, proving D-19's correction use case survives with a passing
+        assertion rather than only by prose."""
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.approved_legacy, change=True)
+        data = model_to_dict(self.approved_legacy, exclude=['id'])
+        data['source'] = CampaignRun.Source.CSV_IMPORT
+        form = form_class(data=data, instance=self.approved_legacy)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.approved_legacy.refresh_from_db()
+        self.assertEqual(self.approved_legacy.source, CampaignRun.Source.CSV_IMPORT)
+
+    def test_relabel_to_web_locks_the_row_and_cannot_be_undone(self) -> None:
+        """WR-10: pins the accepted one-way ratchet, in the direction the lock deliberately
+        leaves open.
+
+        Relabelling a non-web row *to* web is still allowed (D-19 keeps `source` editable on
+        every non-web row), but the moment it saves, `get_readonly_fields` keys off the new
+        value and withholds `source` -- so the same staff user cannot undo their own
+        mis-click through the admin at all. The CSV path cannot repair it either:
+        `import_campaign_csv` pops `source`/`approval_status` for any row whose existing
+        source is web (`test_reimport_preserves_web_source_and_approval_status` in
+        `test_import_campaign_csv.py` pins that half). Both consequences are accepted, but
+        they were previously unpinned in either direction -- a future refactor could have
+        silently changed them.
+        """
+        request = self._staff_request()
+        # The relabel itself must still be allowed -- this is D-19's surviving use case.
+        self.assertNotIn('source', self.admin_obj.get_readonly_fields(request, self.approved_legacy))
+        form_class = self.admin_obj.get_form(request, obj=self.approved_legacy, change=True)
+        data = model_to_dict(self.approved_legacy, exclude=['id'])
+        data['source'] = CampaignRun.Source.WEB
+        form = form_class(data=data, instance=self.approved_legacy)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.approved_legacy.refresh_from_db()
+        self.assertEqual(self.approved_legacy.source, CampaignRun.Source.WEB)
+
+        # ...and now the trapdoor has shut: no admin write path back.
+        self.assertIn('source', self.admin_obj.get_readonly_fields(request, self.approved_legacy))
+        relocked_form_class = self.admin_obj.get_form(request, obj=self.approved_legacy, change=True)
+        self.assertNotIn('source', relocked_form_class.base_fields)
+        undo_data = model_to_dict(self.approved_legacy, exclude=['id'])
+        undo_data['source'] = CampaignRun.Source.LEGACY
+        undo_form = relocked_form_class(data=undo_data, instance=self.approved_legacy)
+        self.assertTrue(undo_form.is_valid(), undo_form.errors)
+        undo_form.save()
+        self.approved_legacy.refresh_from_db()
+        self.assertEqual(self.approved_legacy.source, CampaignRun.Source.WEB)
+
+    def test_change_page_omits_source_field_on_every_web_row(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.approved_web.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('name="source"', response.content.decode())
+
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.pending_web.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('name="source"', response.content.decode())
+
+        response = self.client.get(reverse('admin:solsys_code_campaignrun_change', args=[self.approved_legacy.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="source"', response.content.decode())
+
+
+class SourceProvenanceTwoStepBypassTests(TestCase):
+    """27.1-05: pins the sequence `27.1-REVIEW.md` WR-03 demonstrated, end to end across two
+    different write paths -- the admin change form and `CampaignRunDecisionView` -- because
+    neither path's own tests can see the sequence in isolation."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='two-step-admin', email='two-step@example.test', password='pw'
+        )
+        cls.campaign = TargetList.objects.create(name='Two-Step Bypass Campaign')
+        # window_start/window_end intentionally left unset on both fixtures, so
+        # campaign_reconciler.reconcile_run()'s stage-0 guard skips with skipped_reason=
+        # 'TBD window' and the approve branch has no calendar side effect to manage here.
+        cls.pending_web = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Two-Step-Pending-Web',
+            source=CampaignRun.Source.WEB,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+        cls.pending_csv_import = CampaignRun.objects.create(
+            campaign=cls.campaign,
+            telescope_instrument='Two-Step-Pending-Csv-Import',
+            source=CampaignRun.Source.CSV_IMPORT,
+            approval_status=CampaignRun.ApprovalStatus.PENDING_REVIEW,
+        )
+
+    def setUp(self) -> None:
+        self.admin_obj = CampaignRunAdmin(CampaignRun, django_admin.site)
+        self.factory = RequestFactory()
+
+    def _staff_request(self):
+        request = self.factory.get(reverse('admin:solsys_code_campaignrun_changelist'))
+        request.user = self.superuser
+        return request
+
+    def test_pending_relabel_then_approve_keeps_web_source(self) -> None:
+        """The non-negotiable regression test for WR-03's two-step bypass."""
+        # Step 1: attempt the relabel exactly as SourceProvenanceLockTests models an admin
+        # write -- build the form via get_form(), feed it a submitted `source`, and confirm
+        # it does not bind.
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.pending_web, change=True)
+        data = model_to_dict(self.pending_web, exclude=['id'])
+        data['source'] = CampaignRun.Source.CSV_IMPORT
+        form = form_class(data=data, instance=self.pending_web)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.pending_web.refresh_from_db()
+        self.assertEqual(self.pending_web.source, CampaignRun.Source.WEB)
+
+        # Step 2: approve via CampaignRunDecisionView. The run has site=None, so the approve
+        # branch calls resolve_site() -- patched here so the test never reaches the MPC
+        # Obscodes API.
+        self.client.force_login(self.superuser)
+        with patch('solsys_code.campaign_views.resolve_site', return_value=(None, True)):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': self.pending_web.pk}), {'action': 'approve'}
+            )
+        self.assertEqual(response.status_code, 302)
+
+        self.pending_web.refresh_from_db()
+        # This is the assertion the whole test exists for: the run must land on APPROVED +
+        # web, never on APPROVED + non-web -- the latter would, under CANON-01's derivation
+        # rule, read as "no approval was required", which is the exact provenance loss
+        # 27.1-05 closes.
+        self.assertEqual(self.pending_web.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+        self.assertEqual(self.pending_web.source, CampaignRun.Source.WEB)
+
+    def test_approve_still_lands_on_a_web_run(self) -> None:
+        """Control: proves the approval itself really lands, so the regression test above
+        cannot pass vacuously by the approval silently failing and reverting."""
+        self.client.force_login(self.superuser)
+        with patch('solsys_code.campaign_views.resolve_site', return_value=(None, True)):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': self.pending_web.pk}), {'action': 'approve'}
+            )
+        self.assertEqual(response.status_code, 302)
+        self.pending_web.refresh_from_db()
+        self.assertEqual(self.pending_web.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+
+    def test_non_web_relabel_then_approve_still_binds(self) -> None:
+        """Same two-step sequence against a non-web row: the widened lock is scoped to web
+        rows and did not turn into a blanket freeze."""
+        request = self._staff_request()
+        form_class = self.admin_obj.get_form(request, obj=self.pending_csv_import, change=True)
+        data = model_to_dict(self.pending_csv_import, exclude=['id'])
+        data['source'] = CampaignRun.Source.LEGACY
+        form = form_class(data=data, instance=self.pending_csv_import)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.pending_csv_import.refresh_from_db()
+        self.assertEqual(self.pending_csv_import.source, CampaignRun.Source.LEGACY)
+
+        self.client.force_login(self.superuser)
+        with patch('solsys_code.campaign_views.resolve_site', return_value=(None, True)):
+            response = self.client.post(
+                reverse('campaigns:decide', kwargs={'pk': self.pending_csv_import.pk}), {'action': 'approve'}
+            )
+        self.assertEqual(response.status_code, 302)
+        self.pending_csv_import.refresh_from_db()
+        self.assertEqual(self.pending_csv_import.approval_status, CampaignRun.ApprovalStatus.APPROVED)
+
+
+class CalendarEventMetaObservationLinksReadOnlyTests(TestCase):
+    """PROJ-04/D-09 (33-CONTEXT.md): observation_record/observation_group are read-only on
+    both CalendarEventMetaAdmin (the standalone change form) and CalendarEventMetaInline
+    (the CampaignRun change page) -- only the observation projector (Phase 34) writes
+    either value, so no staff surface may bind them. Mirrors
+    CalendarEventMetaStandaloneAdminAuditStampTests' pattern for confirmed_by/confirmed_at.
+    """
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(
+            username='obs-links-readonly-admin', email='obs-links-readonly@example.test', password='pw'
+        )
+        cls.target = NonSiderealTargetFactory.create()
+        cls.record = ObservationRecord.objects.create(
+            target=cls.target,
+            user=cls.superuser,
+            facility='LCO',
+            observation_id='obs-links-readonly-1',
+            status='PENDING',
+            parameters={'proposal': 'TEST'},
+        )
+        cls.other_record = ObservationRecord.objects.create(
+            target=cls.target,
+            user=cls.superuser,
+            facility='LCO',
+            observation_id='obs-links-readonly-2',
+            status='PENDING',
+            parameters={'proposal': 'TEST'},
+        )
+        cls.group = ObservationGroup.objects.create(name='obs-links-readonly-group')
+        cls.event = CalendarEvent.objects.create(
+            title='PROJ-04 read-only exposure event',
+            start_time=datetime(2026, 9, 1, 22, 0, tzinfo=dt_timezone.utc),
+            end_time=datetime(2026, 9, 2, 6, 0, tzinfo=dt_timezone.utc),
+        )
+        cls.meta = CalendarEventMeta.objects.create(
+            event=cls.event, is_verified=True, observation_record=None, observation_group=None
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+        self.factory = RequestFactory()
+
+    def _change_url(self):
+        return reverse('admin:solsys_code_calendareventmeta_change', args=[self.event.pk])
+
+    def _staff_request(self):
+        request = self.factory.get(self._change_url())
+        request.user = self.superuser
+        return request
+
+    def test_standalone_admin_get_readonly_fields_lists_both_links(self) -> None:
+        admin_obj = CalendarEventMetaAdmin(CalendarEventMeta, django_admin.site)
+        readonly = admin_obj.get_readonly_fields(self._staff_request(), self.meta)
+        self.assertIn('event', readonly)
+        self.assertIn('confirmed_by', readonly)
+        self.assertIn('confirmed_at', readonly)
+        self.assertIn('observation_record', readonly)
+        self.assertIn('observation_group', readonly)
+
+    def test_inline_get_readonly_fields_lists_both_links(self) -> None:
+        inline = CalendarEventMetaInline(CampaignRun, django_admin.site)
+        readonly = inline.get_readonly_fields(self._staff_request(), self.meta)
+        self.assertIn('confirmed_by', readonly)
+        self.assertIn('confirmed_at', readonly)
+        self.assertIn('observation_record', readonly)
+        self.assertIn('observation_group', readonly)
+
+    def test_change_form_does_not_expose_observation_links_as_editable(self) -> None:
+        response = self.client.get(self._change_url())
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('name="observation_record"', content)
+        self.assertNotIn('name="observation_group"', content)
+
+    def test_posting_an_observation_record_value_does_not_bind(self) -> None:
+        response = self.client.post(
+            self._change_url(),
+            {
+                'run': '',
+                'is_verified': 'on',
+                'observation_record': str(self.other_record.pk),
+                '_save': 'Save',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertIsNone(self.meta.observation_record_id)
+
+    def test_posting_an_observation_group_value_does_not_bind(self) -> None:
+        response = self.client.post(
+            self._change_url(),
+            {
+                'run': '',
+                'is_verified': 'on',
+                'observation_group': str(self.group.pk),
+                '_save': 'Save',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.meta.refresh_from_db()
+        self.assertIsNone(self.meta.observation_group_id)
+
+
+class WatchedProposalAdminTests(TestCase):
+    """Plan 36-02 Task 1: `WatchedProposal` is registered, staff can toggle `is_active`
+    directly from the changelist, and a superuser can reach and search the changelist."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(username='wpadmin', email='wpadmin@example.test', password='pw')
+        cls.row = WatchedProposal.objects.create(proposal_code='KEY2026B-004')
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def test_registered_with_admin_site(self) -> None:
+        self.assertIn(WatchedProposal, django_admin.site._registry)
+        self.assertIsInstance(django_admin.site._registry[WatchedProposal], WatchedProposalAdmin)
+
+    def test_is_active_is_listed_editable_and_filterable(self) -> None:
+        model_admin = django_admin.site._registry[WatchedProposal]
+        self.assertIn('is_active', model_admin.list_display)
+        self.assertIn('is_active', model_admin.list_editable)
+        self.assertIn('is_active', model_admin.list_filter)
+
+    def test_changelist_loads_and_shows_seeded_row(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_watchedproposal_changelist'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('KEY2026B-004', response.content.decode())
+
+
+class ProposalTimeAllocationAdminTests(TestCase):
+    """Phase 37 Task 2: `ProposalTimeAllocation` is registered and every field is read-only --
+    an operator never hand-types a figure the unattended runner's fetch step owns."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.superuser = User.objects.create_superuser(username='ptaadmin', email='ptaadmin@example.test', password='pw')
+        cls.row = ProposalTimeAllocation.objects.create(
+            proposal_code='UTX2026A-002',
+            semester='2026A',
+            instrument_type='1M0-SCICAM-SINISTRO',
+            allocation_type='std',
+            allocated_hours=40.0,
+            used_hours=10.0,
+            fetched_at=timezone.now(),
+        )
+
+    def setUp(self) -> None:
+        self.client.force_login(self.superuser)
+
+    def test_registered_with_admin_site(self) -> None:
+        self.assertIn(ProposalTimeAllocation, django_admin.site._registry)
+        self.assertIsInstance(django_admin.site._registry[ProposalTimeAllocation], ProposalTimeAllocationAdmin)
+
+    def test_every_field_is_readonly(self) -> None:
+        model_admin = django_admin.site._registry[ProposalTimeAllocation]
+        for field in (
+            'proposal_code',
+            'semester',
+            'instrument_type',
+            'allocation_type',
+            'allocated_hours',
+            'used_hours',
+            'fetched_at',
+        ):
+            self.assertIn(field, model_admin.readonly_fields)
+
+    def test_changelist_loads_and_shows_seeded_row(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_proposaltimeallocation_changelist'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('UTX2026A-002', response.content.decode())
+
+    def test_add_permission_is_denied(self) -> None:
+        """WR-10 (37-REVIEW.md): every field is read-only, so the Add form could never
+        satisfy the non-null fetched_at -- has_add_permission() must deny it outright
+        rather than render a form that cannot be submitted. This project's
+        tom_common.middleware.Raise403Middleware turns every 403 into a 302 redirect to
+        the login page (carrying '?next='), so that -- not a raw 403 -- is this project's
+        observable access-denied contract; see the identical pattern proven directly
+        against admin.py in ProposalTimeAllocationAdminPermissionUnitTests below."""
+        response = self.client.get(reverse('admin:solsys_code_proposaltimeallocation_add'))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('next=', response['Location'])
+
+    def test_delete_permission_is_denied(self) -> None:
+        """WR-10 (37-REVIEW.md): deleting a row silently changes the public unused-nights
+        estimate (or flips it from a number to "not yet known") -- a staff user must not be
+        able to, since this table is written only by the unattended runner's fetch step."""
+        response = self.client.post(reverse('admin:solsys_code_proposaltimeallocation_delete', args=[self.row.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('next=', response['Location'])
+        self.assertTrue(ProposalTimeAllocation.objects.filter(pk=self.row.pk).exists())
+
+    def test_add_button_is_not_rendered_on_the_changelist(self) -> None:
+        response = self.client.get(reverse('admin:solsys_code_proposaltimeallocation_changelist'))
+        self.assertNotContains(response, reverse('admin:solsys_code_proposaltimeallocation_add'))
+
+
+class ProposalTimeAllocationAdminPermissionUnitTests(TestCase):
+    """WR-10 (37-REVIEW.md): unit-level check of has_add_permission()/has_delete_permission()
+    directly against the ModelAdmin instance -- independent of this project's
+    tom_common.middleware.Raise403Middleware, which turns every 403 an HTTP request would
+    hit into a 302 redirect (see ProposalTimeAllocationAdminTests' own HTTP-level tests for
+    that observable behaviour)."""
+
+    def test_add_permission_is_false_for_any_request(self) -> None:
+        model_admin = django_admin.site._registry[ProposalTimeAllocation]
+        self.assertFalse(model_admin.has_add_permission(request=None))
+
+    def test_delete_permission_is_false_for_any_request_or_object(self) -> None:
+        model_admin = django_admin.site._registry[ProposalTimeAllocation]
+        self.assertFalse(model_admin.has_delete_permission(request=None))
+        self.assertFalse(model_admin.has_delete_permission(request=None, obj=object()))

@@ -1,0 +1,99 @@
+{% extends 'tom_common/base.html' %}
+{% load django_tables2 %}
+{% block title %}{{ campaign.name }} — Observing Runs{% endblock %}
+
+{% block additional_css %}
+<style>
+  /* D-13 (Phase 33 Plan 02): highlight the run row the calendar decoration's
+     #run-{pk} link lands on. Pure CSS -- no JavaScript -- so it works whether the
+     fragment arrives on first load or via an in-page hash change. CR-01 (Phase 33
+     Plan 06): a top-level node in a template that extends a parent template is
+     discarded by Django's ExtendsNode -- only content inside a declared block is
+     rendered -- so this element must live inside additional_css, the CSS hook
+     tom_common/base.html declares inside the document head (empty in the parent,
+     so block.super is not needed). */
+  tr:target {
+    background-color: #fff3cd;
+    box-shadow: inset 4px 0 0 0 #ffc107;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="font-weight-bold mb-0">{{ campaign.name }} — Observing Runs</h4>
+  <div class="d-flex align-items-center">
+    {% if gap_analysis_available %}
+    <a class="btn btn-primary mr-2" href="{% url 'campaigns:gap_analysis' pk=campaign.pk %}">Show Coverage Gaps</a>
+    {% else %}
+    <button type="button" class="btn btn-primary disabled mr-2" disabled aria-disabled="true">Show Coverage Gaps</button>
+    <small class="text-muted mr-2">
+      Coverage-gap analysis needs at least one campaign target and at least one run with a resolved site.
+    </small>
+    {% endif %}
+    <a class="btn btn-primary" href="{% url 'campaigns:submit' %}">Submit a Run</a>
+  </div>
+</div>
+
+<div class="card bg-light p-3 mb-4">
+  <form method="get">
+    <div class="form-group">
+      <label class="font-weight-bold">{{ filter.form.run_status.label }}</label>
+      <div>
+        {% for choice in filter.form.run_status %}
+        <div class="form-check form-check-inline">
+          {{ choice.tag }}
+          <label class="form-check-label" for="{{ choice.id_for_label }}">{{ choice.choice_label }}</label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="font-weight-bold" for="{{ filter.form.open_to_collaboration.id_for_label }}">
+        Open to collaboration?
+      </label>
+      {% with value=filter.form.open_to_collaboration.value %}
+      <select name="{{ filter.form.open_to_collaboration.html_name }}"
+              id="{{ filter.form.open_to_collaboration.id_for_label }}"
+              class="form-control w-auto">
+        <option value="unknown" {% if not value or value == 'unknown' %}selected{% endif %}>Any</option>
+        <option value="true" {% if value == 'true' %}selected{% endif %}>Yes</option>
+        <option value="false" {% if value == 'false' %}selected{% endif %}>No</option>
+      </select>
+      {% endwith %}
+    </div>
+    <button type="submit" class="btn btn-primary">Filter</button>
+    <a href="{% url 'campaigns:table' pk=campaign.pk %}" class="btn btn-link">Clear filters</a>
+  </form>
+</div>
+
+{% comment %}
+TALLY-02/D-10: campaign roll-up summary strip, styled like the filter card above it. Sums
+only the campaign's approved, publicly visible runs (a pending-review run contributes
+nothing, per campaign_tally.campaign_rollup()'s queryset-level exclude) -- computed once per
+request by the view (get_or_compute_rollup()), never once per template reference here.
+
+G-37-6/D-20: the unused segment has a FOURTH branch, inserted second (between "nothing known
+at all" and "known complete estimate"), for a total that is known so far but not complete --
+one or more of this campaign's runs has its own figure not yet known. Such a run is never
+silently counted as zero: the strip instead reads "at least {count} ({n} run(s) not yet
+known)", naming how many runs it could not account for. This is the ROLL-UP STRIP'S OWN
+rendering -- render_progress() (the per-run Progress cell) and event_form.html (the calendar
+pop-up) are unchanged and never read `unknown_runs`.
+{% endcomment %}
+<div class="card bg-light p-3 mb-4">
+  <div>
+    <strong>{{ rollup.groups }} group{{ rollup.groups|pluralize }} &middot; {{ rollup.records }} record{{ rollup.records|pluralize }}</strong>
+  </div>
+  <div class="mt-1">
+    {% for segment in rollup_segments %}
+    <span class="mr-3" title="{{ segment.label }}">
+      {{ segment.label }}: {{ segment.marker }}
+      {% if not segment.known %}not yet known{% elif segment.unknown_runs %}at least {% if segment.is_estimate %}&approx;{% endif %}{{ segment.count }} ({{ segment.unknown_runs }} run{{ segment.unknown_runs|pluralize }} not yet known){% elif segment.is_estimate %}&approx;{{ segment.count }}{% else %}{{ segment.count }}{% endif %}
+    </span>
+    {% endfor %}
+  </div>
+</div>
+
+{% render_table table %}
+{% endblock %}

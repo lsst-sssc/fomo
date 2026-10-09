@@ -1,0 +1,339 @@
+"""Fetch and store LCO Observation Portal proposal time allocations (Phase 37 D-06/D-07).
+
+This module is the ONLY writer of ``ProposalTimeAllocation`` -- everything else (the public
+tally columns, the calendar's unused-night decoration) reads the stored rows only, so a
+public page never triggers a credentialed portal call at request time. Nothing in this
+module reads or writes ``CampaignRun.run_status`` (TALLY-03's guard).
+
+``HOURS_PER_NIGHT`` is a deliberate, fixed rule of thumb (D-06) -- 10 hours of awarded time
+per observing night, with precedent in the NOIRLab/LCO proposal process -- NOT a
+measurement. Every "unused nights" figure this module derives must be presented as an
+estimate, and callers must render ``None`` as "not yet fetched", never as zero.
+
+F7 (quick task 261002-gev): only a proposal code that can be an LCO/SOAR portal proposal is fetched --
+every active ``WatchedProposal`` code, plus a ``CampaignRun`` code whose run came from the LCO/SOAR queue
+or sits at an LCO/SOAR observatory ``campaign_attribution`` names. Any other run code (e.g. an ESO code on
+a classical NTT line) is counted as not fetchable and never sent, so its run's tally stays "not yet known".
+
+Mirrors ``campaign_gap.py``'s import discipline (``solsys_code/campaign_gap.py:1-14``): this
+module must never import ``solsys_code.views`` or ``solsys_code.ephem_utils`` (or any module
+that imports either) at module scope -- that module's ~1.6 GB SPICE-kernel download side
+effect (CLAUDE.md "Heavy import side effect") must never be paid by a process that only
+needs to fetch or read a proposal's time allocation.
+"""
+
+import math
+import re
+from typing import Any
+from urllib.parse import quote, urljoin
+
+import requests
+from django import forms
+from django.db.models import F, Q, Sum
+from django.utils import timezone
+from tom_common.exceptions import ImproperCredentialsException
+from tom_observations.facilities.lco import LCOFacility
+from tom_observations.facilities.ocs import make_request
+
+from solsys_code.campaign_attribution import LCO_SITE_CODE_TO_OBSCODE, OBSERVED_TELESCOPE_OBSCODES
+from solsys_code.models import CampaignRun, ProposalTimeAllocation, WatchedProposal
+
+# D-06: a deliberate, fixed rule of thumb with precedent in the NOIRLab/LCO proposal
+# process, not a measurement -- the reason every figure derived from it is labelled an
+# estimate. A future deferred per-telescope-class hours-per-night table would replace this
+# single constant without touching the model or the fetch.
+HOURS_PER_NIGHT = 10.0
+
+# Task 1 checkpoint decision (a-store-all-types, "sum only standard time"): every allocation
+# type the portal returns is stored (see _ALLOCATION_TYPES below), but only these types feed
+# the unused-hours estimate. Real proposal UTX2026A-002 was confirmed (live portal check) to
+# hold nonzero Time-Critical (`tc`) hours -- deliberately stored, never summed here, so the
+# summation rule can change later (e.g. adding 'tc') without a second portal round trip.
+ESTIMATE_ALLOCATION_TYPES = ('std',)
+
+# The portal's own time-allocation-type prefixes -- confirmed against a live
+# `GET /api/proposals/` call (Task 1 checkpoint): std, rr, tc, AND an undocumented
+# `realtime_allocation`/`realtime_time_used` pair. All four are stored; only
+# ESTIMATE_ALLOCATION_TYPES above are summed into the estimate.
+_ALLOCATION_TYPES = ('std', 'rr', 'tc', 'realtime')
+
+_API_TIMEOUT_SECONDS = 10
+
+
+class PortalUnavailable(Exception):  # noqa: N818 -- exact symbol name given by 37-02-PLAN.md Task 3
+    """Raised by :func:`fetch_proposal_allocations` on any portal-call failure.
+
+    Carries ONLY the caught exception's class name (``str(exc)``) -- never the caught
+    exception's own message or the response body, both of which can embed the portal
+    request's content and, for ``ImproperCredentialsException``/``forms.ValidationError``,
+    the API key (mirrors ``calendar_utils.resolve_placement_block()``'s SYNC-09/D-11
+    discipline).
+    """
+
+
+# WR-07 (37-REVIEW.md): both of proposal_code's sources -- WatchedProposal.proposal_code
+# (admin-editable free text) and CampaignRun.proposal_code (verbatim from a classical
+# schedule file's bracketed [proposal] token, which telescope_runs._resolve_proposal()
+# accepts as any non-empty text) -- are operator-supplied and reach
+# fetch_proposal_allocations() unvalidated. A value containing '..', '?' or '#' would
+# redirect the authenticated portal request to a different endpoint when urljoin()
+# normalises it server-side, and CampaignRun.proposal_code's own max_length=100 means an
+# over-long value raises DataError on PostgreSQL. Restricting to a conservative charset
+# that covers every real LCO/SOAR proposal code format observed in this codebase's fixtures
+# and runbook (e.g. 'LCO2026A-001', 'KEY2026B-002') closes both without touching the
+# classical-file ingestion grammar itself (telescope_runs.py), which stays deliberately
+# permissive for the file-parsing use case it serves.
+_PROPOSAL_CODE_RE = re.compile(r'^[A-Za-z0-9._-]{1,100}$')
+
+# F7 (quick task 261002-gev): only a code that can be an LCO/SOAR portal proposal is ever sent to the
+# portal. A classical schedule file can carry any observatory's proposal token (e.g. an ESO code on an
+# NTT line), and the portal answers such a code with an HTTP error, which failed this step on every tick.
+# The rule is run provenance, not code shape: a run's code is fetchable when the run came from the
+# LCO/SOAR queue, or its resolved site is one of the LCO/SOAR observatories ``campaign_attribution``
+# already verifies (FTN/FTS/SOAR today; the set grows when its alias tables grow, so it is derived from
+# them and never re-listed here). A code shape regex was rejected: nothing records the portal's naming,
+# so it would be a guess (see also WR-07 above, which keeps the charset guard a charset guard only).
+# ``telescope_class`` is deliberately NOT a branch: operators set it by hand with a different meaning
+# and ``derive_telescope_class()`` infers it from free text, so a false positive here would re-create F7.
+# A false negative is benign: the code is counted as not fetchable, and the tally says "not yet known".
+_PORTAL_RUN_SOURCES = (CampaignRun.Source.LCO_QUEUE, CampaignRun.Source.SOAR_QUEUE)
+_PORTAL_SITE_OBSCODES = frozenset(OBSERVED_TELESCOPE_OBSCODES.values()) | frozenset(LCO_SITE_CODE_TO_OBSCODE.values())
+
+
+def proposal_codes_to_fetch() -> list[str]:
+    """Every proposal code that can be a portal proposal, as a sorted list of unique codes.
+
+    That is every active ``WatchedProposal`` code, plus every distinct non-blank
+    ``CampaignRun.proposal_code`` whose run came from the LCO/SOAR queue or whose resolved site is
+    one of the LCO/SOAR observatories ``campaign_attribution`` names (F7, quick task 261002-gev). A
+    code that is also an active watched proposal, or that also sits on a fetchable run, is fetched.
+
+    Uses ``.values_list(..., flat=True).distinct()`` on both sides so no ``CampaignRun``
+    row -- and in particular no contact field -- is ever fetched into this process (T-37-06). The
+    site test is a JOIN in the WHERE clause, not a loaded column.
+
+    Returns:
+        list[str]: sorted, de-duplicated proposal codes.
+    """
+    watched = set(WatchedProposal.objects.filter(is_active=True).values_list('proposal_code', flat=True))
+    run_codes = set(
+        CampaignRun.objects.exclude(proposal_code='')
+        .filter(Q(source__in=_PORTAL_RUN_SOURCES) | Q(site__obscode__in=_PORTAL_SITE_OBSCODES))
+        .values_list('proposal_code', flat=True)
+        .distinct()
+    )
+    return sorted(watched | run_codes)
+
+
+def proposal_codes_not_fetchable() -> list[str]:
+    """Every non-blank run proposal code that :func:`proposal_codes_to_fetch` leaves out, sorted.
+
+    These are codes on runs that cannot hold an LCO/SOAR portal proposal (e.g. an ESO code on a
+    classical NTT line). They are never requested; the unattended step counts them as not fetchable.
+    A code that is also an active watched proposal, or that also sits on a fetchable run, is fetched
+    and so is not listed here.
+
+    Uses ``values_list`` only, so no ``CampaignRun`` row or contact field is loaded (T-37-06).
+
+    Returns:
+        list[str]: sorted, de-duplicated proposal codes that are never fetched.
+    """
+    run_codes = set(CampaignRun.objects.exclude(proposal_code='').values_list('proposal_code', flat=True).distinct())
+    return sorted(run_codes - set(proposal_codes_to_fetch()))
+
+
+def fetch_proposal_allocations(proposal_code: str, facility: LCOFacility) -> list[dict[str, Any]]:
+    """One timeout-bounded GET to the LCO Observation Portal's single-proposal endpoint.
+
+    Copies ``calendar_utils.resolve_placement_block()``'s call shape and except-clause
+    discipline verbatim: the same exception set is caught, and the caught exception is
+    never referenced, stringified, or logged, because ``ImproperCredentialsException``/
+    ``forms.ValidationError`` embed response content and the request carried the API key
+    (T-37-04).
+
+    Args:
+        proposal_code: the proposal code to fetch.
+        facility: a shared ``LCOFacility``/``SOARFacility`` instance (for
+            ``portal_url``/``api_key`` settings and auth header construction).
+
+    Returns:
+        list[dict[str, Any]]: the parsed ``timeallocation_set`` list.
+
+    Raises:
+        PortalUnavailable: on any network error, auth failure, or non-JSON/malformed body,
+            or on a ``proposal_code`` that fails ``_PROPOSAL_CODE_RE`` (WR-07, 37-REVIEW.md)
+            -- carrying only the caught exception's (or, for the validation failure,
+            ``ValueError``'s) class name.
+    """
+    if not _PROPOSAL_CODE_RE.match(proposal_code or ''):
+        # WR-07: never build a request URL from an unvalidated proposal_code -- a value
+        # containing '..', '?' or '#' would redirect this credentialed request to a
+        # different portal endpoint once urljoin()/the server normalises it.
+        raise PortalUnavailable('ValueError')
+    try:
+        response = make_request(
+            'GET',
+            urljoin(
+                facility.facility_settings.get_setting('portal_url'),
+                f'/api/proposals/{quote(proposal_code, safe="")}/',
+            ),
+            headers=facility._portal_headers(),
+            timeout=_API_TIMEOUT_SECONDS,
+        )
+        parsed = response.json()
+    except (
+        requests.exceptions.RequestException,
+        ImproperCredentialsException,
+        forms.ValidationError,
+        ValueError,
+    ) as exc:
+        raise PortalUnavailable(type(exc).__name__) from None
+
+    if not isinstance(parsed, dict):
+        raise PortalUnavailable('ValueError')
+
+    timeallocation_set = parsed.get('timeallocation_set')
+    if not isinstance(timeallocation_set, list):
+        raise PortalUnavailable('ValueError')
+
+    return timeallocation_set
+
+
+def store_proposal_allocations(proposal_code: str, rows: list[dict[str, Any]]) -> int:
+    """Create or update the matching ``ProposalTimeAllocation`` row for every allocation
+    type each ``timeallocation_set`` entry carries.
+
+    One row per (semester, instrument_type, allocation_type) triple, per entry. A time type
+    the response does not carry (missing BOTH its ``<type>_allocation`` and
+    ``<type>_time_used`` keys) is treated as absent, not zero -- no row is written for it.
+
+    WR-08 (37-REVIEW.md): after writing every row the response carries, prunes any
+    previously-stored row for this ``proposal_code`` whose (semester, instrument_type,
+    allocation_type) key did NOT appear in this response -- without this, a semester that
+    retires from the portal's ``timeallocation_set`` stayed in the table forever, and
+    ``unused_hours_for()``'s (pre-WR-08, cross-semester) estimate only ever grew.
+
+    Args:
+        proposal_code: the proposal code every written row is keyed on.
+        rows: the ``timeallocation_set`` list :func:`fetch_proposal_allocations` returned.
+
+    Returns:
+        int: the number of rows created or updated (pruned rows are not counted).
+    """
+    written = 0
+    fetched_at = timezone.now()
+    seen_keys: set[tuple[str, str, str]] = set()
+    for entry in rows:
+        semester = entry.get('semester') or ''
+        instrument_type = entry.get('instrument_type') or ''
+        for allocation_type in _ALLOCATION_TYPES:
+            allocation_key = f'{allocation_type}_allocation'
+            used_key = f'{allocation_type}_time_used'
+            if allocation_key not in entry or used_key not in entry:
+                continue
+            ProposalTimeAllocation.objects.update_or_create(
+                proposal_code=proposal_code,
+                semester=semester,
+                instrument_type=instrument_type,
+                allocation_type=allocation_type,
+                defaults={
+                    'allocated_hours': entry[allocation_key] or 0.0,
+                    'used_hours': entry[used_key] or 0.0,
+                    'fetched_at': fetched_at,
+                },
+            )
+            written += 1
+            seen_keys.add((semester, instrument_type, allocation_type))
+
+    stale = ProposalTimeAllocation.objects.filter(proposal_code=proposal_code)
+    for semester, instrument_type, allocation_type in seen_keys:
+        stale = stale.exclude(semester=semester, instrument_type=instrument_type, allocation_type=allocation_type)
+    stale.delete()
+    return written
+
+
+def unused_hours_for(proposal_code: str, semester: str | None = None) -> float | None:
+    """Summed ``allocated_hours - used_hours`` over the stored rows in
+    ``ESTIMATE_ALLOCATION_TYPES``, floored at zero.
+
+    WR-08 (37-REVIEW.md): scoped to a single semester -- a proposal carrying allocations in
+    two semesters (e.g. a finished prior semester plus a fresh current one) previously
+    summed both, over-reporting the run's currently-relevant wasted time. Semester strings
+    sort correctly as plain text (``'2026A' < '2026B'``), so the alphabetically-greatest
+    stored semester IS the chronologically most recent one for every semester code this
+    module has ever seen.
+
+    Args:
+        proposal_code: the proposal code to sum.
+        semester: the semester to scope the sum to. When omitted (the default), resolved to
+            this proposal_code's own alphabetically most-recent stored semester.
+
+    Returns:
+        float | None: the summed unused hours (never negative), or ``None`` when the
+            proposal has no stored rows at all (or none in the resolved/given semester) --
+            callers must render this as "not yet fetched", never as zero.
+    """
+    rows = ProposalTimeAllocation.objects.filter(
+        proposal_code=proposal_code, allocation_type__in=ESTIMATE_ALLOCATION_TYPES
+    )
+    if semester is None:
+        semester = rows.order_by('-semester').values_list('semester', flat=True).first()
+    if semester is None:
+        return None
+    rows = rows.filter(semester=semester)
+    if not rows.exists():
+        return None
+    total = rows.aggregate(total=Sum(F('allocated_hours') - F('used_hours')))['total']
+    return max(total or 0.0, 0.0)
+
+
+def estimated_unused_nights(proposal_code: str) -> int | None:
+    """``unused_hours_for()`` divided by ``HOURS_PER_NIGHT``, rounded to a whole number of
+    nights (ties away from zero -- e.g. 25 unused standard hours reports 3 nights).
+
+    This is a deliberate ESTIMATE (D-06), never a measurement. ``None`` means "not yet
+    fetched" -- callers must render that as unknown, never as zero.
+
+    Args:
+        proposal_code: the proposal code to estimate.
+
+    Returns:
+        int | None: the estimated unused night count, or ``None`` when
+            :func:`unused_hours_for` returns ``None``.
+    """
+    unused_hours = unused_hours_for(proposal_code)
+    if unused_hours is None:
+        return None
+    # unused_hours is always >= 0 (floored above), so floor(x + 0.5) is round-half-up.
+    return math.floor(unused_hours / HOURS_PER_NIGHT + 0.5)
+
+
+def refresh_all(facility: LCOFacility) -> tuple[int, int, int, str | None, int]:
+    """Fetch and store every code :func:`proposal_codes_to_fetch` names, isolating a
+    per-proposal failure so one bad code does not abandon the rest.
+
+    Args:
+        facility: a shared ``LCOFacility`` instance (for ``portal_url``/``api_key``
+            settings and auth header construction), reused across every fetch.
+
+    Returns:
+        tuple[int, int, int, str | None, int]: (proposals attempted, rows written, proposals
+            that failed, the first failing proposal's exception class name or ``None``, the
+            number of distinct run codes that are not fetchable). A not-fetchable code is
+            never requested and is never counted as a failure (F7).
+    """
+    attempted = 0
+    rows_written = 0
+    failed = 0
+    first_exception: str | None = None
+    for proposal_code in proposal_codes_to_fetch():
+        attempted += 1
+        try:
+            rows = fetch_proposal_allocations(proposal_code, facility)
+            rows_written += store_proposal_allocations(proposal_code, rows)
+        except PortalUnavailable as exc:
+            failed += 1
+            if first_exception is None:
+                first_exception = str(exc)
+    not_fetchable = len(proposal_codes_not_fetchable())
+    return attempted, rows_written, failed, first_exception, not_fetchable

@@ -1,11 +1,12 @@
 from datetime import datetime
 from math import radians
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 
 # Import models to test
-from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.solsys_code_observatory.models import NEEDS_REVIEW_NAME_PREFIX, Observatory
 
 
 class TestObservatory(TestCase):
@@ -20,6 +21,35 @@ class TestObservatory(TestCase):
     def test_creation_noname(self):
         with self.assertRaises(IntegrityError):
             bad = Observatory.objects.create(obscode='X05')  # noqa: F841
+
+    def test_clean_rejects_reserved_needs_review_name_prefix(self):
+        """WR-02 (Phase 22 22-REVIEW.md re-review): a form-validated save (full_clean(), e.g.
+        the Django admin change form) must reject a name starting with the reserved
+        NEEDS_REVIEW_NAME_PREFIX -- campaign_utils.is_placeholder_observatory()'s marker for
+        a tier-3 placeholder -- so a genuine Observatory can never be created/renamed to look
+        like one by accident. Calls clean() directly (not full_clean()) to isolate this
+        check from the unrelated required-field validation on lat/lon."""
+        observatory = Observatory(obscode='X05', name=f'{NEEDS_REVIEW_NAME_PREFIX}Something Real')
+        with self.assertRaises(ValidationError) as ctx:
+            observatory.clean()
+        self.assertIn('name', ctx.exception.message_dict)
+
+    def test_clean_allows_ordinary_name(self):
+        """A genuine name never sharing the reserved prefix passes clean() unaffected --
+        full_clean() still raises for the unrelated required geodetic fields (lat/lon) left
+        at their null default, proving this isn't a false-positive on unrelated fields."""
+        observatory = Observatory(obscode='X05', name='Simonyi Survey Telescope, Rubin Observatory')
+        try:
+            observatory.clean()
+        except ValidationError:
+            self.fail('clean() must not reject a name without the reserved prefix.')
+
+    def test_tier3_placeholder_create_bypasses_full_clean(self):
+        """WR-02: resolve_site()'s tier-3 fallback creates placeholders via a plain
+        Observatory.objects.create() (bypassing full_clean()), so this guard never blocks
+        the legitimate placeholder-creation path itself."""
+        placeholder = Observatory.objects.create(obscode='DCT', name=f'{NEEDS_REVIEW_NAME_PREFIX}DCT', short_name='DCT')
+        self.assertEqual(placeholder.name, f'{NEEDS_REVIEW_NAME_PREFIX}DCT')
 
     def test_creation_X05(self):
         expected_parallax_consts = (0.864981, -0.500958)
@@ -75,6 +105,53 @@ class TestObservatory(TestCase):
         self.assertAlmostEqual(expected_llh[0], llh[0], self.precision)
         self.assertAlmostEqual(expected_llh[1], llh[1], self.precision)
         self.assertAlmostEqual(expected_llh[2], llh[2], self.precision)
+
+    def test_to_earth_location_ground_site(self):
+        """No-regression anchor: a fully-positioned ground site still round-trips through
+        to_earth_location() to the same lon/lat/height."""
+        rubin, created = Observatory.objects.get_or_create(
+            obscode='X05',
+            name='Simonyi Survey Telescope, Rubin Observatory',
+            lat=-30.244600455,
+            lon=-70.749420000,
+            altitude=2683.57596,
+        )
+
+        earth_location = rubin.to_earth_location()
+
+        self.assertAlmostEqual(earth_location.lon.deg, -70.749420000, places=6)
+        self.assertAlmostEqual(earth_location.lat.deg, -30.244600455, places=6)
+        self.assertAlmostEqual(earth_location.height.to_value('m'), 2683.57596, places=6)
+
+    def test_to_earth_location_raises_for_space_based_site(self):
+        """A satellite Observatory (no fixed position on Earth) must raise an actionable
+        ValueError naming the obscode, not a bare TypeError from None * u.deg."""
+        hst = Observatory(
+            obscode='250',
+            name='Hubble Space Telescope',
+            short_name='HST',
+            lon=None,
+            lat=None,
+            altitude=None,
+            observations_type=Observatory.SATELLITE_OBSTYPE,
+        )
+
+        with self.assertRaisesRegex(ValueError, '250'):
+            hst.to_earth_location()
+
+    def test_to_earth_location_raises_when_altitude_missing(self):
+        """A row with coordinates present but altitude null (e.g. a Django admin edit --
+        altitude is null=True) must also raise ValueError, not TypeError."""
+        observatory = Observatory(
+            obscode='X05',
+            name='Simonyi Survey Telescope, Rubin Observatory',
+            lat=-30.244600455,
+            lon=-70.749420000,
+            altitude=None,
+        )
+
+        with self.assertRaises(ValueError):
+            observatory.to_earth_location()
 
     def test_ObservatoryXYZ_X05(self):
         expected_XYZ = [+0.2851834, -0.8166132, -0.5009568]

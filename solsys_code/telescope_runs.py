@@ -1,0 +1,660 @@
+import re
+from dataclasses import dataclass
+from datetime import date as date_cls
+from datetime import datetime, time, timedelta
+from functools import lru_cache
+from math import sqrt
+from zoneinfo import ZoneInfo
+
+import astropy.units as u
+import numpy as np
+from astropy.coordinates import AltAz, EarthLocation, get_sun
+from astropy.time import Time
+
+from solsys_code.solsys_code_observatory.models import Observatory
+
+# Maps telescope name to MPC observatory code. `Observatory` (looked up via
+# get_site()) remains the single source of truth for location and timezone.
+SITES = {
+    'Magellan-Clay': '268',
+    'Magellan-Baade': '269',
+    'NTT': '809',
+    'FTS': 'E10',
+}
+
+# Sites whose classical-run date ranges follow ESO's noon-to-noon convention.
+# For these sites (e.g. NTT / La Silla) the date range is transcribed verbatim
+# from ESO's Tatoo scheduling tool, whose displayed END date is the noon-to-noon
+# *closing boundary* of the last night, NOT itself an observing night -- so the
+# last observing night is day2 - 1 (E - S nights). Las Campanas (Magellan) sites,
+# by contrast, treat Start and End as BOTH inclusive observing nights (E - S + 1
+# nights); see docs/design/telescope_runs_calendar.rst "Night convention". This
+# distinction is applied in load_telescope_runs._iter_run_nights().
+ESO_NOON_TO_NOON_SITES = frozenset({'NTT'})
+
+# Known classical-schedule status words/phrases (case-insensitive), per
+# docs/design/telescope_runs_calendar.rst "Classical Run Input Format".
+KNOWN_STATUSES = {'allocation', 'proposed', 'confirmed', 'cancelled', 'not confirmed'}
+
+# Full month names and 3-letter abbreviations, case-insensitive, mapped to 1-12.
+_MONTH_NAMES = {
+    'jan': 1,
+    'january': 1,
+    'feb': 2,
+    'february': 2,
+    'mar': 3,
+    'march': 3,
+    'apr': 4,
+    'april': 4,
+    'may': 5,
+    'jun': 6,
+    'june': 6,
+    'jul': 7,
+    'july': 7,
+    'aug': 8,
+    'august': 8,
+    'sep': 9,
+    'september': 9,
+    'oct': 10,
+    'october': 10,
+    'nov': 11,
+    'november': 11,
+    'dec': 12,
+    'december': 12,
+}
+
+_MONTH_NAME_PATTERN = '|'.join(sorted(_MONTH_NAMES, key=len, reverse=True))
+
+# month-after-range, e.g. 'Jul 8-12'
+_MONTH_AFTER_RANGE = re.compile(
+    rf"""
+    (?P<month1>{_MONTH_NAME_PATTERN})\s+
+    (?P<day1>\d{{1,2}})
+    \s*-\s*
+    (?P<day2>\d{{1,2}})
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# month-before-range, e.g. '9-13 July'
+_MONTH_BEFORE_RANGE = re.compile(
+    rf"""
+    (?P<day1>\d{{1,2}})
+    \s*-\s*
+    (?P<day2>\d{{1,2}})
+    \s+
+    (?P<month1>{_MONTH_NAME_PATTERN})
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# cross-month range, e.g. '28 December-2 January'
+_CROSS_MONTH_RANGE = re.compile(
+    rf"""
+    (?P<day1>\d{{1,2}})\s+
+    (?P<month1>{_MONTH_NAME_PATTERN})
+    \s*-\s*
+    (?P<day2>\d{{1,2}})\s+
+    (?P<month2>{_MONTH_NAME_PATTERN})
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# Status as a parenthesized phrase, e.g. '(proposed)' or '(not confirmed)'.
+_PAREN_STATUS = re.compile(r'\(([^)]+)\)')
+
+# Partial nights matcher
+_PARTIAL_NIGHTS = re.compile(
+    r"""
+    (BoN|\d{4})-(EoN|\d{4})
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# Optional proposal token, e.g. '[0110.C-0234]' (D-01). Square brackets are unambiguous
+# against every other grammar in this file: the status grammar uses round brackets or a
+# bare word from KNOWN_STATUSES, month names are bare words, and the partial-night grammar
+# is '(BoN|HHMM)-(EoN|HHMM)' with no bracket at all -- so a bracketed token cannot be
+# mistaken for any of them, and no existing schedule line can contain one.
+_PROPOSAL_TOKEN = re.compile(r'\[([^\[\]]*)\]')
+
+
+def get_site(name: str) -> Observatory:
+    """Resolves a telescope name to its Observatory record.
+
+    Args:
+        name: Telescope name, a key of SITES (e.g. 'Magellan-Clay').
+
+    Returns:
+        Observatory: the observatory record for this telescope's site.
+
+    Raises:
+        Observatory.DoesNotExist: if name is not a key in SITES, or no
+            Observatory record exists for the resolved MPC obscode.
+    """
+    try:
+        obscode = SITES[name]
+    except KeyError as exc:
+        raise Observatory.DoesNotExist(f'No site registered in SITES for telescope {name!r}') from exc
+    return Observatory.objects.get(obscode=obscode)
+
+
+def horizon_dip(altitude_m: float) -> u.Quantity:
+    """Horizon dip for an observer at altitude_m metres.
+
+    dip = 1.76 arcmin * sqrt(altitude in metres).
+
+    This is the Nautical Almanac dip formula (terrestrial refraction k~1/6
+    folded into the spherical-geometry estimate dip ~ sqrt(2h/R), R=6371 km);
+    see docs/design/telescope_runs_calendar.rst ("Astronomy: Night
+    Boundaries") for the derivation.
+
+    The sqrt(2h/R) model only describes the depression of the visible horizon
+    for an observer *elevated above* the reference surface (h > 0). At or below
+    sea level there is no such depression, so the dip is 0. A small negative
+    altitude is physically normal for real, near-sea-level MPC observatories:
+    the MPC publishes parallax constants to only 5 decimal places (~64 m of
+    altitude granularity, see Observatory.from_parallax_constants), so a genuine
+    near-sea-level site — e.g. obscode 434 "S. Benedetto Po" at ~19 m real
+    elevation — round-trips to a small negative geodetic height (-18.83 m).
+    Rejecting those would strand the site's calendar projection, so any
+    altitude <= 0 is treated as sea level (dip = 0).
+
+    Args:
+        altitude_m: Observer altitude above sea level, in metres. Values <= 0
+            (at or below sea level) yield a 0 dip.
+
+    Returns:
+        u.Quantity: dip angle (e.g. 1.4376 deg for 2402 m; 0 arcmin at or below
+            sea level).
+
+    Raises:
+        ValueError: if altitude_m is None (an unset altitude is a data error,
+            not a physical location).
+    """
+    if altitude_m is None:
+        raise ValueError(f'altitude_m must be a number, got {altitude_m!r}')
+    # Clamp at/below-sea-level altitudes to a 0 dip: the sqrt(2h/R) model has no
+    # elevated horizon to depress there, and this keeps near-sea-level MPC sites
+    # (small negative parallax-derived heights) projectable rather than crashing.
+    if altitude_m <= 0:
+        return 0.0 * u.arcmin
+    return 1.76 * sqrt(altitude_m) * u.arcmin
+
+
+def _solar_altitude(times: Time, location) -> np.ndarray:
+    """Solar altitude in degrees for an array of Time objects at a location.
+
+    Args:
+        times: astropy Time array of evaluation epochs.
+        location: astropy EarthLocation of the observer.
+
+    Returns:
+        np.ndarray: solar altitude in degrees for each time.
+    """
+    sun = get_sun(times)
+    altaz = sun.transform_to(AltAz(obstime=times, location=location))
+    return altaz.alt.deg
+
+
+# Number of bisection steps that refine every bracketed crossing in _find_crossing(). The coarse
+# bracket is 600 s wide, so 600 s / 2**14 = 0.037 s resolution, finer than the pre-phase 60 s / 2**10 = 0.059 s.
+_BISECTION_STEPS = 14
+
+
+def _find_crossing(
+    anchor: Time, location, threshold_deg: float, search_hours: float = 24, coarse_step_min: float = 10.0
+) -> list[Time]:
+    """Finds UTC times where solar altitude crosses threshold_deg.
+
+    Performs a coarse scan over the closed window [anchor, anchor + search_hours] in one
+    AltAz transform (145 samples at the defaults), then refines every sign change together
+    with a vectorised bisection: each of the ``_BISECTION_STEPS`` steps is ONE transform over
+    the midpoints of all brackets, giving ~0.04 s resolution. A night with two crossings
+    therefore costs 15 transforms and 173 time samples (the earlier 1-minute scan cost 21
+    transforms and 1,461 samples). Anchoring at local noon of the observing date (see
+    _local_noon_utc) and scanning forward search_hours=24 guarantees both the evening
+    sunset/dark crossing of that date and the following morning's sunrise/dark-end crossing
+    fall within the window, in chronological (set, then rise) order.
+
+    Args:
+        anchor: astropy Time at the start of the search window (local noon).
+        location: astropy EarthLocation of the observer.
+        threshold_deg: solar altitude threshold to find crossings of, in degrees.
+        search_hours: total width of the search window, in hours.
+        coarse_step_min: coarse scan step size, in minutes.
+
+    Returns:
+        list[Time]: UTC times of each altitude crossing, in chronological order; an empty
+            list when the altitude never crosses the threshold in the window.
+    """
+    # Accepted limitation: a double crossing that falls entirely inside one coarse step (the
+    # altitude dips below the threshold and back within 10 minutes) shows no sign change and is
+    # missed. The earlier 1-minute grid had the same weakness at a smaller scale. It only arises
+    # where the sun's altitude extremum grazes the threshold, near the polar-day/night boundary,
+    # and sun_event() raises a clear ValueError whenever the crossing count is not 2.
+    n_steps = int(round(search_hours * 60 / coarse_step_min))
+    # Closed [0, search_hours] window: n_steps + 1 samples, in seconds from the anchor.
+    offsets = np.arange(0, n_steps + 1) * coarse_step_min * 60.0
+    alt = _solar_altitude(anchor + offsets * u.s, location) - threshold_deg
+    brackets = np.nonzero(alt[:-1] * alt[1:] < 0)[0]
+    if brackets.size == 0:
+        return []
+
+    lo = offsets[brackets]
+    hi = offsets[brackets + 1]
+    lo_val = alt[brackets]
+    for _ in range(_BISECTION_STEPS):
+        mid = (lo + hi) / 2
+        mid_val = _solar_altitude(anchor + mid * u.s, location) - threshold_deg
+        # A sign change between the lower end and the midpoint keeps the crossing in [lo, mid].
+        crossing_in_lower_half = mid_val * lo_val < 0
+        hi = np.where(crossing_in_lower_half, mid, hi)
+        lo = np.where(crossing_in_lower_half, lo, mid)
+        lo_val = np.where(crossing_in_lower_half, lo_val, mid_val)
+    # Lower bracket ends, as before; brackets are found in ascending order so these are chronological.
+    return [anchor + float(x) * u.s for x in lo]
+
+
+def _local_noon_utc(local_date: date_cls, tz_name: str) -> Time:
+    """Local noon of local_date, converted to UTC, as an astropy Time.
+
+    Args:
+        local_date: the local calendar date.
+        tz_name: IANA timezone name for the site (e.g. 'America/Santiago').
+
+    Returns:
+        Time: local noon of local_date, expressed as a UTC astropy Time.
+    """
+    tz = ZoneInfo(tz_name)
+    local_noon = datetime.combine(local_date, time(12, 0), tzinfo=tz)
+    return Time(local_noon.astimezone(ZoneInfo('UTC')))
+
+
+@lru_cache(maxsize=4096)
+def _cached_crossings(
+    lon: float, lat: float, altitude: float, timezone: str, date: date_cls, threshold: float
+) -> tuple[Time, ...]:
+    """Memoised solar-altitude crossings of ``threshold`` in the 24 h after local noon of ``date``.
+
+    The same site and night are recomputed many times in one process (night minting, the gap
+    analysis' per-date loop), and every recomputation repeats an identical AltAz search (SPEED-01).
+    This per-process memo turns the repeats into dictionary lookups.
+
+    It sits one level BELOW ``sun_event()`` on purpose: the call-counting tests (Phase 35 D-13)
+    patch the outer ``sun_event`` name and must still count every call, and ``sun_event()``'s
+    validation has to run on every call, so only the pure crossing search is cached. The memo is
+    per process, so a new process recomputes; that keeps the IERS-drift reasoning in
+    ``allocation_projector.py`` (a stored boundary is compared against a freshly computed one)
+    true, and ``maxsize`` bounds the memory of a long-running web process.
+
+    The key is every input the result depends on: the four ``Observatory`` fields
+    ``allocation_projector`` fingerprints (lon, lat, altitude, timezone) plus the date and the
+    threshold (which already encodes the kind and the altitude-derived horizon dip). An in-place
+    ``Observatory`` correction is therefore a new key, and two records with identical coordinates
+    (Magellan-Clay and Magellan-Baade) share one entry. Exceptions are never cached: a call that
+    raises stores nothing.
+
+    ``EarthLocation`` is not a safe cache key, so it is rebuilt here from the key's floats exactly
+    as ``Observatory.to_earth_location()`` builds it. The returned ``Time`` objects are mutable
+    (``Time.format`` can be set in place), so callers MUST ``.copy()`` what they hand out.
+
+    Args:
+        lon: observatory longitude in degrees east.
+        lat: observatory latitude in degrees.
+        altitude: observatory altitude in metres.
+        timezone: IANA timezone name used to find local noon of ``date``.
+        date: local calendar date of the evening whose night is searched.
+        threshold: solar altitude threshold in degrees.
+
+    Returns:
+        tuple[Time, ...]: UTC crossing times in chronological order (possibly empty).
+    """
+    location = EarthLocation(lon=lon * u.deg, lat=lat * u.deg, height=altitude * u.m)
+    anchor = _local_noon_utc(date, timezone)
+    return tuple(_find_crossing(anchor, location, threshold, search_hours=24))
+
+
+def sun_event(site: Observatory, date: date_cls, kind: str) -> tuple[Time, Time]:
+    """Computes UTC sun-event crossing times for an observing night.
+
+    Args:
+        site: Observatory instance (from get_site()).
+        date: local calendar date of sunset; the returned events cover the
+            observing night starting on the evening of this date.
+        kind: 'sun' for the dip-corrected sunset/sunrise threshold
+            (-(0.833 + dip) degrees), or 'dark' for the -15 degree
+            dark-window threshold (no dip correction).
+
+    Results are memoised per process by ``_cached_crossings()`` (same site position,
+    timezone, date and threshold run one crossing search) and returned as copies, so a
+    caller mutating a returned ``Time`` cannot change what later calls get.
+
+    Returns:
+        tuple[Time, Time]: (setting, rising) as astropy.time.Time objects,
+            UTC scale.
+
+    Raises:
+        ValueError: if kind is not 'sun' or 'dark'; if site.timezone is
+            unset; or if the solar altitude does not cross threshold
+            exactly twice in the 24h window following local noon (e.g. a
+            high-latitude site in summer where the sun never sets, or never
+            gets dark).
+    """
+    if not site.timezone:
+        raise ValueError(
+            f'Observatory {site.short_name!r} (obscode={site.obscode}) has no timezone set; '
+            'set Observatory.timezone (IANA name, e.g. "America/Santiago") before calling sun_event().'
+        )
+
+    # Raises ValueError for a coordinate-less site, before any cache lookup.
+    site.to_earth_location()
+
+    if kind == 'sun':
+        dip = horizon_dip(site.altitude)
+        # 0.833 deg = standard solar semi-diameter (~16') + horizon refraction (~34')
+        threshold = -(0.833 + dip.to_value(u.deg))
+    elif kind == 'dark':
+        threshold = -15.0
+    else:
+        raise ValueError(f"kind must be 'sun' or 'dark', got {kind!r}")
+
+    # An unknown timezone name raises ZoneInfoNotFoundError from inside the helper; lru_cache
+    # stores nothing for a call that raises. Copy each Time: cached objects are mutable.
+    crossings = [t.copy() for t in _cached_crossings(site.lon, site.lat, site.altitude, site.timezone, date, threshold)]
+    if len(crossings) != 2:
+        raise ValueError(
+            f'Expected 2 sun-event crossings for {site.short_name} on {date} '
+            f'(kind={kind!r}), got {len(crossings)}: {crossings}. '
+            'This can happen at high latitudes when the sun never sets or never '
+            'reaches the requested threshold (e.g. midnight sun or no astronomical darkness).'
+        )
+    return crossings[0], crossings[1]
+
+
+def observing_night(start_time: datetime, site_zone: ZoneInfo) -> date_cls:
+    """The site-local observing night a ``start_time`` belongs to, anchored at local noon.
+
+    This is the same anchor ``_local_noon_utc()`` uses: ``sun_event(site, date)`` computes
+    sunset for the EVENING of ``date``, so the observing night runs from local noon of
+    ``date`` through local noon of ``date + 1``. Converting ``start_time`` into
+    ``site_zone`` and subtracting twelve hours before taking ``.date()`` maps any local time
+    from noon through noon-plus-24-hours onto the date the night started on -- in particular,
+    a 02:00 local start belongs to the PREVIOUS date's night, not the date its own naive
+    site-local ``.date()`` would name.
+
+    This supersedes 26-DECISION.md D-10's plain site-local ``.date()`` derivation, which is
+    correct only for a start before local midnight (CR-02, 33-REVIEW.md): D-10's measured
+    comparison called event ``pk=54`` (``2026-07-08T14:08:19Z``, Sydney, 00:08 local on
+    2026-07-09) a 2026-07-09 night; under this anchor it is 2026-07-08 -- the night whose
+    sunset the run was actually scheduled against.
+
+    Args:
+        start_time: an event's ``start_time`` (timezone-aware).
+        site_zone: the run's site timezone.
+
+    Returns:
+        date: the site-local observing night ``start_time`` belongs to.
+    """
+    local = start_time.astimezone(site_zone)
+    return (local - timedelta(hours=12)).date()
+
+
+@dataclass(frozen=True)
+class ParsedRun:
+    """Structured result of parse_run_line().
+
+    Attributes:
+        telescope: resolved SITES key (e.g. 'NTT').
+        instrument: instrument name as it appears in the run line (may be
+            hyphenated, e.g. 'Proto-Lightspeed').
+        status: lowercase status word/phrase, e.g. 'allocation', 'proposed',
+            'not confirmed'. Defaults to 'allocation' if absent (D-05).
+        year: four-digit year. Defaults to the current year (PARSE-03), or
+            current year + 1 for a run that starts in December and ends in
+            January (year roll-over).
+        month: month number (1-12) of day1 (the start of the run).
+        day1: first day of the run (inclusive).
+        day2: last day of the run (inclusive).
+        start_window: optional start-of-window token — 'BoN' (computed sunset)
+            or a 4-digit HHMM UTC string. Times < 1200 are on d+1 morning;
+            times >= 1200 are on d evening. None means full night from sunset.
+        end_window: optional end-of-window token — 'EoN' (computed sunrise)
+            or a 4-digit HHMM UTC string. None means full night to sunrise.
+        proposal: optional proposal identifier from a bracketed '[proposal]'
+            token (D-01), e.g. '0110.C-0234'. None when the line carries no
+            such token. This is what makes two proposals sharing a telescope,
+            an instrument and a set of nights distinguishable.
+    """
+
+    telescope: str
+    instrument: str
+    status: str
+    year: int
+    month: int
+    day1: int
+    day2: int
+    start_window: str | None = None
+    end_window: str | None = None
+    proposal: str | None = None
+
+
+def _resolve_telescope(token: str) -> str:
+    """Resolves a telescope token to a SITES key by prefix match (D-01).
+
+    Args:
+        token: the first whitespace-delimited token of a run line.
+
+    Returns:
+        str: the resolved SITES key.
+
+    Raises:
+        ValueError: if token is a prefix of zero or 2+ SITES keys.
+    """
+    if token in SITES:
+        return token
+    candidates = [key for key in SITES if key.startswith(token)]
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise ValueError(
+            f'Ambiguous telescope {token!r}: matches multiple SITES keys {candidates}; '
+            'use a more specific telescope name (e.g. "Magellan-Clay" or "Magellan-Baade").'
+        )
+    raise ValueError(f'Unknown telescope {token!r}: does not match any SITES key {list(SITES)}')
+
+
+def _resolve_proposal(line: str) -> tuple[str | None, str]:
+    """Extracts and validates the optional bracketed [proposal] token from a run line (D-01).
+
+    Consumed FIRST, before any other token in the line, so its contents can never reach the
+    status matcher, the date-range matchers, the leftover-token check or the trailing-window
+    matcher -- the module's "raise, never guess" discipline extended to this grammar.
+
+    Args:
+        line: the full run line.
+
+    Returns:
+        tuple[str | None, str]: (proposal, remainder) where proposal is the stripped inner
+            text of the single bracketed token found (or None if the line carries none) and
+            remainder is the line with that token removed.
+
+    Raises:
+        ValueError: if two or more bracketed tokens are present; if the (single) token's
+            inner text is empty or whitespace-only; or if, after removing a balanced token,
+            an unbalanced '[' or ']' remains anywhere in the line.
+    """
+    matches = list(_PROPOSAL_TOKEN.finditer(line))
+    if len(matches) > 1:
+        raise ValueError(f'Multiple proposal tokens in {line!r}; at most one [proposal] token is allowed')
+    if matches:
+        match = matches[0]
+        proposal = match.group(1).strip()
+        if not proposal:
+            raise ValueError(f'Empty proposal token {match.group(0)!r} in {line!r}')
+        remainder = line[: match.start()] + line[match.end() :]
+    else:
+        proposal = None
+        remainder = line
+
+    if '[' in remainder or ']' in remainder:
+        raise ValueError(f'Unbalanced bracket in {line!r}')
+
+    return proposal, remainder
+
+
+def _resolve_status(line: str) -> tuple[str, str]:
+    """Extracts and validates the status word/phrase from a run line (D-04/05/06).
+
+    Args:
+        line: the full run line (including any parenthesized status).
+
+    Returns:
+        tuple[str, str]: (status, remainder) where status is the lowercase
+            KNOWN_STATUSES member (defaulting to 'allocation' if absent) and
+            remainder is the line with the status token(s) removed.
+
+    Raises:
+        ValueError: if a parenthesized phrase or trailing status-shaped word
+            is present but not in KNOWN_STATUSES.
+    """
+    paren_match = _PAREN_STATUS.search(line)
+    if paren_match:
+        candidate = paren_match.group(1).strip().lower()
+        if candidate not in KNOWN_STATUSES:
+            raise ValueError(
+                f'Unrecognized status {candidate!r} in {line!r}; known statuses are {sorted(KNOWN_STATUSES)}'
+            )
+        remainder = line[: paren_match.start()] + line[paren_match.end() :]
+        return candidate, remainder
+
+    # Multi-word statuses (e.g. 'not confirmed') checked before single words.
+    for status in sorted(KNOWN_STATUSES, key=len, reverse=True):
+        match = re.search(rf'(?<!\S){re.escape(status)}(?!\S)', line, re.IGNORECASE)
+        if match:
+            remainder = line[: match.start()] + line[match.end() :]
+            return status, remainder
+
+    return 'allocation', line
+
+
+def parse_run_line(line: str) -> ParsedRun:
+    """Parses a free-text classical-schedule run line into structured fields.
+
+    Expected format (per docs/design/telescope_runs_calendar.rst "Classical
+    Run Input Format"): ``telescope instrument [status] daterange [(status)]``,
+    e.g. 'NTT EFOSC2 allocation 9-13 July' or 'Magellan Proto-Lightspeed Jul
+    8-12 (proposed)'. The date range may have the month name before or after
+    the day range, and no year is given (year defaults per PARSE-03).
+
+    An optional trailing window token of the form ``(BoN|HHMM)-(EoN|HHMM)``
+    restricts the event to a portion of the night, e.g. 'BoN-0626' or
+    '0646-EoN'. HHMM < 1200 is treated as next-morning UTC; HHMM >= 1200 is
+    same-evening UTC.
+
+    An optional bracketed ``[proposal]`` token, anywhere in the line, names the
+    proposal the run belongs to, e.g. 'NTT EFOSC2 allocation 9-13 July
+    [0110.C-0234]'. This is what makes two proposals sharing a telescope, an
+    instrument and a set of nights distinguishable -- the exact real-data
+    collision Phase 31's identity spike found. It is consumed before every
+    other token (D-01), so its contents can never be mistaken for a status, a
+    month name, or a partial-night window token.
+
+    Args:
+        line: a single run-line string.
+
+    Returns:
+        ParsedRun: the parsed telescope, instrument, status, year, month,
+            day1, day2, and optional start_window/end_window/proposal.
+
+    Raises:
+        ValueError: if line is empty, the telescope token does not resolve to
+            exactly one SITES key (D-01), the status is unrecognized (D-06),
+            no date range can be found, a genuine cross-month range is present
+            (PR-REVIEW-F2: not yet supported -- rejected at parse time instead
+            of being parsed into a ParsedRun the loader always rejects), the
+            trailing window token is present but malformed, or the bracketed
+            proposal token is empty, duplicated, or unbalanced.
+    """
+    stripped = line.strip()
+    if not stripped:
+        raise ValueError('parse_run_line() received an empty line')
+
+    proposal, stripped = _resolve_proposal(stripped)
+    status, remainder = _resolve_status(stripped)
+
+    # Date range: try month-after-range ('Jul 8-12') first, then check for a
+    # genuine cross-month range ('28 December-2 January') and reject it
+    # immediately (PR-REVIEW-F2: fail fast at parse time -- cross-month ranges
+    # are not yet supported, so there is no point building a ParsedRun the
+    # loader would always reject downstream), then fall back to
+    # month-before-range ('9-13 July').
+    match = _MONTH_AFTER_RANGE.search(remainder)
+    if match:
+        day1 = int(match.group('day1'))
+        day2 = int(match.group('day2'))
+        month = _MONTH_NAMES[match.group('month1').lower()]
+    else:
+        cross_month_match = _CROSS_MONTH_RANGE.search(remainder)
+        if cross_month_match:
+            raise ValueError(f'Cross-month run ranges not yet supported: {line!r}')
+        match = _MONTH_BEFORE_RANGE.search(remainder)
+        if not match:
+            raise ValueError(f'Could not find a date range (e.g. "9-13 July" or "Jul 8-12") in {line!r}')
+        day1 = int(match.group('day1'))
+        day2 = int(match.group('day2'))
+        month = _MONTH_NAMES[match.group('month1').lower()]
+
+    # Year (PARSE-03): default to current year. The previous December-to-
+    # January rollover here only ever served a genuine cross-month range,
+    # which now fails fast above; any remaining descending same-month range
+    # that reaches this point (e.g. a typo like '20-5 December') is always
+    # rejected downstream by _iter_run_nights, so no rollover is observable.
+    year = date_cls.today().year
+
+    # Telescope (token 0) and instrument (token 1, possibly hyphenated).
+    before_range = remainder[: match.start()]
+    tokens = before_range.split()
+    if len(tokens) < 2:
+        raise ValueError(f'Could not find telescope and instrument tokens in {line!r}')
+    telescope_token, instrument = tokens[0], tokens[1]
+
+    # D-06: any remaining word(s) between instrument and the date range are a
+    # status-shaped token that must be in KNOWN_STATUSES (already checked and
+    # consumed by _resolve_status if recognized).
+    leftover = ' '.join(tokens[2:]).strip()
+    if leftover:
+        raise ValueError(f'Unrecognized status {leftover!r} in {line!r}; known statuses are {sorted(KNOWN_STATUSES)}')
+
+    telescope = _resolve_telescope(telescope_token)
+
+    # Optional trailing window token restricts the event to a portion of the
+    # night, e.g. 'BoN-0626' or '0646-EoN'.
+    after_range = remainder[match.end() :]
+    window_tokens = after_range.split()
+    start_window = end_window = None
+    if len(window_tokens) == 1:
+        # PR-REVIEW-F3: fullmatch (not search) so a token with surrounding garbage
+        # (e.g. 'xBoN-0626') is rejected rather than substring-matched into a
+        # plausible-but-wrong window.
+        window_match = _PARTIAL_NIGHTS.fullmatch(window_tokens[0])
+        if window_match:
+            start_window = window_match.group(1)
+            end_window = window_match.group(2)
+        else:
+            raise ValueError(f'Unrecognized partial night token {after_range.strip()!r} in {line!r}')
+    elif len(window_tokens) > 1:
+        raise ValueError(f'Unexpected trailing tokens {after_range.strip()!r} in {line!r}')
+
+    return ParsedRun(
+        telescope=telescope,
+        instrument=instrument,
+        status=status,
+        year=year,
+        month=month,
+        day1=day1,
+        day2=day2,
+        start_window=start_window,
+        end_window=end_window,
+        proposal=proposal,
+    )

@@ -42,6 +42,14 @@ copybutton_selector = 'div:not(.no-copybutton) > div.highlight > pre'
 templates_path = []
 exclude_patterns = ['_build', '**.ipynb_checkpoints']
 
+# This setting dates from a local pre-commit sphinx-build hook that overrode
+# exclude_patterns to skip notebooks/* for speed, leaving docs/notebooks.rst's
+# toctree entry pointing at an excluded document. That hook was removed in
+# Phase 38 (D-07): the docs are now built only by the build-documentation CI
+# workflow and ReadTheDocs, which do not exclude notebooks. The setting is kept
+# because it is harmless there.
+suppress_warnings = ['toc.excluded']
+
 # This assumes that sphinx-build is called from the root directory
 master_doc = 'index'
 # Remove 'view source code' from top of page (for html, not python)
@@ -51,11 +59,20 @@ add_module_names = False
 
 autoapi_type = 'python'
 autoapi_dirs = ['../src']
-autoapi_ignore = ['*/__main__.py']
+# CR-03 (36-REVIEW.md): 'local_settings.py' is the documented home of every credential
+# this project's unattended path needs (LCO/SOAR api_key, EMAIL_HOST_PASSWORD,
+# FOMO_HEARTBEAT_URL) -- autoapi (and viewcode) render source verbatim into generated
+# HTML, so without this exclusion every configured host's real secrets end up in
+# _readthedocs/html/ and docs/_build/html/ on every sphinx-build. ReadTheDocs itself
+# builds from a checkout with no local_settings.py, so its published site was never
+# affected -- but a build run and served from a configured host was.
+autoapi_ignore = ['*/__main__.py', '*/local_settings.py']
 autoapi_add_toc_tree_entry = False
 autoapi_member_order = 'bysource'
 
 html_theme = 'sphinx_rtd_theme'
+# Add following to allow notebook execution errors (e.g. interactive cells)
+nbsphinx_allow_errors = True
 
 
 def _skip_version_module(app, what, name, obj, skip, options):

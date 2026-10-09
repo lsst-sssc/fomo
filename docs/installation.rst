@@ -19,6 +19,7 @@ Requirements
 * tom_fink>=2.0.1
 * tom_eso>=0.3.1
 * tom_jpl>=0.3.0
+* timezonefinder>=6.0
 * numpy>1.24 (tomtoolkit currently caps this below 2.2)
 * sorcha (which has several other dependencies of which the ones below are likely to be the largest or most troublesome):
 
@@ -75,6 +76,41 @@ Notes:
    the Python Project Template documentation on
    `Sphinx and Python Notebooks <https://lincc-ppt.readthedocs.io/en/latest/practices/sphinx.html#python-notebooks>`_.
 
+.. _local-settings:
+
+Host-specific settings (``local_settings.py``)
+----------------------------------------------
+
+A development checkout needs no settings file of its own: without one, FOMO runs on the development defaults in
+``src/fomo/settings.py``. A real deployment puts everything specific to the host -- a real ``SECRET_KEY``,
+``DEBUG = False``, ``ALLOWED_HOSTS``, a database other than the default SQLite file, an ``EMAIL_BACKEND`` and the
+facility API keys -- in ``src/fomo/local_settings.py``, next to ``settings.py``. The file is gitignored, so it is never
+committed. ``settings.py`` imports it as ``fomo.local_settings`` at the end of the file, so anything set there replaces
+the default. Create it before running ``migrate`` below, so that the database it names is the one ``migrate`` sets up.
+
+.. warning::
+   Earlier versions of FOMO imported a top-level ``local_settings`` module, so a host set up for one of them keeps the
+   file at the repository root (when FOMO is run with ``manage.py``) or in ``src/`` (when it is served through gunicorn
+   or WSGI). A ``local_settings.py`` in either place is no longer read, and nothing reports it: FOMO starts on every
+   development default, including the committed ``SECRET_KEY``, ``DEBUG = True``, the console email backend and empty
+   facility API keys. When upgrading such a host, move the file to ``src/fomo/``, using the command that matches where
+   it is now, from the repository root:
+
+   .. code-block:: console
+
+      >> mv local_settings.py src/fomo/local_settings.py
+      >> mv src/local_settings.py src/fomo/local_settings.py
+
+   To confirm FOMO reads it, print the path of the module it imports. A ``ModuleNotFoundError`` instead means the file
+   is not where FOMO looks:
+
+   .. code-block:: console
+
+      >> python3 manage.py shell -c "import fomo.local_settings as m; print(m.__file__)"
+
+   ``main`` makes the same change through pull request #58 (``from .local_settings import *``), so
+   ``src/fomo/local_settings.py`` is the location on every current FOMO branch.
+
 Initializing FOMO and the database
 -------------------------------------
 
@@ -108,6 +144,15 @@ Several lines of debugging output should appear. You should then be able to poin
 
 Log in as the admin user you created earlier using the `Login` button in the top right corner of the menu bar.
 
+.. note::
+   For a real deployment (not just ``runserver`` on localhost), set ``FOMO_BASE_URL``
+   to this host's real externally-reachable URL -- ideally once, in this host's
+   ``src/fomo/local_settings.py`` (see :ref:`local-settings`), so both the web server process and any cron-scheduled
+   management commands (see :ref:`unattended-operation`) pick up the same value.
+   ``FOMO_BASE_URL`` is what FOMO uses to build absolute admin/calendar/approval-queue
+   links in emailed notices; left at its ``http://localhost:8000`` default, every such
+   link is unusable off this host (WR-13, 36-REVIEW.md).
+
 You can import new Targets into FOMO by clicking on Targets->Targets in the menu bar. This will bring you to the Target overview page (which is blank at the minute). Click Create Targets->Catalog Search and select the desired service from the options. Solar System targets can be imported from:
 
 * JPL
@@ -116,3 +161,39 @@ You can import new Targets into FOMO by clicking on Targets->Targets in the menu
 
 In addition sidereal targets can be imported from Simbad and TNS.
 FOMO will then fetch the details from the selected service and display the details for review and user modification (if desired). Otherwise you can hit the `Submit` button to create the Target. You will then be redirected to the Target detail page.
+
+.. _running-management-commands:
+
+Running FOMO Management Commands
+--------------------------------------
+
+Beyond the ``migrate`` and ``createsuperuser`` commands above, FOMO ships a
+number of custom management commands (for example, syncing telescope
+schedules onto the shared calendar, or importing a campaign coordination
+CSV). All of them are invoked the same way: with the project's virtual
+environment (or conda/mamba environment) activated, run
+``python3 manage.py <command>`` from the repository root.
+
+.. code-block:: console
+
+   >> source ~/path-to-new-venv/bin/activate
+   >> python3 manage.py <command> [options]
+
+Every management command supports ``--help``, which prints its usage, its
+positional arguments, and any optional flags:
+
+.. code-block:: console
+
+   >> python3 manage.py <command> --help
+
+If a command's underlying data model has changed (for example, after
+upgrading FOMO to a newer release), you may need to re-apply
+``python3 manage.py migrate`` -- see "Initializing FOMO and the database"
+above -- before running the command again.
+
+For a task-oriented walkthrough of the specific commands and staff actions
+that keep the telescope runs calendar and campaign coordination up to date,
+see the Telescope Runs Calendar Operator Runbook.
+
+Most of these commands can also be run on a schedule with no operator
+action at all -- see :ref:`unattended-operation` for how to set that up.

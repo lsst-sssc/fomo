@@ -39,6 +39,13 @@ Design Notes
 .. toctree::
    :maxdepth: 1
 
+   telescope_runs_calendar
+   tom_calendar_vs_yse_pz_calendar
+   gsd_experiment
+   eso_feasibility_spike
+   uncertain_scheduling_spike
+   canonical_record_spike
+   run_identity_and_unattended_invocation_spike
    target_origin_tracking
    scout_element_history
    fink_sso_support

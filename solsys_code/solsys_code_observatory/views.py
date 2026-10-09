@@ -6,6 +6,7 @@ from django.forms import BaseModelForm
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.generic import CreateView, DetailView, ListView
 from tom_dataservices.dataservices import MissingDataException
 
@@ -24,10 +25,36 @@ class CreateObservatory(CreateView):
     template_name = 'solsys_code_observatory/observatory_create.html'
 
     def get_success_url(self):
-        """Create a custom success_url to redirect to the detail page for the
-        newly created Observatory.
+        """Redirect to a validated ``?next=`` target (SITE-02/D-05) when present -- e.g. back
+        to the approval queue for the "Create new Observatory" round-trip from Plan 21-03 --
+        falling back to the detail page for the newly created Observatory otherwise.
+        Validated with ``url_has_allowed_host_and_scheme`` so an off-host/bad-scheme ``next``
+        can never be used as an open redirect (T-21-06).
         """
+        next_url = self.request.GET.get('next') or self.request.POST.get('next')
+        if next_url and url_has_allowed_host_and_scheme(
+            next_url, allowed_hosts={self.request.get_host()}, require_https=self.request.is_secure()
+        ):
+            return next_url
         return reverse_lazy('solsys_code_observatory:detail', kwargs={'pk': self.kwargs['pk']})
+
+    def get_initial(self):
+        """Pre-fill the ``obscode`` field from ``?obscode=`` (SITE-02/D-05) -- e.g. the typed
+        text from an unresolved approval-queue row via Plan 21-03's "Create new Observatory"
+        link -- so staff don't have to retype it.
+        """
+        initial = super().get_initial()
+        raw_obscode = self.request.GET.get('obscode', '')
+        # WR-02: ``?obscode=`` may carry an unresolved approval-queue row's ``site_raw``
+        # verbatim (campaign_tables.py's "Create new Observatory" link), which is frequently
+        # a full site name rather than a real obscode. CreateObservatoryForm.obscode is
+        # exactly 3 characters (min_length=max_length=3), so pre-filling anything else is
+        # guaranteed invalid on first render -- only pre-fill when the raw value plausibly
+        # is an obscode; otherwise leave the field blank so it doesn't look "already filled
+        # in" with a value staff must notice and fully overwrite.
+        if len(raw_obscode) == 3:
+            initial['obscode'] = raw_obscode
+        return initial
 
     def get_context_data(self, **kwargs):  # noqa: D102
         context = super().get_context_data(**kwargs)

@@ -8,7 +8,7 @@ from solsys_code.scout_views import (
     ScoutTargetExportView,
     ScoutTargetListView,
 )
-from solsys_code.views import Ephemeris, MakeEphemerisView
+from solsys_code.views import Ephemeris, MakeEphemerisView, ProtectedUserDeleteView
 
 urlpatterns = [
     # Shadow the 'targets/' list and export routes inside tom_common.urls (included below).
@@ -22,5 +22,15 @@ urlpatterns = [
     path('targets/<int:pk>/makeephem/', MakeEphemerisView.as_view(), name='makeephem'),
     path('scout/rubin-too/', RubinTooScoutListView.as_view(), name='scout_rubin_too'),
     path('scout/rubin-too/stats/', RubinTooScoutStatsView.as_view(), name='scout_rubin_too_stats'),
+    # DISPLAY-09 — must precede tom_common.urls: tomtoolkit 3.0 now also registers a 'calendar'
+    # namespace there (tom_calendar.urls) with identical URL names, which triggers Django's
+    # urls.W005 "namespace isn't unique" check warning. That's expected and benign — this entry,
+    # being first, is what `calendar:*` reversal and dispatch actually resolve to; the tom_common
+    # one is fully shadowed. See solsys_code/calendar_urls.py's module docstring.
+    path('calendar/', include('solsys_code.calendar_urls', namespace='calendar')),
+    path('campaigns/', include('solsys_code.campaign_urls', namespace='campaigns')),  # VIEW-01 — before tom_common
+    # WR-10 (37.1-REVIEW.md): must precede tom_common.urls -- TOM's own 'user-delete' view 500s on an
+    # account that confirmed a campaign link or calendar event attribution (their confirmed_by is PROTECT).
+    path('users/<int:pk>/delete/', ProtectedUserDeleteView.as_view(), name='user-delete'),
     path('', include('tom_common.urls')),
 ]

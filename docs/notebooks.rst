@@ -5,3 +5,17 @@ Notebooks
 
     Introducing Jupyter Notebooks <notebooks/intro_notebook>
     Scout candidate lifecycle <notebooks/scout_lifecycle_exploration>
+
+Demonstration Notebooks
+------------------------
+
+.. toctree::
+
+    Telescope Runs (site / ephemeris helper) <notebooks/pre_executed/telescope_runs_demo>
+    Loading Telescope Runs <notebooks/pre_executed/load_telescope_runs_demo>
+    Projecting Observation Records onto the Calendar <notebooks/pre_executed/project_observation_calendar_demo>
+    Backfilling LCO Observations (watched proposals) <notebooks/pre_executed/backfill_lco_observations_demo>
+    Syncing the Gemini Observation Calendar <notebooks/pre_executed/sync_gemini_observation_calendar_demo>
+    Importing a Campaign CSV <notebooks/pre_executed/import_campaign_csv_demo>
+    Reconciling Campaign Runs onto the Calendar <notebooks/pre_executed/reconcile_campaign_runs_demo>
+    The Full Campaign Lifecycle (submission to calendar) <notebooks/pre_executed/campaign_lifecycle_demo>

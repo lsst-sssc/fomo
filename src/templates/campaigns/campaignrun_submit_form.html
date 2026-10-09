@@ -1,0 +1,14 @@
+{% extends 'tom_common/base.html' %}
+{% load crispy_forms_tags %}
+{% block title %}Submit an Observing Run{% endblock %}
+
+{% block content %}
+<h4 class="font-weight-bold mb-4">Submit an Observing Run</h4>
+<p>
+  Fill in the form to propose an observing run for a campaign. Only the campaign is required --
+  fill in as much else as you know. A staff member will review your submission before it appears
+  publicly.
+</p>
+{% crispy form %}
+<a class="btn btn-outline-primary" href="{% url 'campaigns:list' %}">Cancel</a>
+{% endblock %}
