@@ -79,8 +79,12 @@ repos:
     # The suite runs with `--parallel` (one worker per CPU) and each worker writes its own
     # coverage file, merged by `coverage combine`; `coverage erase` first drops files an
     # interrupted run left behind.
-    # This hook takes about 10 minutes; for work-in-progress commits use
-    # `SKIP=django-test git commit ...`.
+    # This hook takes about 80 seconds on the 32-core developer machine (Phase 39.1; it took
+    # 2276 s before; see .planning/phases/39.1-test-suite-speed-up/39.1-TIMINGS.md): memoised
+    # sun_event(), `--parallel`, a test-only MD5 password hasher and LocMemCache, and the
+    # 'migration'-tagged MigrationExecutor tests excluded here (CI still runs them).
+    # `SKIP=django-test` is no longer needed for speed -- keep it only for a deliberately red
+    # work-in-progress commit.
   - repo: local
     hooks:
       - id: django-test

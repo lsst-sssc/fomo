@@ -220,15 +220,16 @@ with self.assertRaises(CommandError):
 
 **Requirements:**
 - No hard-coded coverage target enforced
-- Coverage reported in GitHub workflows via `pytest-cov`
 
 **Run coverage locally:**
-- Via pre-commit: `pytest-check` hook in `.pre-commit-config.yaml` runs `python -m pytest --cov=./src --cov-report=html`
-- Generates HTML report (not used in Django workflow)
+- The `django-test` hook in `.pre-commit-config.yaml` runs `coverage erase && coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --exclude-tag migration --parallel && coverage combine -q && coverage html`
+- Generates an HTML report in `htmlcov/`
 
 **GitHub workflow coverage:**
-- Runs `python -m pytest --cov=<package> --cov-report=xml`
-- Uploads results to Codecov
+- `testing-and-coverage.yml` runs `coverage run manage.py test --exclude-tag functional --exclude-tag ephemeris_segfault --parallel`, then `coverage combine` and `coverage xml`
+- Uploads the XML to Codecov
+
+**Parallel runs:** `[tool.coverage.run]` in `pyproject.toml` sets `concurrency = ["multiprocessing"]` and `parallel = true`, so each worker process writes its own `.coverage.*` file and `coverage combine` merges them.
 
 ## Test Types
 
