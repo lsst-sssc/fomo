@@ -112,15 +112,21 @@ changes its output — the planner sequences this so the committed output matche
   `me-/ms-`, `border-left` → `border-start`, …); `form-inline` → flex utilities
   (`d-flex align-items-center gap-2`), `<select>` → `form-select form-select-sm`. Same spirit as Phase
   39 D-11 for `calendar.html`.
-- **D-18:** **High-band marker** = `border-start border-4 border-success` (drop the inline
-  `border-left-width` style) — the green left bar UI-SPEC gave confirmable rows.
+- **D-18:** **High-band marker** = `border-0 border-start border-4 border-success` (drop the inline
+  `border-left-width` style, and High-band rows drop `border-top`) — the green left bar UI-SPEC gave
+  confirmable rows. *Amended 2026-10-09 after research (RESEARCH A2, developer-confirmed): on a `<tr>`
+  the original `border-start border-4 border-success` draws a 4px green box on all four sides under
+  Bootstrap 5.3.3, because reboot gives rows `border-style: solid` and `.border-4` sets every side;
+  `border-0` first leaves a left bar only.*
 - **D-19:** **New class guard** next to `TestTemplatesUseBootstrap5DataAttributes`: a regex for removed
   Bootstrap 4 class names matched inside `class="..."` values (start from WR-15's pattern; the
   planner extends it as needed, e.g. `badge-*`, `custom-select`, `btn-block`). It scans **every**
   template, so D-17 must leave it green.
 - **D-20:** **Close IN-12 as well:** both the data-attribute scan and the new class scan cover every
-  `TEMPLATES[0]['DIRS']` entry **and** the app template directories (`APP_DIRS` is True), not just
-  `DIRS[0]`. Mark IN-12 fixed in the disposition ledger. Templates only — Python-built HTML is not
+  `TEMPLATES[0]['DIRS']` entry **and** any app template directory that lives inside this repository
+  (none exist today), not just `DIRS[0]`. *Amended 2026-10-09 after research (RESEARCH A1,
+  developer-confirmed): third-party apps' template directories (rest_framework, tom_targets,
+  tom_calendar, tom_jpl, ...) are out of scope; they carry Bootstrap 4 names FOMO cannot edit.* Mark IN-12 fixed in the disposition ledger. Templates only — Python-built HTML is not
   scanned (D-17 fixes its one hit by hand).
 - **D-21:** **The marker is proven twice:** a `TestCase` asserts High-band rows carry
   `border-start border-4 border-success` and other rows don't (success criterion 4), **plus** a
