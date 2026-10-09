@@ -791,6 +791,11 @@ class EventModalAttributionHintTest(TestCase):
     G-39-4 (39-UAT.md, .planning/debug/blank-new-event-popup.md): the create form has no
     ``event``, so for a staff viewer the hint branch used to raise and the New Event pop-up came
     back as a 500.
+
+    G-39-7 (39-UAT.md Test 7, 39-REVIEW WR-04, .planning/debug/non-staff-edit-popup-hint-test-missing.md):
+    the hint's ``request.user.is_staff`` conjunct is the only thing that keeps the hint from a signed-in
+    non-staff account, and every self-registered account can open the edit pop-up (D-01, D-04), so a plain
+    user is now tested on the edit form too.
     """
 
     @classmethod
@@ -978,12 +983,17 @@ class EventModalAttributionHintTest(TestCase):
 
     def test_hint_is_gated_on_the_edit_form(self):
         """G-39-4 (b): the hint shows for action update and never for create (the update subTest proves
-        the same render path can show the hint at all)."""
+        the same render path can show the hint at all). The plain-user update row (G-39-7) proves that
+        the staff test, not sign-in alone, gates the hint."""
         event = self.unlinked_event_with_candidate
         request = RequestFactory().get(reverse('calendar:update-event', args=[event.pk]))
-        request.user = self.staff_user
-        for action, shown in (('update', True), ('create', False)):
-            with self.subTest(action=action):
+        for user, action, shown in (
+            (self.staff_user, 'update', True),
+            (self.staff_user, 'create', False),
+            (self.plain_user, 'update', False),
+        ):
+            with self.subTest(user=user.username, action=action):
+                request.user = user
                 html = render_to_string(
                     'tom_calendar/partials/event_form.html',
                     {'form': EventForm(instance=event), 'event': event, 'action': action},
@@ -996,6 +1006,18 @@ class EventModalAttributionHintTest(TestCase):
         response = self._signed_in_client(self.superuser).get(self._modal_url(self.unlinked_event_with_candidate))
         self.assertEqual(response.status_code, 200)
         self.assertIn('Possible campaign run match', response.content.decode())
+
+    def test_signed_in_non_staff_does_not_see_hint(self):
+        """G-39-7 / 39-REVIEW WR-04 / T-27-21: the hint is staff-only; a signed-in non-staff account
+        (sign-up is open) that opens the edit pop-up must not see it."""
+        event = self.unlinked_event_with_candidate
+        response = self._signed_in_client(self.plain_user).get(self._modal_url(event))
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        # Proves the edit form rendered, not the create form or anonymous card, so the absences below mean something.
+        self.assertIn(f'hx-post="{self._modal_url(event)}"', body)
+        self.assertNotIn('Possible campaign run match', body)
+        self.assertNotIn(f'{reverse("campaigns:attribution")}?band=high', body)
 
 
 class TemplateCommentSyntaxSweepTest(SimpleTestCase):
