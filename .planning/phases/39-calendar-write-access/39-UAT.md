@@ -1,18 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 39-calendar-write-access
 source: [39-VERIFICATION.md]
 started: 2026-10-08T21:14:30Z
-updated: 2026-10-08T23:21:54Z
+updated: 2026-10-09T02:31:25.514Z
 ---
 
 ## Current Test
 
-number: 5
-name: New Event pop-up as staff or superuser (re-run of Test 4 after gap closure 39-05)
-expected: |
-  On the dev server, signed in as a staff or superuser account, '+ New Event' and an empty day cell both open the pop-up with the create form (title, dates, Save and 'Save and Edit'), not an empty box; an existing unlinked entry with a High-band candidate still shows the 'Possible campaign run match' hint.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -38,22 +34,25 @@ severity: major
 
 ### 5. New Event pop-up as staff or superuser (re-run of Test 4 after gap closure 39-05)
 expected: On the dev server, signed in as a staff or superuser account (e.g. sssc_admin or talister), click "+ New Event" and click an empty day cell; then open an existing unlinked entry that has a High-band candidate. Both triggers open the pop-up with the create form (title, dates, Save and "Save and Edit"), not an empty box; the existing unlinked entry's pop-up still shows the "Possible campaign run match" hint. (Automated evidence: staff/superuser GETs return 200 with the form and the staff body equals the plain user's once the CSRF token is masked; the planner deferred the real-browser check to end of phase.)
-result: [pending]
+result: pass
+note: "User confirmed the create-form parts in the browser as staff (+ New Event and empty day cell both open the form). The hint part was accepted on automated evidence: the dev database holds no unlinked event with any attribution candidate, and test_superuser_sees_high_band_hint_for_unlinked_event plus test_hint_is_gated_on_the_edit_form (solsys_code/tests/test_calendar_template.py, 39-05) cover it."
 
 ### 6. Runbook bare-form sentence reads as asked (re-check of Test 3 after gap closure 39-05)
 expected: Read docs/runbooks/telescope_runs_calendar.rst lines 2596-2607 once. The new closing sentences ("show a bare, unstyled copy of the event form. Do not use that copy: its Save saves nothing and silently discards what was typed; go back to the calendar page and make the change there.") read clearly and match what was asked for at UAT Test 3.
-result: [pending]
+result: pass
 
 ### 7. Decide on 39-REVIEW WR-04 (non-staff edit pop-up hint test)
 expected: No repository test GETs the edit pop-up as a signed-in NON-staff user and asserts the "Possible campaign run match" hint is absent. Either add the test before shipping (recommended; about 6 lines in EventModalAttributionHintTest, reusing plain_user, _signed_in_client and unlinked_event_with_candidate) or accept WR-04 as an advisory. Behaviour is correct today: the verifier's scratch test of exactly that case passes on the real tree and fails when the template's gate is mutated to request.user.is_authenticated, while all 17 repository tests still pass under that mutation. Not a must-have failure; a ship decision.
-result: [pending]
+result: issue
+reported: "add the test"
+severity: minor
 
 ## Summary
 
 total: 7
-passed: 2
-issues: 2
-pending: 3
+passed: 4
+issues: 3
+pending: 0
 skipped: 0
 blocked: 0
 
@@ -61,7 +60,9 @@ blocked: 0
 
 - gap_id: G-39-3
   truth: "The runbook's read-only paragraph warns that after a CSRF-failure login the create and edit addresses show a bare copy of the event form, and tells the operator to go back to the calendar page instead of using it (39-REVIEW WR-01)"
-  status: failed
+  status: resolved
+  resolved_by: 39-05-PLAN.md
+  resolved_at: 2026-10-08
   reason: "User reported: pass, but add the WR-01 sentence"
   severity: minor
   test: 3
@@ -77,7 +78,9 @@ blocked: 0
   debug_session: .planning/debug/runbook-bare-form-warning.md
 - gap_id: G-39-4
   truth: "Clicking + New Event (or an empty day cell) while logged in opens the event pop-up with the create-event form rendered inside it"
-  status: failed
+  status: resolved
+  resolved_by: 39-05-PLAN.md
+  resolved_at: 2026-10-08
   reason: "User reported: clicking on the '+ New Event' button on the background of a day brings up a wide but short blank box - see screenshot (modal with only a close X, no form content)"
   severity: major
   test: 4
@@ -97,3 +100,13 @@ blocked: 0
     - "Regression tests in solsys_code/tests/test_calendar_template.py: GET /calendar/create/ and /calendar/create/?date=... as is_staff=True and as a superuser with HTTP_HX_REQUEST='true' -> 200, '<form', '>Save and Edit</button>'; non-staff neighbour; staff update-event on a real unlinked event still renders the hint"
     - "Optional hardening (touches the FOMO override calendar.html, paired-doc rule applies): open the modal only on success (`if(event.detail.successful)`) so a future 500 is not shown as a blank box"
   debug_session: .planning/debug/blank-new-event-popup.md
+- gap_id: G-39-7
+  truth: "A repository test GETs the edit pop-up as a signed-in non-staff user and asserts the 'Possible campaign run match' hint is absent (39-REVIEW WR-04)"
+  status: failed
+  reason: "User reported: add the test"
+  severity: minor
+  test: 7
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
