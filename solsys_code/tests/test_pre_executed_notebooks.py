@@ -1,7 +1,8 @@
 """Guard tests: every Django-backed pre-executed notebook runs on a scratch database through the shared helper.
 
 Why this module exists (UAT G-37.1-3, then review findings WR-13, WR-14 and WR-17 of the 37.1 review,
-WR-01 of the Phase 40 review, WR-01 of the 2026-10-10 re-review, and CR-01 and CR-02 of the third review):
+WR-01 of the Phase 40 review, WR-01 of the 2026-10-10 re-review, CR-01 and CR-02 of the third review, and CR-01, WR-01
+and WR-02 of the fourth review):
 notebooks under ``docs/notebooks/pre_executed/`` once opened the developer database
 ``src/fomo_db.sqlite3`` and wrote demo rows into it, and a guard that only matched the setup
 cell's text was easy to get around (an own ``FOMO_DATABASE_PATH`` assignment with stale good-looking
@@ -26,19 +27,31 @@ transformer (``TransformerManager``) must leave its meaning unchanged, so an ali
 after a line magic, as in ``%time !ls``), any other magic and a prompt prefix (``In [1]:``) are reported.
 ``%config`` is not harmless, because ``%config AliasManager.user_aliases = [...]`` defines a shell alias that a
 later one-line cell runs; ``%matplotlib`` with any other argument is not harmless either, because a backend such as
-``module://name`` imports a module by name. A one-line cell whose first word, read with IPython's
-``split_user_input``, is an IPython line magic or alias (the set comes from IPython itself, including the kernel's
-and storemagic's magics) is reported, because IPython's automagic would run it, unless an earlier cell binds that
-name, the word is a builtin or a keyword, or it is followed by ``=`` or ``,``. A cell that does not parse as
+``module://name`` imports a module by name. A one-line cell whose first word, read with IPython's ``split_user_input``,
+is an IPython line magic or alias (the set comes from IPython itself, including the kernel's and storemagic's magics) is
+reported, because IPython's automagic runs it unless that name is bound when the cell runs, which a static check cannot
+tell: a bare annotation, an ``if False:`` branch, an empty loop or an ``except ... as`` name binds nothing, and ``del``
+unbinds, so the cell is reported whatever an earlier cell assigns, imports or defines. Only a first word that is a
+Python builtin or keyword, or one followed by ``=`` or ``,``, is not reported, because IPython always runs such a line
+as Python. A cell that does not parse as
 written and mentions Django, a database, a process, a shell command or the environment (an IPython shell escape, a
 process cell magic such as ``%%bash``, a process or environment line magic such as ``%system`` or ``%env``,
 ``manage.py``, ``env -i``, ``env -u`` or any name R12 lists) is still reported by its own message. The code under a
 harmless magic is checked by every later rule. R2-R4 and R8-R11: the helper call comes first and once, no own
-Django setup, one fresh run with evidence and teardown output, and no ``assert`` guarding a write. R5-R7: no code
-naming the database variable or the developer database file, and no byte copy or byte write; R6 reports shutil's
-``copy``, ``copy2``, ``copyfile``, ``copytree``, ``copyfileobj`` and ``move`` (called, referenced or imported,
-through ``shutil`` or an alias of it), any ``write_bytes``, and any of these names looked up through a string
-(``getattr(shutil, 'copytree')``), in a cell's code and in code inside its strings. R12 reports, in every notebook,
+Django setup, one fresh run with evidence and teardown output, and no ``assert`` guarding a write. R5 and R7: no str or
+bytes constant in a cell's code (a bytes constant is read as latin-1) names the database variable ``FOMO_DATABASE_PATH``
+or the developer database file ``fomo_db.sqlite3``, and no keyword argument is named ``FOMO_DATABASE_PATH``. R6, no byte
+copy or byte write, reads a cell's code and the code inside its strings. It reports shutil's ``copy2``, ``copyfile``,
+``copytree`` and ``copyfileobj`` at every identifier the parser records, as R12 matches its names; ``copy`` and
+``move``, which are also common method names (a DataFrame's ``copy``), when read as an attribute of an expression that
+mentions a shutil name, called or not, or imported with ``from shutil import``; any ``write_bytes``; and any str or
+bytes constant one of whose '.'- or ':'-separated parts is one of these names, ``copy`` or ``move`` (``getattr(shutil,
+'copytree')``). A shutil name is ``shutil`` or a name the notebook binds to it in any cell: through ``import shutil as
+X`` or ``from <any module> import shutil [as X]``, or as the target of an assignment, a loop, a ``with``, a
+comprehension or a parameter default whose value mentions a shutil name, where a mention is a name, an attribute or a
+string part, so ``zipfile.shutil`` and ``sys.modules['shutil']`` count. ``copy`` and ``move`` reached only through a
+function's return value, a call's side effect (``setattr``) or a module that holds shutil under another name (tempfile's
+``_shutil``) are not reported. R12 reports, in every notebook,
 any use of five capabilities that can route around the scratch database (WR-01, D-G1): Django's database settings
 and connection objects (DATABASES, DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the
 helper's internals, DatabaseWrapper, load_backend, ``connections``, ``connection`` and ``_connections``,
