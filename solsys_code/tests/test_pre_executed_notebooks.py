@@ -68,8 +68,24 @@ REROUTE_NAMES = frozenset(
         'DatabaseWrapper',
         'load_backend',
         'sqlite3',
+        # D-G1 (b): a fresh connection wrapper stored into ``connections`` replaces the scratch database.
+        'connections',
+        'ConnectionHandler',
+        'create_connection',
     }
 )
+# R12 (D-G1 a): modules that start a process; the import is what is reported, never a bare name.
+PROCESS_MODULES = frozenset({'subprocess'})
+# R12 (D-G1 a): names that start a process, matched as a name, an attribute, an imported name or a string.
+PROCESS_NAMES = frozenset()
+# R12 (D-G1 c): names that read or change the environment the helper set (``os.getenv`` stays allowed).
+ENVIRON_NAMES = frozenset({'environ'})
+# The reason each R12 capability gives in its problem text; 'database' is the text rule R12 always had.
+R12_REASONS = {
+    'database': f'only {SETUP_FUNCTION} may choose the database',
+    'process': 'a notebook never starts a process, which would run without the scratch database settings',
+    'environment': 'a notebook never changes the environment the helper set; read a variable with os.getenv',
+}
 # R12: attribute chains (matched when they equal, or end with ``.`` plus, one of these) that reach the same dicts.
 REROUTE_DOTTED_SUFFIXES = ('connections.settings', 'connections.databases')
 # Text every R12 problem carries, so a test can tell an R12 report from any other rule's.
@@ -115,6 +131,13 @@ WRITE_CALL_NAMES = frozenset(
 )
 # An unparseable cell (IPython magics) is tolerated unless it is about Django or a database.
 UNPARSEABLE_DJANGO_IMPORT = re.compile(r'^\s*(from|import)\s+(django|solsys_code|tom_)', re.MULTILINE)
+# An IPython shell escape (``!ls``, ``files = !ls``, but not ``a != b``) or a line magic that starts a process
+# or changes the environment, in a cell that is not parseable Python (D-G1 d).
+SHELL_ESCAPE = re.compile(
+    r'^\s*!(?!=)|=\s*!(?!=)|'
+    r'^\s*%%?(?:system|sx|sc|bash|sh|script|python|python2|python3|pypy|perl|ruby|run|env|set_env)\b',
+    re.MULTILINE,
+)
 UNPARSEABLE_SUSPECT_TEXT = (
     'django.setup',
     DB_ENV_VAR,
@@ -122,6 +145,10 @@ UNPARSEABLE_SUSPECT_TEXT = (
     DEVELOPER_DB_NAME,
     *sorted(REROUTE_NAMES),
     *REROUTE_DOTTED_SUFFIXES,
+    # D-G1 (d): the project's management entry point and a cleared child environment.
+    'manage.py',
+    'env -i',
+    'env -u',
 )
 # Text that must never reach a committed notebook (snapshot output comes from the developer database).
 CREDENTIAL_TEXT = re.compile(r'api_key|Authorization|token=|pbkdf2_sha256\$', re.IGNORECASE)
@@ -358,37 +385,72 @@ def _byte_copy_problems(parsed) -> list[str]:
     return problems
 
 
+# R12: (names, capability) pairs matched as a name, an attribute, a keyword, an imported name or an exact string.
+_R12_NAME_TABLES = (
+    (REROUTE_NAMES, 'database'),
+    (PROCESS_NAMES, 'process'),
+    (ENVIRON_NAMES, 'environment'),
+)
+# R12: (module names, capability) pairs matched as an import's first component, an attribute or an exact string.
+_R12_MODULE_TABLES = ((PROCESS_MODULES, 'process'),)
+
+
+def _capability_of(name: str | None, tables) -> str | None:
+    """Return the capability of the first table in ``tables`` that lists ``name``, or None."""
+    for names, capability in tables:
+        if name in names:
+            return capability
+    return None
+
+
 def _database_rerouting_problems(parsed) -> list[str]:
-    """R12: no notebook re-routes Django's database after the helper call, under any of the names it could use."""
+    """R12: no notebook uses a capability that can route around the scratch database, under any spelling.
+
+    The capabilities are Django's database settings and connection objects, starting a process, and changing the
+    environment. Each name is matched wherever it appears, so binding one to another name first is reported too.
+    """
     problems = []
     for number, _cell, tree in parsed:
         if tree is None:
             continue
-        found = set()
+        found: dict[str, str] = {}
+
+        def note(name, tables, found=found):
+            capability = _capability_of(name, tables)
+            if capability is not None:
+                found[name] = capability
+
         for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and node.id in REROUTE_NAMES:
-                found.add(node.id)
+            if isinstance(node, ast.Name):
+                note(node.id, _R12_NAME_TABLES)
             elif isinstance(node, ast.Attribute):
-                if node.attr in REROUTE_NAMES:
-                    found.add(node.attr)
+                note(node.attr, _R12_NAME_TABLES)
+                note(node.attr, _R12_MODULE_TABLES)
                 dotted = _dotted_name(node)
-                found.update(
-                    suffix for suffix in REROUTE_DOTTED_SUFFIXES if dotted == suffix or dotted.endswith(f'.{suffix}')
-                )
-            elif isinstance(node, ast.keyword) and node.arg in REROUTE_NAMES:
-                found.add(node.arg)
+                for suffix in REROUTE_DOTTED_SUFFIXES:
+                    if dotted == suffix or dotted.endswith(f'.{suffix}'):
+                        found[suffix] = 'database'
+            elif isinstance(node, ast.keyword):
+                note(node.arg, ((REROUTE_NAMES, 'database'),))
             elif isinstance(node, ast.alias):
-                found.update(name for name in (node.name.split('.')[-1], node.asname) if name in REROUTE_NAMES)
-            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in REROUTE_NAMES:
-                found.add(node.value)
-            if isinstance(node, ast.Import) and any('sqlite3' in alias.name.split('.') for alias in node.names):
-                found.add('sqlite3')
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and 'sqlite3' in (node.module or '').split('.'):
-                found.add('sqlite3')
+                for name in (node.name.split('.')[-1], node.asname):
+                    note(name, _R12_NAME_TABLES)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                note(node.value, _R12_NAME_TABLES)
+                note(node.value, _R12_MODULE_TABLES)
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    note(alias.name.split('.')[0], _R12_MODULE_TABLES)
+                if any('sqlite3' in alias.name.split('.') for alias in node.names):
+                    found['sqlite3'] = 'database'
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                note((node.module or '').split('.')[0], _R12_MODULE_TABLES)
+                if 'sqlite3' in (node.module or '').split('.'):
+                    found['sqlite3'] = 'database'
         problems.extend(
-            f'code cell {number} references {name}; only {SETUP_FUNCTION} may choose the database '
+            f'code cell {number} references {name}; {R12_REASONS[capability]} '
             f'{REROUTE_MARKER} no re-routing after setup)'
-            for name in sorted(found)
+            for name, capability in sorted(found.items())
         )
     return problems
 
@@ -414,9 +476,14 @@ def isolation_problems(notebook: dict) -> list[str]:
         if tree is not None:
             continue
         source = _cell_source(cell)
-        if UNPARSEABLE_DJANGO_IMPORT.search(source) or any(text in source for text in UNPARSEABLE_SUSPECT_TEXT):
+        if (
+            UNPARSEABLE_DJANGO_IMPORT.search(source)
+            or SHELL_ESCAPE.search(source)
+            or any(text in source for text in UNPARSEABLE_SUSPECT_TEXT)
+        ):
             problems.append(
-                f'code cell {number} is not parseable Python but mentions Django or a database, so it cannot be checked'
+                f'code cell {number} is not parseable Python but mentions Django, a database, a process, '
+                'a shell command or the environment, so it cannot be checked'
             )
 
     # R5, R6, R7, R12 apply to every notebook.
@@ -807,6 +874,36 @@ def _append_to_setup_cell(notebook: dict, source: str) -> dict:
     return modified
 
 
+def _insert_code_cell_after_setup(notebook: dict, source: str) -> dict:
+    """Return a copy of ``notebook`` with ``source`` as a new code cell right after the setup cell.
+
+    The new cell has no outputs, and every code cell's execution count is renumbered 1..N in order. Renumbering
+    keeps rule R8 quiet, so only the rule under test can fire.
+
+    Args:
+        notebook: A parsed ``.ipynb`` file with one valid helper call.
+        source: Python (or IPython) source for the new cell, each line ending in a newline.
+
+    Returns:
+        A deep copy of ``notebook``; the argument is not modified.
+    """
+    modified = copy.deepcopy(notebook)
+    setup_number = setup_call(modified)[0]
+    setup_cell = _code_cells(modified)[setup_number - 1]
+    new_cell = {
+        'cell_type': 'code',
+        'execution_count': None,
+        'id': 'inserted-cell',
+        'metadata': {},
+        'outputs': [],
+        'source': source.splitlines(keepends=True),
+    }
+    modified['cells'].insert(modified['cells'].index(setup_cell) + 1, new_cell)
+    for position, cell in enumerate(_code_cells(modified), start=1):
+        cell['execution_count'] = position
+    return modified
+
+
 def _rerouting_names(problems: list[str]) -> set[str]:
     """Return the names that R12 problems say a notebook references (``references <name>;``)."""
     return {match.group(1) for problem in problems for match in re.finditer(r'references (\S+);', problem)}
@@ -849,6 +946,61 @@ class TestRerouteRuleOnARealNotebook(SimpleTestCase):
         self.assertTrue(problems, 'the guard missed an override_settings re-route after the helper call')
         self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
         self.assertTrue({'override_settings', 'DATABASES', 'developer_database_path'} <= _rerouting_names(problems))
+
+
+class TestReReviewFormsOnARealNotebook(SimpleTestCase):
+    """WR-01 of the 2026-10-10 re-review, the verification gap and developer decision D-G1.
+
+    Four plain-source ways to reach the developer database after the helper call used to pass the guard. Each
+    is added to a copy of a real notebook with its committed output kept; before rule R12 learned whole
+    capabilities and R0 learned shell escapes, ``isolation_problems()`` returned ``[]`` for every one of them.
+    """
+
+    FORM_A = (
+        'from django.db import connections\n'
+        'from django.db.utils import ConnectionHandler\n'
+        "dev = str(repo_root_path / 'src' / ('fomo_db' + '.sqlite3'))\n"
+        "connections['default'] = ConnectionHandler({'default': {'ENGINE': 'django.db.backends.' + 'sqlite' + '3', "
+        "'NAME': dev}})['default']\n"
+    )
+    FORM_B = (
+        'import subprocess\n'
+        "subprocess.run([sys.executable, 'manage.py', 'migrate'], cwd=repo_root_path, env={'PATH': '/usr/bin'})\n"
+    )
+    FORM_C = (
+        'import os, subprocess\n'
+        'os.environ.clear()\n'
+        "subprocess.run([sys.executable, str(repo_root_path / 'manage.py'), 'flush', '--noinput'])\n"
+    )
+    FORM_D = '!cd ../.. && env -i PATH=/usr/bin python manage.py flush --noinput\n'
+
+    def setUp(self):
+        self.notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+
+    def assert_only_r12_names(self, source, expected):
+        """Check that appending ``source`` to the setup cell yields only R12 problems naming ``expected``."""
+        problems = isolation_problems(_append_to_setup_cell(self.notebook, source))
+        self.assertTrue(problems, 'the guard missed a re-route after the helper call')
+        self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+        self.assertTrue(expected <= _rerouting_names(problems), problems)
+
+    def test_a_connection_handler_store_is_reported_on_a_real_notebook(self):
+        self.assert_only_r12_names(self.FORM_A, {'connections', 'ConnectionHandler'})
+
+    def test_a_child_manage_py_with_a_bare_environment_is_reported_on_a_real_notebook(self):
+        self.assert_only_r12_names(self.FORM_B, {'subprocess'})
+
+    def test_a_cleared_environment_and_a_child_manage_py_are_reported_on_a_real_notebook(self):
+        self.assert_only_r12_names(self.FORM_C, {'environ', 'subprocess'})
+
+    def test_a_shell_escape_running_manage_py_is_reported_on_a_real_notebook(self):
+        with self.subTest('inserted as its own cell'):
+            problems = isolation_problems(_insert_code_cell_after_setup(self.notebook, self.FORM_D))
+            self.assertTrue(problems, 'the guard missed a shell escape in its own cell')
+            self.assertTrue(all('not parseable' in problem for problem in problems), problems)
+        with self.subTest('appended to the setup cell'):
+            problems = isolation_problems(_append_to_setup_cell(self.notebook, self.FORM_D))
+            self.assertTrue(any('not parseable' in problem for problem in problems), problems)
 
 
 class TestRerouteRuleOnSyntheticNotebooks(SimpleTestCase):
