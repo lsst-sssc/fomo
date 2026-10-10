@@ -5,11 +5,11 @@ milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: executing
-stopped_at: Completed 40-03-PLAN.md
-last_updated: "2026-10-09T23:42:53.678Z"
+stopped_at: Phase 40 UI-SPEC approved
+last_updated: "2026-10-10T00:02:21.440Z"
 last_activity: 2026-10-09
 last_activity_desc: Phase 40 execution started
-state_head: a07545a6976466e498589baa325cb2143d0624ec
+state_head: a32d56ce6385f03e23bdba8182a9d95c9703c47a
 progress:
   total_phases: 6
   completed_phases: 42
@@ -174,9 +174,9 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-09T23:42:53.631Z
-**Stopped at:** Completed 40-03-PLAN.md
-**Resume file:** None
+**Last session:** 2026-10-10T00:02:21.395Z
+**Stopped at:** Phase 40 UI-SPEC approved
+**Resume file:** .planning/phases/40-notebook-isolation-attribution-page/40-UI-SPEC.md
 
 ## Operator Next Steps
 
