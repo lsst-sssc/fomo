@@ -11,7 +11,7 @@ created: "2026-10-09"
 # Phase 40 — Security
 
 > Per-phase security contract: threat register, accepted risks, and audit trail.
-> Register authored at plan time (40-01..40-04 `<threat_model>` blocks); verified at ASVS L1 (grep-depth evidence), short-circuit per secure-phase §3 (`threats_open: 0`, plan-time register, `asvs_level: 1`).
+> Register authored at plan time (40-01..40-07 `<threat_model>` blocks); verified at ASVS L1 (grep-depth evidence), short-circuit per secure-phase §3 (`threats_open: 0`, plan-time register, `asvs_level: 1`).
 
 ---
 
@@ -47,6 +47,18 @@ created: "2026-10-09"
 | T-40-13 | Tampering | CSRF on the decide endpoint | medium | mitigate | `test_every_attribution_form_keeps_its_csrf_token` (`test_attribution_template.py:424`) | closed |
 | T-40-14 | Elevation of privilege | staff-only attribution actions | high | mitigate | `StaffRequiredMixin` on `AttributionQueueView` / `AttributionDecisionView` (`campaign_views.py:1292,1418`); `TestAttributionStaffGating` (`test_campaign_attribution_views.py:148`) passes | closed |
 | T-40-15 | Denial of service | oversized page numbers | low | mitigate | Page values limited to 1-6 ASCII digits with no leading zero before use (`_RETURN_PAGE_RE`, `campaign_views.py:1198`); django-tables2 clamps out-of-range pages | closed |
+| T-40-16 | Tampering | `setup_scratch_django` refusal path (CR-01) | high | mitigate | Settings read lazily and checked before `django.setup()` (`fomo_nb_utils.py:295,300`); any failure runs `_disable_django_databases` (`:184`); child tests `test_a_refused_setup_leaves_django_unable_to_reach_any_database` / `test_a_failure_after_django_setup_leaves_no_usable_database` (`test_notebook_helper.py:470,492`) | closed |
+| T-40-17 | Tampering | resolved-path check covering only `default` (WR-02) | medium | mitigate | `check_database_settings` refuses extra aliases and `DATABASE_ROUTERS` (`fomo_nb_utils.py:137,164`); `test_refuses_a_second_alias_even_when_it_names_the_scratch_file`, `test_refuses_database_routers`, child test `:534` (`test_notebook_helper.py:350,360,534`) | closed |
+| T-40-18 | Tampering | `teardown_scratch_django` removing a wrong `fomo-notebook-db-*` path (IN-06) | medium | mitigate | Directory must sit directly in resolved `tempfile.gettempdir()` and be the one setup recorded (`fomo_nb_utils.py:322,342`); `test_teardown_refuses_a_scratch_named_directory_outside_the_temp_directory`, `test_teardown_refuses_a_scratch_directory_setup_did_not_create` (`test_notebook_helper.py:314,323`) | closed |
+| T-40-19 | Information disclosure | checkout path in the `Django ready:` line (IN-02) | low | mitigate | Line prints only the settings module (`fomo_nb_utils.py:317`); `test_fresh_setup_routes_migrates_and_tears_down` asserts no path (`test_notebook_helper.py:398`); all eight notebooks re-executed (40-07) | closed |
+| T-40-20 | Tampering | routing environment left after teardown or failure (IN-01) | low | mitigate | `_ROUTING_ENVIRON` restored on failure and teardown (`fomo_nb_utils.py:61,360`); `test_teardown_restores_the_routing_environment` (`test_notebook_helper.py:612`) | closed |
+| T-40-21 | Denial of service | disable step run against a Django the helper did not start | medium | mitigate | `apps.ready or settings.configured` refusal before the `try` (`fomo_nb_utils.py:275`); `test_setup_refuses_when_django_is_already_set_up` (`test_notebook_helper.py:264`) | closed |
+| T-40-22 | Tampering | guard miss: re-route after the helper call (WR-01) | high | mitigate | Rule R12 `_database_rerouting_problems` wired into `isolation_problems` (`test_pre_executed_notebooks.py:361,425`); real-notebook replays (`:841,847`), unparseable-cell case (`:942`), one synthetic test per form | closed |
+| T-40-23 | Repudiation | guard docstring overstating coverage | low | mitigate | Module docstring rewritten to list what is and is not seen (40-06 Task 2, commit 26940ce) | closed |
+| T-40-24 | Tampering | re-executing eight notebooks, two snapshots of the real database | high | mitigate | All runs through the fail-closed helper (`mode=ro` backup for snapshots); `test_every_real_pre_executed_notebook_is_isolated` (`test_pre_executed_notebooks.py:950`); `src/fomo_db.sqlite3` untouched (40-07-SUMMARY) | closed |
+| T-40-25 | Information disclosure | committed snapshot output (paths, credential-shaped text) | medium | mitigate | `test_no_credential_shaped_text_in_any_notebook` (`test_pre_executed_notebooks.py:998`) passes; no helper cell prints a home path; one third-party spiceypy log line listed in 40-07-SUMMARY | closed |
+| T-40-26 | Information disclosure | schedule temp files left in `/tmp` (IN-05) | low | mitigate | All eight `NamedTemporaryFile(..., dir=scratch_db_dir)` in `load_telescope_runs_demo.ipynb` (8 occurrences); removed by teardown (commit 29490c3) | closed |
+| T-40-27 | Repudiation | ledger marking findings fixed without the work | low | mitigate | 40-REVIEW-DISPOSITION.md rows cite post-0ad6991 commits per finding; IN-07 `deferred` with its remaining part named (commit 49a0530) | closed |
 | T-40-SC | Tampering | npm/pip/cargo installs | low | accept | No package installed by any phase-40 plan; see AR-40-02 | closed |
 
 *Status: open · closed · open — below high threshold (non-blocking)*
@@ -60,7 +72,7 @@ created: "2026-10-09"
 | Risk ID | Threat Ref | Rationale | Accepted By | Date |
 |---------|------------|-----------|-------------|------|
 | AR-40-01 | T-40-10 | Bootstrap CSS comes from the CDN via `tom_common/base.html` / django_bootstrap5 exactly as before; 40-03 adds no external resource | plan-time threat model (40-03) | 2026-10-09 |
-| AR-40-02 | T-40-SC | 40-01, 40-02, 40-03 and 40-04 install no package (RESEARCH Package Legitimacy Audit: none) | plan-time threat model (40-01..40-04) | 2026-10-09 |
+| AR-40-02 | T-40-SC | 40-01 to 40-07 install no package (RESEARCH Package Legitimacy Audit: none; gap plans 40-05..40-07 confirm) | plan-time threat model (40-01..40-07) | 2026-10-09 |
 
 *Accepted risks do not resurface in future audit runs.*
 
@@ -71,6 +83,7 @@ created: "2026-10-09"
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-10-09 | 16 | 16 | 0 | secure-phase State B, orchestrator (L1 grep evidence; short-circuit) |
+| 2026-10-10 | 28 | 28 | 0 | secure-phase State A, orchestrator (gap plans 40-05..40-07: T-40-16..27 added, L1 grep evidence; short-circuit) |
 
 ---
 
@@ -81,4 +94,4 @@ created: "2026-10-09"
 - [x] `threats_open: 0` confirmed
 - [x] `status: verified` set in frontmatter
 
-**Approval:** verified 2026-10-09
+**Approval:** verified 2026-10-09; re-verified 2026-10-10 after gap plans 40-05..40-07

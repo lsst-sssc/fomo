@@ -51,6 +51,9 @@ Filled in by the planner and executor; requirement-level map from RESEARCH.md:
 | WARN-04 | High-band rows render `border-0 border-start border-4 border-success`, other rows do not | GET render test | `python manage.py test solsys_code.tests.test_attribution_template` | ✅ | ✅ green |
 | WARN-04 | High-band row computed left border 4px green, other sides 0 | functional (Playwright) | `python manage.py test solsys_code.tests.test_bootstrap5_rendering --tag functional` | ✅ | ✅ green |
 | WARN-07 | Undo carrying `dismissed-page` reopens Dismissed on the same page; confirmed Undo lands on Confirmed; clamp; all five actions keep band/page/sort; tampered values dropped | `TestCase` (POST + follow) | `python manage.py test solsys_code.tests.test_campaign_attribution_views` | ✅ | ✅ green |
+| WARN-03 | (gap round) Settings checked before `django.setup()`; a refusal or any later failure leaves `apps.ready` False and every alias on the dummy backend (raw cursor and ORM raise `ImproperlyConfigured`) | subprocess | `python manage.py test solsys_code.tests.test_notebook_helper` | ✅ | ✅ green |
+| WARN-05 | (gap round) Second alias / `DATABASE_ROUTERS` refused before setup; `Django ready:` line carries no checkout path; teardown removes only the directory setup created and restores the routing environment | subprocess + in-process | `python manage.py test solsys_code.tests.test_notebook_helper` | ✅ | ✅ green |
+| WARN-02 | (gap round) R12 reports any `DATABASES`/`settings_dict`/`override_settings`/`modify_settings`/router/connection-handler/helper-internal/sqlite3 use in any cell; all eight real notebooks pass | unit (synthetic notebooks) | `python manage.py test solsys_code.tests.test_pre_executed_notebooks` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -68,6 +71,14 @@ Filled in by the planner and executor; requirement-level map from RESEARCH.md:
 | 40-04 T1 (tracer) | WARN-07 | `python manage.py test --noinput solsys_code.tests.test_campaign_attribution_views solsys_code.tests.test_attribution_template` + template boolean check | — | ✅ green |
 | 40-04 T2 | WARN-07 | same two modules (all five actions, clamp, tampering, IN-15) + include check | `src/templates/campaigns/partials/attribution_return_state.html` (created here) | ✅ green |
 | 40-04 T3 | WARN-07, WARN-04 | named functional Undo test + `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper` + lifecycle/runbook/ledger checks | — | ✅ green |
+| 40-05 T1 (tracer, gap) | WARN-03, WARN-05 (CR-01) | `solsys_code.tests.test_notebook_helper solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_projector_demo_notebook` (child-process refusal and forced-migrate-failure probes) | — | ✅ green |
+| 40-05 T2 (gap) | WARN-05 (WR-02, IN-02, IN-07) | `solsys_code.tests.test_notebook_helper solsys_code.tests.test_pre_executed_notebooks` (alias/router refusal, evidence line, snapshot + failed snapshot) | — | ✅ green |
+| 40-05 T3 (gap) | WARN-05 (IN-06, IN-01) | `solsys_code.tests.test_notebook_helper solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_projector_demo_notebook` (teardown scope, environment restore) + README check | — | ✅ green |
+| 40-06 T1 (tracer, gap) | WARN-02 (WR-01) | `solsys_code.tests.test_pre_executed_notebooks` (settings_dict / override_settings re-route replayed on a real notebook copy) | — | ✅ green |
+| 40-06 T2 (gap) | WARN-02 (WR-01) | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_projector_demo_notebook` (one synthetic test per R12 form) | — | ✅ green |
+| 40-07 T1 (tracer, gap) | WARN-05 (IN-05, IN-02) | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper solsys_code.tests.test_projector_demo_notebook` + load_telescope_runs_demo output checks | — | ✅ green |
+| 40-07 T2 (gap) | WARN-05, WARN-03 | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper` + five fresh notebooks' output/prose checks | — | ✅ green |
+| 40-07 T3 (gap) | WARN-05, WARN-03, WARN-02 | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper solsys_code.tests.test_projector_demo_notebook` + snapshot notebooks, home-path inventory, ledger checks | — | ✅ green |
 
 The README-vs-notebook-modes item formerly listed under Manual-Only is automated by 40-02 T2
 (`test_readme_lists_each_notebook_under_its_mode`).
@@ -102,7 +113,7 @@ No framework install needed.
 - [x] Feedback latency < 90s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** approved 2026-10-09 (validate-phase State A audit: 0 gaps; 552 tests across the phase-40 modules OK incl. functional; configured full suite 2280 + 40 OK)
+**Approval:** approved 2026-10-09 (validate-phase State A audit: 0 gaps; 552 tests across the phase-40 modules OK incl. functional; configured full suite 2280 + 40 OK); re-approved 2026-10-10 after gap plans 40-05..40-07 (State A: 8 task rows added, 0 gaps; configured full suite 2305 + 40 OK at faacbfe)
 
 ## Validation Audit 2026-10-10
 
