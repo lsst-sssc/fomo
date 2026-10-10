@@ -52,26 +52,45 @@ overrides_applied: 0
 overrides:
   - must_have: "ROADMAP SC 2 (first half) / WARN-02: The notebook guard test fails for a notebook whose current source routes Django to the developer database even when that notebook's committed output is stale"
     reason: >-
-      Rule R12, extended in 40-08 [301bd93, f1b4bb6, c45edbc], reports in every notebook any reference to
-      Django's database settings and connection objects (DATABASES, DATABASE_ROUTERS, settings_dict,
-      connections, ConnectionHandler, create_connection, get_connection_params, get_new_connection,
-      override_settings, modify_settings, DatabaseWrapper, load_backend, sqlite3, raw SQL ATTACH), to
-      starting a process (subprocess, multiprocessing, pty, pexpect, ptyprocess, psutil, Jupyter kernel
-      clients, os.system, os.popen, os.exec*, os.spawn*, os.posix_spawn*, os.fork, asyncio's
-      create_subprocess_*, Popen, ProcessPoolExecutor, get_ipython and IPython's shell helpers), to the
-      environment (os.environ, environb, putenv, unsetenv) and to running code from a string or another file
-      (exec, eval, compile, __import__, __builtins__, importlib, runpy, builtins, ctypes, cffi, call_command
-      of shell, shell_plus or runscript, execute_from_command_line), wherever the name appears, so binding
-      one to another name is reported too; R0 reports shell escapes, process magics and manage.py, env -i or
-      env -u in an unparseable cell. All four re-review forms and both round-1 probes are reported on a copy
-      of a real notebook (40-08 must_haves). What stays out of reach is deliberate obfuscation that no
-      static check of a notebook's own source can enumerate, exactly as the guard docstring names it: values
-      assembled or looked up at runtime (a name, module, SQL statement or file path built from pieces, or
-      fetched with getattr, globals(), vars() or sys.modules), code decoded at runtime, and code moved
-      outside the notebook into a module it imports or a library function that starts a process or writes a
-      file under a name these lists do not contain.
+      Rule R12, extended in 40-08 [301bd93, f1b4bb6] and 40-10 [482606b, 3232341, c6c6322], reports in every
+      notebook any name it lists for five capabilities: Django's database settings and connection objects
+      (DATABASES, DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the helper's internals,
+      DatabaseWrapper, load_backend, connections, connection, _connections, ConnectionHandler,
+      create_connection, get_connection_params, get_new_connection, Database, sqlite3); attaching another
+      database through raw SQL (a string holding ATTACH followed by DATABASE, a quote, a placeholder or an
+      opening parenthesis); starting a process (subprocess, multiprocessing, pty, pexpect, ptyprocess, psutil,
+      jupyter_client, nbclient, nbconvert, system, popen, fork, forkpty, startfile, posix_spawn, posix_spawnp,
+      every exec* and spawn* function of os, Popen, ProcessPoolExecutor, create_subprocess_exec,
+      create_subprocess_shell, getoutput, getstatusoutput, IPython's get_ipython, system_raw, run_line_magic
+      and run_cell_magic, and the IPython.utils helpers getoutputerror, get_output_error_code and
+      process_handler); the environment (environ, environb, putenv, unsetenv); and running code from a string
+      or another file (exec, eval, compile, __import__, __builtins__, importlib, runpy, builtins, ctypes,
+      cffi, execute_from_command_line, ManagementUtility, import_string, resolve_name, locate, IPython's
+      Macro, and call_command of shell, shell_plus or runscript). Each name is matched at every identifier the
+      parser records, as the guard docstring enumerates them (attributes are never matched against the
+      builtins exec, eval, compile, __import__ and __builtins__), and against every '.'- or ':'-separated part
+      of a string or bytes constant; a string that parses and holds a statement or a call is read like the
+      cell's own code, to two levels. So a listed name imported from another module (from webbrowser import
+      subprocess), bound to another name first or looked up by a literal string
+      (import_string('subprocess.run')) is reported. R0 reports any code cell that is not Python IPython runs
+      unchanged, checked with IPython's own TransformerManager, once %matplotlib inline lines and a first-line
+      %%time or %%capture (with only its --no-stderr, --no-stdout and --no-display flags and an output name)
+      are removed, and any one-line cell whose first word is an IPython line magic or alias, which IPython's
+      automagic would run, unless an earlier cell binds that name, the word is a builtin or a keyword, or it
+      is followed by = or a comma. R6 reports shutil's copy, copy2, copyfile, copytree, copyfileobj and move
+      and any write_bytes, called, referenced, imported or looked up through a string. Every literal form in
+      the third review (CR-01, CR-02, WR-01), the re-review's four forms and both round-1 probes is reported
+      on a copy of a real notebook, and every real pre-executed notebook passes the guard. The guard docstring
+      makes no claim of completeness and names what stays out of reach: the guard reads only the notebook's
+      own source, so values assembled or looked up at runtime (a name, module, SQL statement or file path
+      built from pieces, or fetched with getattr, globals(), vars() or sys.modules using such a string), code
+      decoded at runtime (pickle, marshal, codecs, base64), code outside the notebook (a module it imports,
+      IPython's profile and start-up files with the extensions, aliases and magics they define, or a library
+      function that starts a process or writes a file under a name these lists do not contain) and, left out
+      on purpose, JavaScript or HTML in a cell's output, which a notebook front end may run when the notebook
+      is opened, are not seen.
     accepted_by: "Tim Lister"
-    accepted_at: "2026-10-10T13:46:17Z"
+    accepted_at: "2026-10-10T19:14:57Z"
 re_verification:
   previous_status: gaps_found
   previous_score: 79/80 (prohibitions 21/21)
