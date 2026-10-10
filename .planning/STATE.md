@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: executing
-stopped_at: Completed 40-13-PLAN.md
-last_updated: "2026-10-10T22:24:37.631Z"
+stopped_at: Completed 40-14-PLAN.md
+last_updated: "2026-10-10T23:34:44.302Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 40 execution started
-state_head: 0831417b23c0d844d9b253f9276cf93eee885857
+state_head: f38a7b776be8e634b783007ff080945930c5fa5b
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 31
-  completed_plans: 30
-  percent: 97
+  completed_plans: 31
+  percent: 100
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 ## Current Position
 
 Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
-Plan: 13 of 14
+Plan: 14 of 14
 Status: Ready to execute
 Last activity: 2026-10-10 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 97%)
+Progress: [████████████████████] 17/17 plans ([██████████] 100%)
 
 ## Performance Metrics
 
@@ -71,6 +71,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P11 | 9 min | 2 tasks | 8 files |
 | Phase 40 P12 | 2 min | 3 tasks | 1 files |
 | Phase 40 P13 | 11 min | 3 tasks | 2 files |
+| Phase 40 P14 | 12 min | 3 tasks | 4 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -129,6 +130,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: 40-11: the _disable_django_databases docstring change is a docstring only, so no notebook is re-executed for IN-01 (D-G6 c); the matching warning text in the helper's code is left for Phase 41 triage
 - [Phase 40]: D-G5 (5): Tim Lister approved the corrected WARN-02 override reason verbatim (2026-10-10T19:14:57Z); it names only what 40-10's tests and 40-11's guard docstring support, and the accepted residual is exactly the docstring's 'What the guard does not see' paragraph — Recorded in 40-VERIFICATION.md's one overrides: entry (44c33c6); the verifier applies or rejects it at re-verification
 - [Phase 40]: 40-13: R0 automagic rule no longer exempts a name an earlier cell binds (IPython decides from the namespace at run time); R6 follows shutil names notebook-wide and reports distinctive copy names everywhere; R5/R7 read bytes; ipykernel>=7 in dev extra
+- [Phase 40]: 40-14: developer (Tim Lister) approved the guard docstring, README paragraph and reworded override reason as drafted (accepted_at 2026-10-10T23:20:47Z); IN-01 stays open and out of scope, recorded for Phase 41
 
 ### Pending Todos
 
@@ -200,8 +202,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-10T22:24:37.425Z
-**Stopped at:** Completed 40-13-PLAN.md
+**Last session:** 2026-10-10T23:34:44.085Z
+**Stopped at:** Completed 40-14-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
