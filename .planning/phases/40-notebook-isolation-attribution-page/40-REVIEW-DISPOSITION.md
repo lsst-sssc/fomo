@@ -5,11 +5,11 @@ titles: json
 findings:
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "R12 misses a database re-route through a new `ConnectionHandler` wrapper and through a child process with a cleared environment; the teardown still prints \"never opened for writing\""
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "The fail-closed step is not exception-safe; with no `default` alias it masks the helper's `RuntimeError` and never switches the aliases to the dummy backend"
   - id: IN-01
     severity: info
@@ -47,7 +47,7 @@ findings:
     severity: info
     disposition: deferred
     title: "Small test and code tidy-ups"
-open: 7
+open: 5
 total: 11
 recorded: 2026-10-10T05:45:34.727Z
 ---
@@ -56,8 +56,8 @@ recorded: 2026-10-10T05:45:34.727Z
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
+| WR-01 | warning | fixed | Fixed in 40-08 Task 1 and Task 2 (301bd93, f1b4bb6): rule R12 now reports whole capabilities in every notebook (Django connection objects and database settings, starting a process, the environment, code from a string or another file, raw SQL ATTACH) and R0 reports shell escapes, process magics and manage.py / env -i / env -u text; all four re-review forms are reported on a copy of import_campaign_csv_demo; the docstring names the residual, which 40-09 records as an override; the teardown line was reworded in 40-08 Task 3 (c45edbc) |
+| WR-02 | warning | fixed | Fixed in 40-08 Task 3 (c45edbc): every alias is switched to the dummy backend before a best-effort close, a clean-up error is logged and the setup own error is re-raised; TestHelperFailClosedIsExceptionSafe proves RuntimeError with no default alias |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
