@@ -4,18 +4,18 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: executing
-stopped_at: Phase 40 UI-SPEC approved
-last_updated: "2026-10-10T00:02:21.440Z"
+status: verifying
+stopped_at: Completed 40-04-PLAN.md
+last_updated: "2026-10-10T00:21:21.379Z"
 last_activity: 2026-10-09
 last_activity_desc: Phase 40 execution started
-state_head: a32d56ce6385f03e23bdba8182a9d95c9703c47a
+state_head: fed90933b88258a0cf8f47ec337207fcc3656c3e
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 21
-  completed_plans: 20
-  percent: 95
+  completed_plans: 21
+  percent: 100
 ---
 
 # Project State
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-09 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 95%)
+Progress: [████████████████████] 17/17 plans ([██████████] 100%)
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P01 | 70 min | 2 tasks | 7 files |
 | Phase 40 P02 | 20 min | 2 tasks | 9 files |
 | Phase 40 P03 | 30 min | 3 tasks | 12 files |
+| Phase 40 P04 | 11 min | 3 tasks | 10 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -103,6 +104,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: Phase 40-01: notebook DB setup moved into docs/notebooks/fomo_nb_utils.py (setup_scratch_django / teardown_scratch_django); RuntimeError path check survives python -O; reconcile_campaign_runs_demo uses mode='snapshot' (mode=ro online backup), load_telescope_runs, backfill_lco and campaign_lifecycle use mode='fresh'
 - [Phase 40]: 40-02: notebook guard checks current source (AST rules R0-R11) rather than committed output; all eight notebooks call setup_scratch_django; README/ROADMAP/REQUIREMENTS share one isolation-rule sentence pinned by a test
 - [Phase 40]: 40-03: High-band attribution marker is border-0 border-start border-4 border-success; template class guard scans every repo-owned template directory (DIRS plus in-repo app dirs), never third-party apps
+- [Phase 40]: 40-04: attribution return state travels as hidden form inputs plus one whitelisted redirect (attribution_return_state); the table prefixes live in campaign_tables.py so an unconfigured table still posts dismissed-page/confirmed-page — Keeps the tables free of any view import, and makes request=None tables post the same keys; a page past the end is kept as posted and django-tables2 renders the last page with rows
+- [Phase 40]: 40-04: UI-SPEC F1 (scroll-margin-top 5rem on both section divs) and F3 (Undo-confirmation prompt says above; flash says the pair is now in Dismissed) applied in 66c1285 — User adopted both on 2026-10-09; they post-date the plan text
 
 ### Pending Todos
 
@@ -174,9 +177,9 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-10T00:02:21.395Z
-**Stopped at:** Phase 40 UI-SPEC approved
-**Resume file:** .planning/phases/40-notebook-isolation-attribution-page/40-UI-SPEC.md
+**Last session:** 2026-10-10T00:21:21.337Z
+**Stopped at:** Completed 40-04-PLAN.md
+**Resume file:** None
 
 ## Operator Next Steps
 

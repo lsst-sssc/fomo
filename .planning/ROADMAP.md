@@ -328,7 +328,7 @@ Plans:
   4. On the attribution page, High-band rows show their marker again, a template test asserts the marker is present in the rendered HTML, and the page's templates use Bootstrap 5.3 class names only
   5. A staff member working down the Dismissed list can press Undo on a row and land back on the same page with the Dismissed section still open, with no re-open or re-page between rows
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -341,7 +341,7 @@ Plans:
 - [x] 40-03-PLAN.md — High-band marker (tracer: `border-0 border-start border-4 border-success`, render test plus Chromium computed-style test); Bootstrap 5.3 names in all eight FOMO templates and `campaign_tables.py`; class-name guard over every repo-owned template directory (IN-12) (WARN-04)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 40-04-PLAN.md — Undo keeps the Dismissed section open on the same page (tracer: whitelisted `_redirect`, Undo forms carry the state, posting the real rendered form); every action keeps band/page/sort, last-page clamp, tampering dropped; browser test of SC 5; runbook text; `campaign_lifecycle_demo` marker and Undo cells re-executed last; ledger WR-15/18, IN-12/15 (WARN-07, WARN-04)
+- [x] 40-04-PLAN.md — Undo keeps the Dismissed section open on the same page (tracer: whitelisted `_redirect`, Undo forms carry the state, posting the real rendered form); every action keeps band/page/sort, last-page clamp, tampering dropped; browser test of SC 5; runbook text; `campaign_lifecycle_demo` marker and Undo cells re-executed last; ledger WR-15/18, IN-12/15 (WARN-07, WARN-04)
 
 **UI hint**: yes
 
@@ -434,7 +434,7 @@ Plans:
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
 | 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 4/4 | Complete    | 2026-10-09 |
-| 40. Notebook Isolation & Attribution Page | v2.5 | 3/4 | In Progress | - |
+| 40. Notebook Isolation & Attribution Page | v2.5 | 4/4 | In Progress | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
 
