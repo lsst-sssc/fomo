@@ -4,11 +4,11 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: executing
+status: gaps_found
 stopped_at: Completed 40-12-PLAN.md
 last_updated: "2026-10-10T19:18:49.640Z"
 last_activity: 2026-10-10
-last_activity_desc: Completed 40-12-PLAN.md
+last_activity_desc: Phase 40 re-verification after gap round 4 — gaps_found 142/146
 state_head: d6dba7c382d8f5906a3ec4a8d2257a55a3655fc8
 progress:
   total_phases: 6
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
+Phase: 40 (Notebook Isolation & Attribution Page) — GAPS FOUND
 Plan: 12 of 12
-Status: All 12 plans executed — ready for re-verification (/gsd-verify-work 40)
-Last activity: 2026-10-10 — Completed 40-12-PLAN.md (developer-approved corrected WARN-02 override reason recorded)
+Status: Gaps found — re-verification 142/146 (automagic exemption trusts non-binding stores (review CR-01); R6 misses a rebound shutil (WR-01); docstring, README and override reason overstate both)
+Last activity: 2026-10-10 — Phase 40 gap round 4 executed (40-10..40-12) and re-verified: gaps_found 142/146
 
 Progress: [████████████████████] 17/17 plans ([██████████] 100%)
 
