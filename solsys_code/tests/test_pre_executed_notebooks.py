@@ -1,6 +1,7 @@
 """Guard tests: every Django-backed pre-executed notebook runs on a scratch database through the shared helper.
 
-Why this module exists (UAT G-37.1-3, then review findings WR-13, WR-14 and WR-17 of the 37.1 review):
+Why this module exists (UAT G-37.1-3, then review findings WR-13, WR-14 and WR-17 of the 37.1 review,
+and WR-01 of the Phase 40 review):
 notebooks under ``docs/notebooks/pre_executed/`` once opened the developer database
 ``src/fomo_db.sqlite3`` and wrote demo rows into it, and a guard that only matched the setup
 cell's text was easy to get around (an own ``FOMO_DATABASE_PATH`` assignment with stale good-looking
@@ -16,8 +17,21 @@ import -- never sets Django up or routes the database itself, never byte-copies 
 behaviour is proven by running it in ``test_notebook_helper.py``.
 
 These tests read notebook JSON only and never execute a notebook. Code is inspected with ``ast`` so a
-comment that merely mentions a name cannot satisfy or trip a check. A static guard cannot see code the
-AST cannot read (for example ``exec()`` of a built string), and does not claim to.
+comment that merely mentions a name cannot satisfy or trip a check.
+
+What the guard checks: R0, a cell that is not parseable Python (IPython magics) must not mention Django or
+a database; R2-R4 and R8-R11, the helper call comes first and once, no own Django setup, one fresh run with
+evidence and teardown output, and no ``assert`` guarding a write; R5-R7, no code naming the database
+variable or the developer database file, and no byte copy of a database; and R12, no re-routing of Django's
+database after the helper call (WR-01). R12 reports, in every notebook, any name, attribute, keyword,
+import name or exact string constant equal to DATABASES, DATABASE_ROUTERS, settings_dict,
+override_settings, modify_settings, developer_database_path, prepare_scratch_database, snapshot_database,
+DatabaseWrapper, load_backend or sqlite3, any attribute chain ending in connections.settings or
+connections.databases, and any import with a sqlite3 module component.
+
+What the guard does not see: code built or run at runtime (``exec``, ``eval`` or ``compile`` of a string,
+``importlib`` or ``getattr`` with a computed name), code inside modules a notebook imports, a re-route made
+through an object first bound to another name, and whatever an imported library does when it runs.
 """
 
 import ast
@@ -41,9 +55,23 @@ SCRATCH_PREFIX = 'fomo-notebook-db-'
 DEVELOPER_DB_NAME = 'fomo_db.sqlite3'
 DB_ENV_VAR = 'FOMO_DATABASE_PATH'
 # R12: names a notebook never needs, because only the helper may choose or change the database.
-REROUTE_NAMES = frozenset({'DATABASES', 'settings_dict', 'override_settings', 'developer_database_path'})
+REROUTE_NAMES = frozenset(
+    {
+        'DATABASES',
+        'DATABASE_ROUTERS',
+        'settings_dict',
+        'override_settings',
+        'modify_settings',
+        'developer_database_path',
+        'prepare_scratch_database',
+        'snapshot_database',
+        'DatabaseWrapper',
+        'load_backend',
+        'sqlite3',
+    }
+)
 # R12: attribute chains (matched when they equal, or end with ``.`` plus, one of these) that reach the same dicts.
-REROUTE_DOTTED_SUFFIXES = ()
+REROUTE_DOTTED_SUFFIXES = ('connections.settings', 'connections.databases')
 # Text every R12 problem carries, so a test can tell an R12 report from any other rule's.
 REROUTE_MARKER = '(R12:'
 RESOLVED_LINE = re.compile(r"Resolved database: '([^']+)'")
@@ -87,7 +115,14 @@ WRITE_CALL_NAMES = frozenset(
 )
 # An unparseable cell (IPython magics) is tolerated unless it is about Django or a database.
 UNPARSEABLE_DJANGO_IMPORT = re.compile(r'^\s*(from|import)\s+(django|solsys_code|tom_)', re.MULTILINE)
-UNPARSEABLE_SUSPECT_TEXT = ('django.setup', DB_ENV_VAR, 'shutil.copy', DEVELOPER_DB_NAME)
+UNPARSEABLE_SUSPECT_TEXT = (
+    'django.setup',
+    DB_ENV_VAR,
+    'shutil.copy',
+    DEVELOPER_DB_NAME,
+    *sorted(REROUTE_NAMES),
+    *REROUTE_DOTTED_SUFFIXES,
+)
 # Text that must never reach a committed notebook (snapshot output comes from the developer database).
 CREDENTIAL_TEXT = re.compile(r'api_key|Authorization|token=|pbkdf2_sha256\$', re.IGNORECASE)
 HORIZON_DIP_LINE = re.compile(r'Las Campanas \(2402 m\): ([0-9.]+) deg')
@@ -344,6 +379,12 @@ def _database_rerouting_problems(parsed) -> list[str]:
                 found.add(node.arg)
             elif isinstance(node, ast.alias):
                 found.update(name for name in (node.name.split('.')[-1], node.asname) if name in REROUTE_NAMES)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in REROUTE_NAMES:
+                found.add(node.value)
+            if isinstance(node, ast.Import) and any('sqlite3' in alias.name.split('.') for alias in node.names):
+                found.add('sqlite3')
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and 'sqlite3' in (node.module or '').split('.'):
+                found.add('sqlite3')
         problems.extend(
             f'code cell {number} references {name}; only {SETUP_FUNCTION} may choose the database '
             f'{REROUTE_MARKER} no re-routing after setup)'
@@ -537,7 +578,7 @@ scratch_db_dir = setup_scratch_django(repo_root_path, mode='fresh')
 """
 
 REFERENCE_SETUP_OUTPUT = (
-    "Django ready: settings module='src.fomo.settings', repo_root='/repo'\n"
+    "Django ready: settings module='src.fomo.settings'\n"
     "Resolved database: '/tmp/fomo-notebook-db-abc123/fomo_db.sqlite3' (fresh scratch database, migrated from empty)\n"
 )
 
@@ -808,6 +849,99 @@ class TestRerouteRuleOnARealNotebook(SimpleTestCase):
         self.assertTrue(problems, 'the guard missed an override_settings re-route after the helper call')
         self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
         self.assertTrue({'override_settings', 'DATABASES', 'developer_database_path'} <= _rerouting_names(problems))
+
+
+class TestRerouteRuleOnSyntheticNotebooks(SimpleTestCase):
+    """WR-01: each way a notebook could re-route Django's database after the helper call, built as a small notebook.
+
+    Every case is the reference notebook plus one extra cell, so the only problems reported are R12's.
+    """
+
+    def assert_reported(self, cases):
+        """Check that each ``(source, expected names)`` case yields only R12 problems naming the expected names."""
+        for source, expected in cases:
+            with self.subTest(source=source):
+                problems = isolation_problems(_notebook(extra_cells=[_code(source)]))
+                self.assertTrue(problems, 'expected the guard to report a problem')
+                self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+                for name in expected:
+                    _first_problem_mentions(self, problems, f'references {name};')
+
+    def test_settings_dict_in_any_spelling_is_a_problem(self):
+        self.assert_reported(
+            [
+                ("connections['default'].settings_dict['NAME'] = x\n", ['settings_dict']),
+                ("getattr(connection, 'settings_dict')['NAME'] = x\n", ['settings_dict']),
+            ]
+        )
+
+    def test_databases_or_routers_in_any_spelling_is_a_problem(self):
+        self.assert_reported(
+            [
+                ("settings.DATABASES['default']['NAME'] = x\n", ['DATABASES']),
+                ("vars(settings)['DATABASES']['default']['NAME'] = x\n", ['DATABASES']),
+                ('settings.configure(DATABASES={})\n', ['DATABASES']),
+                ("settings.DATABASE_ROUTERS = ['a.Router']\n", ['DATABASE_ROUTERS']),
+            ]
+        )
+
+    def test_connection_handler_settings_are_a_problem(self):
+        # Django's ConnectionHandler returns the same dict object as settings.DATABASES from both properties.
+        self.assert_reported(
+            [
+                ("connections.settings['default']['NAME'] = x\n", ['connections.settings']),
+                ("django.db.connections.databases['default']['NAME'] = x\n", ['connections.databases']),
+            ]
+        )
+
+    def test_override_or_modify_settings_is_a_problem(self):
+        self.assert_reported(
+            [
+                ('from django.test import override_settings\n', ['override_settings']),
+                ('django.test.utils.modify_settings(INSTALLED_APPS={}).enable()\n', ['modify_settings']),
+                ('@override_settings(DEBUG=True)\ndef demo():\n    pass\n', ['override_settings']),
+            ]
+        )
+
+    def test_helper_internals_are_a_problem(self):
+        self.assert_reported(
+            [
+                ('from fomo_nb_utils import developer_database_path\n', ['developer_database_path']),
+                ("prepare_scratch_database(repo_root_path, mode='fresh')\n", ['prepare_scratch_database']),
+                ('snapshot_database(a, b)\n', ['snapshot_database']),
+            ]
+        )
+
+    def test_sqlite3_or_a_backend_wrapper_is_a_problem(self):
+        self.assert_reported(
+            [
+                ('import sqlite3\n', ['sqlite3']),
+                ('import sqlite3 as lite\n', ['sqlite3']),
+                ('from sqlite3 import connect\n', ['sqlite3']),
+                ('import sqlite3\nsqlite3.connect(path)\n', ['sqlite3']),
+                ('from django.db.backends.sqlite3.base import DatabaseWrapper\n', ['sqlite3', 'DatabaseWrapper']),
+                ('from django.db.utils import load_backend\n', ['load_backend']),
+            ]
+        )
+
+    def test_the_rule_applies_to_a_notebook_that_does_not_import_django(self):
+        notebook = {'cells': [{'cell_type': 'code', 'source': ['import sqlite3\n'], 'outputs': []}]}
+        self.assertFalse(is_django_backed(notebook))
+        problems = isolation_problems(notebook)
+        _first_problem_mentions(self, problems, 'references sqlite3;')
+        self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+
+    def test_names_in_comments_or_markdown_are_not_a_problem(self):
+        comment = _code('# settings_dict, DATABASES and sqlite3 are never touched here\nprint(1)\n')
+        notebook = _notebook(extra_cells=[comment])
+        notebook['cells'].append(
+            {'cell_type': 'markdown', 'source': ['The helper uses override_settings and connections.settings.']}
+        )
+        self.assertEqual(isolation_problems(notebook), [])
+
+    def test_an_unparseable_cell_that_reroutes_is_a_problem(self):
+        source = "%%time\nconnections['default'].settings_dict['NAME'] = x\n"
+        _first_problem_mentions(self, isolation_problems(_notebook(extra_cells=[_code(source)])), 'not parseable')
 
 
 class TestPreExecutedNotebooksUseTheHelper(SimpleTestCase):
