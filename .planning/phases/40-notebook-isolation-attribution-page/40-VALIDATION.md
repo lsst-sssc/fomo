@@ -56,6 +56,7 @@ Filled in by the planner and executor; requirement-level map from RESEARCH.md:
 | WARN-02 | (gap round) R12 reports any `DATABASES`/`settings_dict`/`override_settings`/`modify_settings`/router/connection-handler/helper-internal/sqlite3 use in any cell; all eight real notebooks pass | unit (synthetic notebooks) | `python manage.py test solsys_code.tests.test_pre_executed_notebooks` | ✅ | ✅ green |
 | WARN-02 | (gap round 2) R12 bans whole capabilities -- process start, environment change, connection replacement, code from a string or file, raw SQL ATTACH -- and R0 reports shell escapes and `manage.py` / `env -i` / `env -u` text; the four re-review forms are reported on a real-notebook copy; all eight real notebooks pass; residual accepted by override | unit (synthetic + real-notebook copies) | `python manage.py test solsys_code.tests.test_pre_executed_notebooks` | ✅ | ✅ green |
 | WARN-03 | (gap round 2) Fail-closed step switches every alias to the dummy backend before a best-effort close and keeps the helper's own `RuntimeError` (no default alias, failing close, failing disable step) | subprocess | `python manage.py test solsys_code.tests.test_notebook_helper` | ✅ | ✅ green |
+| WARN-02 | (gap round 4) R12 matches every listed name at every identifier, in every '.'/':' part of a string or bytes constant and in string code; R6 covers copytree/copyfileobj/move/write_bytes in any spelling; R0 is an allow-list (Python IPython runs unchanged apart from `%matplotlib inline` and a first-line `%%time`/`%%capture`) plus an automagic rule for one-line cells; every third-review and verifier-probe form is reported on a real-notebook copy; all eight real notebooks pass | unit (synthetic + real-notebook copies) | `python manage.py test solsys_code.tests.test_pre_executed_notebooks` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -87,6 +88,12 @@ Filled in by the planner and executor; requirement-level map from RESEARCH.md:
 | 40-09 T1 (tracer, gap) | WARN-05, WARN-02, WARN-03 | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper` + telescope_runs_demo output/prose checks | — | ✅ green |
 | 40-09 T2 (gap) | WARN-05, WARN-03 | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper` + five fresh notebooks' output/prose checks | — | ✅ green |
 | 40-09 T3 (gap) | WARN-05, WARN-02, WARN-03 (IN-02) | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper solsys_code.tests.test_projector_demo_notebook` + snapshot notebooks, home-path inventory, ledger and override checks | — | ✅ green |
+| 40-10 T1 (tracer, gap) | WARN-02 (CR-01 a) | `solsys_code.tests.test_pre_executed_notebooks` (R12 at every identifier; `from webbrowser import subprocess` on a real-notebook copy; RED log `phase40-10-t1-red.log`) | — | ✅ green |
+| 40-10 T2 (gap) | WARN-02, WARN-05 (CR-01 b-e, WR-01) | `solsys_code.tests.test_pre_executed_notebooks` (R12 string/bytes parts and string code, new lookup/process/connection names, ATTACH (; R6 copytree/copyfileobj/move/write_bytes; RED log `phase40-10-t2-red.log`) | — | ✅ green |
+| 40-10 T3 (gap) | WARN-02 (CR-02) | `solsys_code.tests.test_pre_executed_notebooks` (R0 allow-list over IPython's TransformerManager + automagic rule; alias/magic forms on a real-notebook copy; RED log `phase40-10-t3-red.log`) + ledger check | — | ✅ green |
+| 40-11 T1 (gap) | WARN-02, WARN-03 (CR-01 docs, IN-01) | `solsys_code.tests.test_pre_executed_notebooks` `solsys_code.tests.test_notebook_helper solsys_code.tests.test_projector_demo_notebook` + docstring/README/helper-docstring checks (code unchanged with docstrings stripped) | — | ✅ green |
+| 40-11 T2 (gap) | WARN-05 (WR-02) | `solsys_code.tests.test_pre_executed_notebooks` + nbformat cell-id check (six markdown sentences; code cells and outputs identical to 1930f31; widened 'never opened' check clean in all eight notebooks) + ledger check | — | ✅ green |
+| 40-12 T1-T3 (gap, checkpoint) | WARN-02 (CR-01, CR-02 override) | draft check (every reason claim backed by a named guard test or docstring phrase), YAML load of the edited front matter, file-set check (only 40-VERIFICATION.md changed); developer approved 2026-10-10T19:14:57Z | — | ✅ green |
 
 The README-vs-notebook-modes item formerly listed under Manual-Only is automated by 40-02 T2
 (`test_readme_lists_each_notebook_under_its_mode`).
@@ -121,7 +128,7 @@ No framework install needed.
 - [x] Feedback latency < 90s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** approved 2026-10-09 (validate-phase State A audit: 0 gaps; 552 tests across the phase-40 modules OK incl. functional; configured full suite 2280 + 40 OK); re-approved 2026-10-10 after gap plans 40-05..40-07 (State A: 8 task rows added, 0 gaps; configured full suite 2305 + 40 OK at faacbfe); re-approved 2026-10-10 after gap plans 40-08..40-09 (State A: 6 task rows and 2 requirement rows added, 0 test gaps; configured full suite 2321 + 40 OK at 7e1fdad; the guard-coverage defects in 40-REVIEW.md CR-01/CR-02 are verification gaps, not missing tests)
+**Approval:** approved 2026-10-09 (validate-phase State A audit: 0 gaps; 552 tests across the phase-40 modules OK incl. functional; configured full suite 2280 + 40 OK); re-approved 2026-10-10 after gap plans 40-05..40-07 (State A: 8 task rows added, 0 gaps; configured full suite 2305 + 40 OK at faacbfe); re-approved 2026-10-10 after gap plans 40-08..40-09 (State A: 6 task rows and 2 requirement rows added, 0 test gaps; configured full suite 2321 + 40 OK at 7e1fdad; the guard-coverage defects in 40-REVIEW.md CR-01/CR-02 are verification gaps, not missing tests); re-approved 2026-10-10 after gap plans 40-10..40-12 (State A: 6 task rows and 1 requirement row added, 0 test gaps; guard module 63 -> 82 tests; configured full suite 2340 + 40 OK at d688504)
 
 ## Validation Audit 2026-10-10
 
