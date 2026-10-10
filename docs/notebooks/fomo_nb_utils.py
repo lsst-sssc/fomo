@@ -57,6 +57,9 @@ SCRATCH_DB_NAME = 'fomo_db.sqlite3'
 SCRATCH_MODES = ('fresh', 'snapshot')
 TEARDOWN_LINE_PREFIX = 'Removed scratch database directory:'
 
+# The environment variables setup_scratch_django() changes; a failed setup and the teardown put them back.
+_ROUTING_ENVIRON = ('FOMO_DATABASE_PATH', 'DJANGO_ALLOW_ASYNC_UNSAFE')
+
 _MODE_DESCRIPTIONS = {
     'fresh': 'fresh scratch database, migrated from empty',
     'snapshot': (
@@ -124,6 +127,46 @@ def check_resolved_database(resolved_name, scratch_db_path):
         )
 
 
+def _restore_environ(previous):
+    """Put environment variables back to the values they had before the setup.
+
+    Args:
+        previous: mapping of variable name to its earlier value, or ``None`` when the variable was
+            not set; such a variable is removed, never set to an empty string.
+    """
+    for name, value in previous.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
+def _disable_django_databases():
+    """Leave Django unable to reach any database, so a refused or half-finished setup cannot be used.
+
+    Every connection is closed, every cached connection wrapper is dropped, and every configured
+    alias is switched to Django's dummy backend, which raises ``ImproperlyConfigured`` on any query.
+    The alias dicts are changed in place because Django's connection handler holds the same dict
+    object as ``settings.DATABASES``; dropping the cached wrapper makes the next access build a
+    dummy one. When the setup failed before the settings were read, a dummy-only configuration is
+    installed instead, so a later query still cannot reach a real database.
+    """
+    from django.conf import settings as django_settings
+    from django.db import connections
+
+    if not django_settings.configured:
+        django_settings.configure(DATABASES={'default': {'ENGINE': 'django.db.backends.dummy'}})
+    connections.close_all()
+    for alias in list(django_settings.DATABASES):
+        try:
+            del connections[alias]
+        except AttributeError:
+            # No wrapper was cached for this alias, so there is nothing to drop.
+            pass
+        django_settings.DATABASES[alias]['ENGINE'] = 'django.db.backends.dummy'
+        django_settings.DATABASES[alias]['NAME'] = ''
+
+
 def prepare_scratch_database(repo_root, mode='fresh'):
     """Create the scratch directory and, in snapshot mode, fill it with a read-only snapshot.
 
@@ -159,10 +202,11 @@ def prepare_scratch_database(repo_root, mode='fresh'):
 
 
 def setup_scratch_django(repo_root, mode='fresh'):
-    """Route Django to a scratch database, set it up, check the route, migrate and print the evidence.
+    """Route Django to a scratch database, check the route, set Django up, migrate and print the evidence.
 
     Call this once, as the first Django-related statement of a notebook. ``repo_root`` must already
-    be on ``sys.path`` so that ``src.fomo.settings`` imports.
+    be on ``sys.path`` so that ``src.fomo.settings`` imports. The settings are read and checked
+    before ``django.setup()`` runs, so a refused database is never made reachable.
 
     Args:
         repo_root: path of the repository (the directory holding manage.py).
@@ -173,19 +217,28 @@ def setup_scratch_django(repo_root, mode='fresh'):
         pathlib.Path: the scratch directory, to hand to ``teardown_scratch_django()``.
 
     Raises:
-        RuntimeError: Django is already set up in this interpreter (restart the kernel), snapshot
-            mode found no developer database, or Django resolved a database other than the scratch
-            one. The scratch directory is removed before the error propagates.
+        RuntimeError: Django is already set up or configured in this interpreter (restart the
+            kernel), snapshot mode found no developer database, or the settings resolve a database
+            other than the scratch one. Once the settings are loaded, any failure (the refusal
+            itself, or a later one such as in ``migrate``) closes every connection and switches every
+            database alias to Django's dummy backend before the error propagates, so no database is
+            reachable until the kernel is restarted. The scratch directory is removed and the
+            routing environment variables are put back.
         ValueError: ``mode`` is not one of ``SCRATCH_MODES``.
     """
     from django.apps import apps
+    from django.conf import settings as django_settings
 
-    if apps.ready:
+    # Outside the try below on purpose: the disable step must only ever run on a setup this function
+    # started, never on a Django that was already running (for example the test runner's).
+    if apps.ready or django_settings.configured:
         raise RuntimeError(
-            'Django is already set up in this interpreter, so the database cannot be re-routed; '
-            'restart the kernel (Restart & Run All) instead of re-running the setup cell.'
+            'Django is already set up or configured in this interpreter (a setup in this kernel already ran '
+            'or failed), so the database cannot be re-routed; restart the kernel (Restart & Run All) '
+            'instead of re-running the setup cell.'
         )
     scratch_db_path = prepare_scratch_database(repo_root, mode)
+    previous_environ = {name: os.environ.get(name) for name in _ROUTING_ENVIRON}
     try:
         # Plain assignment, never setdefault, so an inherited value can never point a notebook at a
         # real database. The value is non-empty: settings.py treats an empty one as "unset" and
@@ -196,19 +249,27 @@ def setup_scratch_django(repo_root, mode='fresh'):
         # default and refuses to run there; this opts back in.
         os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', 'true')
 
+        # Reading the lazy settings loads the settings module without populating the app registry or
+        # opening a connection, so the database Django would use is checked before django.setup().
+        resolved_name = (django_settings.DATABASES.get('default') or {}).get('NAME')
+        check_resolved_database(resolved_name, scratch_db_path)
+
         import django
 
         django.setup()
 
-        from django.conf import settings as django_settings
         from django.core.management import call_command
 
-        resolved_name = django_settings.DATABASES['default']['NAME']
-        check_resolved_database(resolved_name, scratch_db_path)
         # A snapshot can be behind head, and a fresh database has no tables yet.
         call_command('migrate', verbosity=0)
     except BaseException:
-        shutil.rmtree(scratch_db_path.parent, ignore_errors=True)
+        # Order matters: closing connections is async_unsafe, so DJANGO_ALLOW_ASYNC_UNSAFE must still
+        # be set while _disable_django_databases() runs; the environment is restored last.
+        try:
+            _disable_django_databases()
+        finally:
+            shutil.rmtree(scratch_db_path.parent, ignore_errors=True)
+            _restore_environ(previous_environ)
         raise
     print(f'Django ready: settings module={os.environ["DJANGO_SETTINGS_MODULE"]!r}, repo_root={str(repo_root)!r}')
     print(f'Resolved database: {resolved_name!r} ({_MODE_DESCRIPTIONS[mode]})')

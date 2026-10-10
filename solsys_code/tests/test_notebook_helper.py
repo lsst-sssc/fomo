@@ -84,6 +84,64 @@ def _make_sqlite_file(path):
         connection.close()
 
 
+def _write_override_settings(directory, extra_source):
+    """Write a settings module that extends ``src.fomo.settings`` and return its module name.
+
+    Args:
+        directory: directory to write ``override_settings_for_helper_test.py`` into; put it on the
+            child's ``PYTHONPATH`` and name the module in ``DJANGO_SETTINGS_MODULE``.
+        extra_source: Python source appended after the ``from src.fomo.settings import *`` line.
+
+    Returns:
+        str: the module name, ``'override_settings_for_helper_test'``.
+    """
+    (Path(directory) / 'override_settings_for_helper_test.py').write_text(
+        'from src.fomo.settings import *  # noqa: F403\n' + extra_source,
+        encoding='utf-8',
+    )
+    return 'override_settings_for_helper_test'
+
+
+def _refusal_probe_script():
+    """Return child-process source that runs the setup, then probes what the interpreter can still reach.
+
+    The child prints ``REFUSED <message>`` when the setup refuses, then ``APPS_READY``, the two routing
+    variables, one ``WRITE_SUCCEEDED <alias>`` or ``WRITE_REFUSED <alias> <exception class>`` line per
+    configured alias (a raw ``CREATE TABLE`` through that alias's cursor), and finally whether a second
+    setup call is refused.
+
+    Returns:
+        str: the script text, for ``_run_helper_script``.
+    """
+    return (
+        'import os, sys\n'
+        'os.environ.pop("DJANGO_ALLOW_ASYNC_UNSAFE", None)\n'
+        f'sys.path.insert(0, {str(HELPER_PATH.parent)!r})\n'
+        'from fomo_nb_utils import setup_scratch_django\n'
+        'try:\n'
+        f'    setup_scratch_django({str(_REPO_ROOT)!r}, mode="fresh")\n'
+        'except RuntimeError as exc:\n'
+        '    print("REFUSED", exc)\n'
+        'import django.apps\n'
+        'print("APPS_READY", django.apps.apps.ready)\n'
+        'print("FOMO_DATABASE_PATH_AFTER", repr(os.environ.get("FOMO_DATABASE_PATH")))\n'
+        'print("ASYNC_UNSAFE_AFTER", repr(os.environ.get("DJANGO_ALLOW_ASYNC_UNSAFE")))\n'
+        'from django.db import connections\n'
+        'for alias in list(connections):\n'
+        '    try:\n'
+        '        with connections[alias].cursor() as cursor:\n'
+        '            cursor.execute("CREATE TABLE written_after_refusal (id INTEGER)")\n'
+        '        print("WRITE_SUCCEEDED", alias)\n'
+        '    except Exception as exc:\n'
+        '        print("WRITE_REFUSED", alias, type(exc).__name__)\n'
+        'try:\n'
+        f'    setup_scratch_django({str(_REPO_ROOT)!r}, mode="fresh")\n'
+        '    print("SECOND_SETUP_SUCCEEDED")\n'
+        'except RuntimeError as exc:\n'
+        '    print("SECOND_SETUP_REFUSED", exc)\n'
+    )
+
+
 class TestNotebookHelperModule(SimpleTestCase):
     """Static and import-time properties of the helper file."""
 
@@ -202,13 +260,22 @@ class TestSnapshotAndRouting(SimpleTestCase):
                     self.assertNotIsInstance(caught.exception, AssertionError)
 
     def test_setup_refuses_when_django_is_already_set_up(self):
+        """Refuse before anything is created, and never disable a Django the helper did not start."""
+        from django.conf import settings
+        from django.db import connections
+
         helper = _load_helper()
         before = os.environ.get('FOMO_DATABASE_PATH')
+        default_before = dict(settings.DATABASES['default'])
+        engine_before = connections['default'].settings_dict['ENGINE']
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(helper.tempfile, 'mkdtemp') as mkdtemp:
             with self.assertRaises(RuntimeError):
                 helper.setup_scratch_django(tmp)
         mkdtemp.assert_not_called()
         self.assertEqual(os.environ.get('FOMO_DATABASE_PATH'), before)
+        self.assertEqual(settings.DATABASES['default']['ENGINE'], default_before['ENGINE'])
+        self.assertEqual(settings.DATABASES['default']['NAME'], default_before['NAME'])
+        self.assertEqual(connections['default'].settings_dict['ENGINE'], engine_before)
 
     def test_teardown_refuses_a_directory_without_the_scratch_prefix(self):
         helper = _load_helper()
@@ -279,3 +346,77 @@ class TestHelperRunsForReal(SimpleTestCase):
                 self.assertNotIn('Resolved database:', result.stdout)
                 self.assertFalse(other_db.exists(), 'the override database was created')
                 self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
+
+
+class TestHelperRefusalLeavesNoDatabase(SimpleTestCase):
+    """CR-01 (40-REVIEW.md, 40-VERIFICATION.md gap 1): a refusal must leave no database reachable.
+
+    The helper used to call ``django.setup()`` before it checked which database Django resolved, so
+    a refusal left Django set up against the refused database and the next notebook cell wrote
+    there. Each test runs in a fresh interpreter and a test-owned temp directory, because only a
+    child process can show what is reachable after the helper has raised.
+    """
+
+    def test_a_refused_setup_leaves_django_unable_to_reach_any_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            other_db = Path(tmp) / 'other.sqlite3'
+            module = _write_override_settings(
+                tmp,
+                f"DATABASES = {{'default': {{'ENGINE': 'django.db.backends.sqlite3', 'NAME': {str(other_db)!r}}}}}\n",
+            )
+            env = {'TMPDIR': tmp, 'PYTHONPATH': tmp, 'DJANGO_SETTINGS_MODULE': module}
+            result = _run_helper_script(_refusal_probe_script(), env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertRegex(result.stdout, r'REFUSED .*is not the scratch database')
+            self.assertIn('APPS_READY False', result.stdout)
+            self.assertIn('WRITE_REFUSED default ImproperlyConfigured', result.stdout)
+            self.assertIn('FOMO_DATABASE_PATH_AFTER None', result.stdout)
+            self.assertIn('ASYNC_UNSAFE_AFTER None', result.stdout)
+            self.assertRegex(result.stdout, r'SECOND_SETUP_REFUSED .*restart the kernel')
+            self.assertNotIn('WRITE_SUCCEEDED', result.stdout)
+            self.assertNotIn('SECOND_SETUP_SUCCEEDED', result.stdout)
+            self.assertNotIn('Resolved database:', result.stdout)
+            self.assertFalse(other_db.exists(), 'the override database was created')
+            self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
+
+    def test_a_failure_after_django_setup_leaves_no_usable_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = (
+                'import os, sys\n'
+                'os.environ.pop("DJANGO_ALLOW_ASYNC_UNSAFE", None)\n'
+                'import django.core.management\n'
+                'def _fail(*args, **kwargs):\n'
+                '    raise RuntimeError("migrate failed (forced by the test)")\n'
+                'django.core.management.call_command = _fail\n'
+                f'sys.path.insert(0, {str(HELPER_PATH.parent)!r})\n'
+                'from fomo_nb_utils import setup_scratch_django\n'
+                'try:\n'
+                f'    setup_scratch_django({str(_REPO_ROOT)!r}, mode="fresh")\n'
+                'except RuntimeError as exc:\n'
+                '    print("REFUSED", exc)\n'
+                'import django.apps\n'
+                'print("APPS_READY", django.apps.apps.ready)\n'
+                'from django.db import connections\n'
+                'try:\n'
+                '    with connections["default"].cursor() as cursor:\n'
+                '        cursor.execute("CREATE TABLE written_after_failure (id INTEGER)")\n'
+                '    print("WRITE_SUCCEEDED default")\n'
+                'except Exception as exc:\n'
+                '    print("WRITE_REFUSED default", type(exc).__name__)\n'
+                'from django.contrib.auth.models import User\n'
+                'try:\n'
+                '    User.objects.count()\n'
+                '    print("ORM_SUCCEEDED")\n'
+                'except Exception as exc:\n'
+                '    print("ORM_REFUSED", type(exc).__name__)\n'
+            )
+            result = _run_helper_script(script, {'TMPDIR': tmp})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('REFUSED migrate failed (forced by the test)', result.stdout)
+            self.assertIn('APPS_READY True', result.stdout)
+            self.assertIn('WRITE_REFUSED default ImproperlyConfigured', result.stdout)
+            self.assertIn('ORM_REFUSED ImproperlyConfigured', result.stdout)
+            self.assertNotIn('WRITE_SUCCEEDED', result.stdout)
+            self.assertNotIn('ORM_SUCCEEDED', result.stdout)
+            self.assertNotIn('Resolved database:', result.stdout)
+            self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
