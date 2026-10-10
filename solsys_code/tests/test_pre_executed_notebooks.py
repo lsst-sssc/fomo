@@ -413,48 +413,23 @@ def _ipython_line_magic_names() -> frozenset[str]:
     return frozenset(names)
 
 
-def _module_bindings(tree: ast.AST) -> set[str]:
-    """Return the names a cell binds at module level, which shadow an IPython magic or alias of the same name.
-
-    Name stores, import bound names (the alias, the first part of ``import a.b``, or the imported name; a star
-    import binds nothing), function and class names and exception names, in compound statements too, but not in
-    the bodies of functions, classes, lambdas and comprehensions.
-    """
-    bound = set()
-    pending = [tree]
-    while pending:
-        node = pending.pop()
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            bound.add(node.id)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            for alias in node.names:
-                if alias.name != '*':
-                    bound.add(alias.asname or alias.name.split('.')[0])
-        elif isinstance(node, ast.ExceptHandler) and node.name is not None:
-            bound.add(node.name)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bound.add(node.name)
-            continue
-        if isinstance(node, (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-            continue
-        pending.extend(ast.iter_child_nodes(node))
-    return bound
-
-
-def _automagic_word(view: str, bound: set[str]) -> str | None:
+def _automagic_word(view: str) -> str | None:
     """Return the magic or alias IPython's automagic would run for a one-line cell, or None.
 
     IPython applies automagic only to a cell that is one line, when its first word (as ``split_user_input`` reads
-    it) is a line magic or alias not shadowed by a user name, a builtin or a keyword (AutoMagicChecker) and is not
-    followed by ``=`` or ``,`` (AssignmentChecker). ``rm -r -- 'x'`` is valid Python, yet IPython runs ``rm``.
-    Blank lines do not count, so the check errs towards reporting.
+    it) is a line magic or alias that is not shadowed by a name bound when the cell runs, a builtin or a keyword
+    (AutoMagicChecker), and is not followed by ``=`` or ``,`` (AssignmentChecker). ``rm -r -- 'x'`` is valid
+    Python, yet IPython runs ``rm``. Whether a name is bound when the cell runs cannot be read from the source: a
+    bare annotation, an ``if False:`` branch, an empty loop target or an ``except ... as`` name binds nothing, and
+    ``del`` unbinds. So the word is reported whatever the notebook binds; only a builtin, a keyword and a following
+    ``=`` or ``,`` stay exempt, because they hold at runtime whatever the notebook's source says. Blank lines do
+    not count, so the check errs towards reporting.
 
     Args:
         view: A cell's Python view, which parses and which IPython does not rewrite.
-        bound: Names the notebook binds at module level in earlier cells.
 
     Returns:
-        The first word when IPython would run it as a magic or alias, otherwise None.
+        The first word when IPython may run it as a magic or alias, otherwise None.
     """
     lines = [line for line in view.splitlines() if line.strip()]
     if len(lines) != 1:
@@ -467,7 +442,6 @@ def _automagic_word(view: str, bound: set[str]) -> str | None:
         or not word.isidentifier()
         or iskeyword(word)
         or word in vars(builtins)
-        or word in bound
         or rest.lstrip()[:1] in ('=', ',')
     ):
         return None
@@ -919,8 +893,9 @@ def isolation_problems(notebook: dict) -> list[str]:
         apply to every notebook (no own database routing, no byte copy, no developer database file name, and
         none of the names R12 lists for re-routing the database after setup). R0 also applies to every notebook:
         each code cell must be Python that IPython runs unchanged once ``%matplotlib inline`` and a first-line
-        ``%%time`` or ``%%capture`` are removed, and a one-line cell may not start with an IPython magic or alias
-        the notebook does not define; every later rule reads each cell's Python view.
+        ``%%time`` or ``%%capture`` are removed, and a one-line cell may not start with an IPython line magic or
+        alias name, whatever an earlier cell binds (only a builtin, a keyword or a word followed by ``=`` or ``,``
+        is exempt); every later rule reads each cell's Python view.
     """
     problems = []
     code_cells = _code_cells(notebook)
@@ -930,7 +905,6 @@ def isolation_problems(notebook: dict) -> list[str]:
     # its Python view (harmless magic lines removed); the deny-list message comes first, then the allow-list. At most
     # one R0 problem per cell, in cell order.
     views = []
-    bound: set[str] = set()
     for number, cell, tree in parsed:
         source = _cell_source(cell)
         view = _python_view(source)
@@ -955,13 +929,12 @@ def isolation_problems(notebook: dict) -> list[str]:
                 f'code cell {number} is Python that IPython would rewrite before running it (a prompt prefix, an '
                 f'escape or a magic), so it cannot be checked {R0_REWRITE_MARKER})'
             )
-        elif (word := _automagic_word(view, bound)) is not None:
+        elif (word := _automagic_word(view)) is not None:
             problems.append(
-                f'code cell {number} is one line that starts with {word!r}, an IPython magic or alias the notebook '
-                f'does not define, so IPython would run it as a magic or a shell command {R0_AUTOMAGIC_MARKER})'
+                f'code cell {number} is one line that starts with {word!r}, an IPython line magic or alias name, '
+                "which IPython's automagic runs as a magic or a shell command unless that name is bound when the "
+                f'cell runs, so the guard reports it {R0_AUTOMAGIC_MARKER})'
             )
-        if view_tree is not None:
-            bound |= _module_bindings(view_tree)
         views.append((number, cell, view_tree))
     # Every later rule reads the Python views, so the code under a harmless magic is checked like any other cell.
     parsed = views
@@ -2081,12 +2054,13 @@ class TestR6CopyAndWriteFunctions(SimpleTestCase):
 
 
 class TestR0AllowList(SimpleTestCase):
-    """CR-02 of the third review and developer decision D-G5 (2).
+    """CR-02 of the third review with developer decision D-G5 (2), and CR-01 of the fourth review with D-G7 (1).
 
     IPython runs more than the escapes R0 listed -- aliases, automagic, escapes after a line magic, prompt prefixes
     -- so every cell must be Python that IPython runs unchanged, apart from a few harmless magic lines, and a
-    one-line cell may not start with a magic or alias the notebook does not define. Every case is the reference
-    notebook plus the extra cells shown.
+    one-line cell may not start with an IPython magic or alias name whatever an earlier cell binds (only a builtin,
+    a keyword or a word followed by ``=`` or ``,`` is exempt), because IPython decides from the names bound when
+    the cell runs. Every case is the reference notebook plus the extra cells shown, or a copy of a real notebook.
     """
 
     def problems_with(self, *sources):
@@ -2134,7 +2108,10 @@ class TestR0AllowList(SimpleTestCase):
             with self.subTest(source=source):
                 _first_problem_mentions(self, self.problems_with(source), text)
 
-    def test_a_one_line_magic_or_alias_is_a_problem_unless_the_notebook_defines_the_name(self):
+    def test_a_one_line_magic_or_alias_is_a_problem_even_when_an_earlier_cell_binds_the_name(self):
+        # IPython decides from the names bound when the cell runs (is_shadowed), and a bare annotation, an
+        # `if False:` branch, an empty loop or an `except ... as` name binds nothing at runtime, so the guard cannot
+        # trust any binding it reads in the source (D-G7 1, CR-01 of the fourth review).
         reported = [
             "rm -r -- 'x'\n",
             'cp\n',
@@ -2152,13 +2129,17 @@ class TestR0AllowList(SimpleTestCase):
                 problems = self.problems_with(source)
                 self.assertTrue(problems, 'the guard missed a one-line magic or alias')
                 self.assertTrue(all(R0_AUTOMAGIC_MARKER in problem for problem in problems), problems)
+        with self.subTest('time bound by an earlier import'):
+            problems = self.problems_with('import time\n', 'time\n')
+            self.assertTrue(problems, 'an earlier import must not exempt a one-line cell')
+            self.assertTrue(all(R0_AUTOMAGIC_MARKER in problem for problem in problems), problems)
+            self.assertTrue(all('bound when the cell runs' in problem for problem in problems), problems)
         allowed = {
             'time = 5': ['time = 5\n'],
             'rm = 3': ['rm = 3\n'],
             'rm, cp = 1, 2': ['rm, cp = 1, 2\n'],
             'run_report()': ['run_report()\n'],
             'print(1)': ['print(1)\n'],
-            'time bound by an earlier import': ['import time\n', 'time\n'],
             'two lines': ["rm -r -- 'x'\ny = 1\n"],
         }
         for label, sources in allowed.items():
@@ -2169,6 +2150,23 @@ class TestR0AllowList(SimpleTestCase):
             self.assertTrue(problems)
             self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
             self.assertFalse(any(R0_AUTOMAGIC_MARKER in problem for problem in problems), problems)
+        notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+        bindings = {
+            'bare annotation': 'rm: int\n',
+            'if False branch': 'if False:\n    rm = 1\n',
+            'empty for loop': 'for rm in []:\n    pass\n',
+            'except as': 'try:\n    pass\nexcept OSError as rm:\n    pass\n',
+            'plain assignment': 'rm = 1\n',
+            'import': 'from os import remove as rm\n',
+            'assignment then del': 'rm = 1\ndel rm\n',
+        }
+        for label, binding in bindings.items():
+            with self.subTest(label):
+                bound = _append_to_setup_cell(notebook, binding)
+                self.assertEqual(isolation_problems(bound), [], 'the binding alone must be clean')
+                problems = isolation_problems(_insert_code_cell_after_setup(bound, "rm -r -- '../../src'\n"))
+                self.assertTrue(problems, 'the alias cell after the binding was not reported')
+                self.assertTrue(all(R0_AUTOMAGIC_MARKER in problem for problem in problems), problems)
 
     def test_the_automagic_rule_knows_every_line_magic_a_fresh_ipython_shell_has(self):
         child = (
