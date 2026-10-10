@@ -65,7 +65,7 @@ recorded: 2026-10-10T16:04:32.986Z
 | WR-01 | warning | open | - |
 | WR-02 | warning | open | - |
 | IN-01 | info | open | - |
-| IN-02 | info | fixed | 40-05 Task 2 (7cfd78e) and 40-07 (29490c3, 8beeb5c, 304022a); the remaining spiceypy stderr line in campaign_lifecycle_demo is third-party output, listed in 40-07-SUMMARY (not in the current review) |
+| IN-02 | info | fixed | Fixed in 40-09 Task 3 (0020360): reconcile_campaign_runs_demo's three NF-14 labels describe what the cell counts instead of a hard-coded record, and project_observation_calendar_demo's requirement table cites its real section and tally cell (not in the current review) |
 | IN-03 | info | open | out of scope for the gap round (developer decision 2026-10-09); for Phase 41 triage (not in the current review) |
 | WR-03 | warning | open | - (not in the current review) |
 | IN-04 | info | open | - (not in the current review) |
@@ -76,3 +76,29 @@ recorded: 2026-10-10T16:04:32.986Z
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
 Set `deferred` by hand and put the reason in the Source cell; both are preserved. A `|` in the reason is kept as prose and escaped on the next run.
 Re-running the gate keeps every row it can. A row the current review no longer reports is kept and its Source cell flagged, so a finding does not leave this record silently. ONE exception: when a finding id is REUSED by a different finding, the earlier decision cannot keep a row — the id is taken — and it is dropped. A RECORDED decision (anything but `open`) is named on the console when that happens; a row still at `open` is replaced silently, because `open` records no decision to lose.
+
+## ID reuse across rounds
+
+The 2026-10-10 re-review (commit 269d8c5, after gap plans 40-05..40-07) reused the ids WR-01, WR-02 and IN-01..IN-03 for
+new findings, so the rows above under those ids are the NEW findings. The round-1 findings (review commit e129b4f) that
+held those ids, and what happened to them:
+
+| Round-1 id | Round-1 finding | Disposition | Source |
+|------------|-----------------|-------------|--------|
+| WR-01 | The static guard does not catch a notebook that re-routes the database after setup | fixed | 40-06 (50ffb59, 26940ce): rule R12; the re-review confirms both verifier probes are caught, and its new WR-01 reports two further re-route forms R12 misses |
+| WR-02 | The resolved-path check covers only the `default` alias | fixed | 40-05 Task 2 (7cfd78e): `check_database_settings` refuses extra aliases and `DATABASE_ROUTERS`; confirmed by the re-review |
+| IN-01 | `FOMO_DATABASE_PATH` / `DJANGO_ALLOW_ASYNC_UNSAFE` stay set after teardown or a failed setup | fixed | 40-05 Tasks 1 and 3 (222a25f, 819321e); confirmed by the re-review |
+| IN-02 | Committed notebook output publishes the developer's absolute home path | fixed | 40-05 Task 2 (7cfd78e) and 40-07 (29490c3, 8beeb5c, 304022a); the remaining spiceypy stderr line in campaign_lifecycle_demo is third-party output, listed in 40-07-SUMMARY |
+| IN-03 | Attribution worklists have no pager, and their page keys are outside the return state | open | out of scope for the gap round (developer decision 2026-10-09); for Phase 41 triage |
+
+## ID reuse across rounds (round 3, 2026-10-10)
+
+The third review (commit 93bb514's 40-REVIEW.md, after gap plans 40-08..40-09) reused four ids. The rows above now
+name the new findings; the decisions recorded for the old findings under those ids were:
+
+| Id | Earlier finding (review commit) | Decision |
+|----|----------------------------------|----------|
+| CR-01 | The helper refuses a non-scratch database but leaves Django set up against it, so the next cell writes there (e129b4f) | fixed in 40-05 Task 1 (222a25f) |
+| WR-01 | R12 misses a database re-route through a new `ConnectionHandler` wrapper and through a child process with a cleared environment (269d8c5) | fixed in 40-08 Tasks 1-2 (301bd93, f1b4bb6) |
+| WR-02 | The fail-closed step is not exception-safe; with no `default` alias it masks the helper's `RuntimeError` (269d8c5) | fixed in 40-08 Task 3 (c45edbc) |
+| IN-01 | README and all eight notebooks say a failed setup leaves no reachable database and cannot be re-run (269d8c5) | fixed in 40-08 Task 3 (c45edbc) and 40-09 (25eae59, c68bf7b, 0020360) |
