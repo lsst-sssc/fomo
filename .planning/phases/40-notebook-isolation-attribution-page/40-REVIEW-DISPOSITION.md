@@ -5,7 +5,7 @@ titles: json
 findings:
   - id: CR-01
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "R12 misses plain-source process, connection and ATTACH routes: module names are not matched as names, the `connection` proxy is not listed, and `ATTACH (` passes"
   - id: CR-02
     severity: critical
@@ -17,11 +17,11 @@ findings:
     title: "R6 lists only `copy`, `copy2` and `copyfile`, so `shutil.copytree` or `write_bytes` byte-copies over the developer database without naming it"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "three notebooks still publish the unmeasured \"developer database was never opened\" claim that D-G2 withdrew"
   - id: IN-01
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`_disable_django_databases` docstring overstates what the in-place switch does on its own"
   - id: IN-02
     severity: info
@@ -51,7 +51,7 @@ findings:
     severity: info
     disposition: deferred
     title: "Small test and code tidy-ups"
-open: 6
+open: 3
 total: 12
 recorded: 2026-10-10T16:04:32.986Z
 ---
@@ -60,11 +60,11 @@ recorded: 2026-10-10T16:04:32.986Z
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-01 | critical | open | - |
+| CR-01 | critical | fixed | fixed in 40-10 Tasks 1-2 (482606b, 3232341) and 40-11 Task 1 (7af64d0): R12 matches every listed name at every identifier, in every part of a string or bytes constant and in string code, lists the lookup functions, IPython's process helpers, the connection proxy and Database and reports ATTACH followed by a parenthesis; every review form is reported on a copy of import_campaign_csv_demo; the guard docstring and README say what it reports and name the residual |
 | CR-02 | critical | fixed | fixed in 40-10 Task 3 (c6c6322): R0 now reports any cell that is not Python IPython runs unchanged once `%matplotlib inline` and a first-line `%%time` or `%%capture` are removed, and a one-line cell that starts with an IPython magic or alias the notebook does not define; the review's aliases, automagic, `%time !` and magic cells are reported on a copy of import_campaign_csv_demo |
 | WR-01 | warning | fixed | fixed in 40-10 Task 2 (3232341): R6 also reports shutil.copytree, copyfileobj and move, any write_bytes and a copy or write function looked up by name; both review forms are reported on a copy of import_campaign_csv_demo |
-| WR-02 | warning | open | - |
-| IN-01 | info | open | - |
+| WR-02 | warning | fixed | fixed in 40-11 Task 2 (17168ff): the three teardown cells carry the teardown sentence the other five carry and three fresh-mode setup cells say the helper never opens the developer database in fresh mode; no notebook was re-executed |
+| IN-01 | info | fixed | fixed in 40-11 Task 1 (7af64d0): the docstring says the in-place switch only makes new wrappers dummy and that dropping the cached wrappers, whether or not the close worked, is what removes a connection still open; docstring only |
 | IN-02 | info | fixed | Fixed in 40-09 Task 3 (0020360): reconcile_campaign_runs_demo's three NF-14 labels describe what the cell counts instead of a hard-coded record, and project_observation_calendar_demo's requirement table cites its real section and tally cell (not in the current review) |
 | IN-03 | info | open | out of scope for the gap round (developer decision 2026-10-09); for Phase 41 triage (not in the current review) |
 | WR-03 | warning | open | - (not in the current review) |
