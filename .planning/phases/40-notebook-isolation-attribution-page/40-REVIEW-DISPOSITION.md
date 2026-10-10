@@ -9,11 +9,11 @@ findings:
     title: "R12 misses plain-source process, connection and ATTACH routes: module names are not matched as names, the `connection` proxy is not listed, and `ATTACH (` passes"
   - id: CR-02
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "R0 misses IPython aliases, automagic and shell escapes wrapped in a line magic, so a bare `cp` cell can overwrite the developer database"
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "R6 lists only `copy`, `copy2` and `copyfile`, so `shutil.copytree` or `write_bytes` byte-copies over the developer database without naming it"
   - id: WR-02
     severity: warning
@@ -51,7 +51,7 @@ findings:
     severity: info
     disposition: deferred
     title: "Small test and code tidy-ups"
-open: 8
+open: 6
 total: 12
 recorded: 2026-10-10T16:04:32.986Z
 ---
@@ -61,8 +61,8 @@ recorded: 2026-10-10T16:04:32.986Z
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
 | CR-01 | critical | open | - |
-| CR-02 | critical | open | - |
-| WR-01 | warning | open | - |
+| CR-02 | critical | fixed | fixed in 40-10 Task 3 (c6c6322): R0 now reports any cell that is not Python IPython runs unchanged once `%matplotlib inline` and a first-line `%%time` or `%%capture` are removed, and a one-line cell that starts with an IPython magic or alias the notebook does not define; the review's aliases, automagic, `%time !` and magic cells are reported on a copy of import_campaign_csv_demo |
+| WR-01 | warning | fixed | fixed in 40-10 Task 2 (3232341): R6 also reports shutil.copytree, copyfileobj and move, any write_bytes and a copy or write function looked up by name; both review forms are reported on a copy of import_campaign_csv_demo |
 | WR-02 | warning | open | - |
 | IN-01 | info | open | - |
 | IN-02 | info | fixed | Fixed in 40-09 Task 3 (0020360): reconcile_campaign_runs_demo's three NF-14 labels describe what the cell counts instead of a hard-coded record, and project_observation_calendar_demo's requirement table cites its real section and tally cell (not in the current review) |
