@@ -4,7 +4,7 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: verifying
+status: gaps_found
 stopped_at: Completed 40-09-PLAN.md
 last_updated: "2026-10-10T15:27:44.237Z"
 last_activity: 2026-10-10
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
 Plan: 9 of 9
-Status: Phase complete — ready for verification
+Status: Gaps found — re-verification 112/115 (guard CR-01/CR-02 routes outside the override; 5 notebook cells keep "never opened")
 Last activity: 2026-10-10 — Phase 40 execution started
 
 Progress: [████████████████████] 17/17 plans ([██████████] 100%)
