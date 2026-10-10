@@ -54,6 +54,8 @@ Filled in by the planner and executor; requirement-level map from RESEARCH.md:
 | WARN-03 | (gap round) Settings checked before `django.setup()`; a refusal or any later failure leaves `apps.ready` False and every alias on the dummy backend (raw cursor and ORM raise `ImproperlyConfigured`) | subprocess | `python manage.py test solsys_code.tests.test_notebook_helper` | ✅ | ✅ green |
 | WARN-05 | (gap round) Second alias / `DATABASE_ROUTERS` refused before setup; `Django ready:` line carries no checkout path; teardown removes only the directory setup created and restores the routing environment | subprocess + in-process | `python manage.py test solsys_code.tests.test_notebook_helper` | ✅ | ✅ green |
 | WARN-02 | (gap round) R12 reports any `DATABASES`/`settings_dict`/`override_settings`/`modify_settings`/router/connection-handler/helper-internal/sqlite3 use in any cell; all eight real notebooks pass | unit (synthetic notebooks) | `python manage.py test solsys_code.tests.test_pre_executed_notebooks` | ✅ | ✅ green |
+| WARN-02 | (gap round 2) R12 bans whole capabilities -- process start, environment change, connection replacement, code from a string or file, raw SQL ATTACH -- and R0 reports shell escapes and `manage.py` / `env -i` / `env -u` text; the four re-review forms are reported on a real-notebook copy; all eight real notebooks pass; residual accepted by override | unit (synthetic + real-notebook copies) | `python manage.py test solsys_code.tests.test_pre_executed_notebooks` | ✅ | ✅ green |
+| WARN-03 | (gap round 2) Fail-closed step switches every alias to the dummy backend before a best-effort close and keeps the helper's own `RuntimeError` (no default alias, failing close, failing disable step) | subprocess | `python manage.py test solsys_code.tests.test_notebook_helper` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -79,6 +81,12 @@ Filled in by the planner and executor; requirement-level map from RESEARCH.md:
 | 40-07 T1 (tracer, gap) | WARN-05 (IN-05, IN-02) | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper solsys_code.tests.test_projector_demo_notebook` + load_telescope_runs_demo output checks | — | ✅ green |
 | 40-07 T2 (gap) | WARN-05, WARN-03 | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper` + five fresh notebooks' output/prose checks | — | ✅ green |
 | 40-07 T3 (gap) | WARN-05, WARN-03, WARN-02 | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper solsys_code.tests.test_projector_demo_notebook` + snapshot notebooks, home-path inventory, ledger checks | — | ✅ green |
+| 40-08 T1 (tracer, gap) | WARN-02 (WR-01) | `solsys_code.tests.test_pre_executed_notebooks` (four re-review forms replayed on a real-notebook copy; RED log `phase40-08-t1-red.log`) | — | ✅ green |
+| 40-08 T2 (gap) | WARN-02 (WR-01) | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_projector_demo_notebook` (one synthetic test per capability form; RED log `phase40-08-t2-red.log`) | — | ✅ green |
+| 40-08 T3 (gap) | WARN-03, WARN-05 (WR-02, IN-01) | `solsys_code.tests.test_notebook_helper solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_projector_demo_notebook` (exception-safe fail-closed child tests; RED log `phase40-08-t3-red.log`) + README check | — | ✅ green |
+| 40-09 T1 (tracer, gap) | WARN-05, WARN-02, WARN-03 | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper` + telescope_runs_demo output/prose checks | — | ✅ green |
+| 40-09 T2 (gap) | WARN-05, WARN-03 | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper` + five fresh notebooks' output/prose checks | — | ✅ green |
+| 40-09 T3 (gap) | WARN-05, WARN-02, WARN-03 (IN-02) | `solsys_code.tests.test_pre_executed_notebooks solsys_code.tests.test_notebook_helper solsys_code.tests.test_projector_demo_notebook` + snapshot notebooks, home-path inventory, ledger and override checks | — | ✅ green |
 
 The README-vs-notebook-modes item formerly listed under Manual-Only is automated by 40-02 T2
 (`test_readme_lists_each_notebook_under_its_mode`).
@@ -113,7 +121,7 @@ No framework install needed.
 - [x] Feedback latency < 90s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** approved 2026-10-09 (validate-phase State A audit: 0 gaps; 552 tests across the phase-40 modules OK incl. functional; configured full suite 2280 + 40 OK); re-approved 2026-10-10 after gap plans 40-05..40-07 (State A: 8 task rows added, 0 gaps; configured full suite 2305 + 40 OK at faacbfe)
+**Approval:** approved 2026-10-09 (validate-phase State A audit: 0 gaps; 552 tests across the phase-40 modules OK incl. functional; configured full suite 2280 + 40 OK); re-approved 2026-10-10 after gap plans 40-05..40-07 (State A: 8 task rows added, 0 gaps; configured full suite 2305 + 40 OK at faacbfe); re-approved 2026-10-10 after gap plans 40-08..40-09 (State A: 6 task rows and 2 requirement rows added, 0 test gaps; configured full suite 2321 + 40 OK at 7e1fdad; the guard-coverage defects in 40-REVIEW.md CR-01/CR-02 are verification gaps, not missing tests)
 
 ## Validation Audit 2026-10-10
 

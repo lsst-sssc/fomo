@@ -3,7 +3,7 @@ phase: "40"
 slug: "notebook-isolation-attribution-page"
 status: verified
 # threats_open = count of OPEN threats at or above workflow.security_block_on severity (the blocking gate)
-threats_open: 0
+threats_open: 1
 asvs_level: 1
 created: "2026-10-09"
 ---
@@ -11,7 +11,7 @@ created: "2026-10-09"
 # Phase 40 — Security
 
 > Per-phase security contract: threat register, accepted risks, and audit trail.
-> Register authored at plan time (40-01..40-07 `<threat_model>` blocks); verified at ASVS L1 (grep-depth evidence), short-circuit per secure-phase §3 (`threats_open: 0`, plan-time register, `asvs_level: 1`).
+> Register authored at plan time (40-01..40-09 `<threat_model>` blocks); verified at ASVS L1 (grep-depth evidence), short-circuit per secure-phase §3 (`threats_open: 0`, plan-time register, `asvs_level: 1`).
 
 ---
 
@@ -59,6 +59,15 @@ created: "2026-10-09"
 | T-40-25 | Information disclosure | committed snapshot output (paths, credential-shaped text) | medium | mitigate | `test_no_credential_shaped_text_in_any_notebook` (`test_pre_executed_notebooks.py:998`) passes; no helper cell prints a home path; one third-party spiceypy log line listed in 40-07-SUMMARY | closed |
 | T-40-26 | Information disclosure | schedule temp files left in `/tmp` (IN-05) | low | mitigate | All eight `NamedTemporaryFile(..., dir=scratch_db_dir)` in `load_telescope_runs_demo.ipynb` (8 occurrences); removed by teardown (commit 29490c3) | closed |
 | T-40-27 | Repudiation | ledger marking findings fixed without the work | low | mitigate | 40-REVIEW-DISPOSITION.md rows cite post-0ad6991 commits per finding; IN-07 `deferred` with its remaining part named (commit 49a0530) | closed |
+| T-40-28 | Tampering | guard miss: ConnectionHandler store, child manage.py with a bare or cleared environment, shell escape (re-review WR-01) | high | mitigate | R12 bans whole capabilities (`PROCESS_MODULES` `test_pre_executed_notebooks.py:97`, `R12_ALL_NAMES` `:147`, `ATTACH_SQL` `:157`); R0 `UNPARSEABLE_SUSPECT_TEXT` (`:221`); `TestReReviewFormsOnARealNotebook` (`:1054`) and `TestCapabilityRulesOnSyntheticNotebooks` (`:1214`); commits 301bd93, f1b4bb6; **reopened 2026-10-10 by 40-REVIEW.md CR-01/CR-02**: readable plain-source process, `connection`, `ATTACH (%s)` and IPython alias/automagic routes still pass the guard and were reproduced writing another database | open |
+| T-40-29 | Tampering | `_disable_django_databases` close raising before the dummy switch (re-review WR-02) | medium | mitigate | Every alias switched first, `connections.close_all()` best-effort with `logger.warning` (`fomo_nb_utils.py:187,210,212`), original error re-raised (`:254,337`); `TestHelperFailClosedIsExceptionSafe` (`test_notebook_helper.py:615`, three child tests incl. no default alias); commit c45edbc | closed |
+| T-40-30 | Repudiation | teardown line and guard docstring overstating protection | low | mitigate | Teardown line says what setup checked (`fomo_nb_utils.py:389`); guard docstring names the residual (`test_pre_executed_notebooks.py:45,48`) | closed |
+| T-40-31 | Repudiation | README refusal wording (IN-01) | low | mitigate | README S1-S3 (`docs/notebooks/README.md:68`); same sentences in all eight setup cells (40-09) | closed |
+| T-40-32 | Elevation of privilege | residual: deliberate runtime obfuscation or code outside the notebook | medium | accept | Named in the guard docstring (`test_pre_executed_notebooks.py:45,48`); see AR-40-03 and the 40-VERIFICATION.md `overrides:` entry (commit b6bfbca) | closed |
+| T-40-33 | Tampering | re-executing eight notebooks, two snapshots of the real database (40-09) | high | mitigate | All runs through the 40-08 helper; new teardown line in all eight committed notebooks; `test_every_real_pre_executed_notebook_is_isolated` (`test_pre_executed_notebooks.py:1415`) passes; `src/fomo_db.sqlite3` untouched (commits 25eae59, c68bf7b, 0020360) | closed |
+| T-40-34 | Information disclosure | committed snapshot output and log lines | medium | mitigate | `test_no_credential_shaped_text_in_any_notebook` (`test_pre_executed_notebooks.py:1463`) passes; home-path inventory in 40-09-SUMMARY.md lists only the third-party spiceypy line | closed |
+| T-40-35 | Repudiation | notebook prose contradicting its output (IN-02) | low | mitigate | NF-14 labels `plus any unexplained snapshot event` (4 occurrences in `reconcile_campaign_runs_demo.ipynb`); projector table cites `The whole real corpus, not a sample` (commit 0020360) | closed |
+| T-40-36 | Repudiation | ledger / override recording a fix or acceptance without the work | low | mitigate | 40-REVIEW-DISPOSITION.md IN-01/IN-02 rows cite 40-08/40-09 commits, `open: 3`, `total: 11` (commit 93bb514); override names the developer and timestamp (40-VERIFICATION.md `accepted_by`, commit b6bfbca) | closed |
 | T-40-SC | Tampering | npm/pip/cargo installs | low | accept | No package installed by any phase-40 plan; see AR-40-02 | closed |
 
 *Status: open · closed · open — below high threshold (non-blocking)*
@@ -72,7 +81,8 @@ created: "2026-10-09"
 | Risk ID | Threat Ref | Rationale | Accepted By | Date |
 |---------|------------|-----------|-------------|------|
 | AR-40-01 | T-40-10 | Bootstrap CSS comes from the CDN via `tom_common/base.html` / django_bootstrap5 exactly as before; 40-03 adds no external resource | plan-time threat model (40-03) | 2026-10-09 |
-| AR-40-02 | T-40-SC | 40-01 to 40-07 install no package (RESEARCH Package Legitimacy Audit: none; gap plans 40-05..40-07 confirm) | plan-time threat model (40-01..40-07) | 2026-10-09 |
+| AR-40-02 | T-40-SC | 40-01 to 40-09 install no package (RESEARCH Package Legitimacy Audit: none; gap plans 40-05..40-09 confirm) | plan-time threat model (40-01..40-09) | 2026-10-09 |
+| AR-40-03 | T-40-32 | A static check of notebook source cannot enumerate values assembled or looked up at runtime, or code outside the notebook; the residual is named in the guard docstring and accepted as the WARN-02 override in 40-VERIFICATION.md | Tim Lister | 2026-10-10 |
 
 *Accepted risks do not resurface in future audit runs.*
 
@@ -84,6 +94,7 @@ created: "2026-10-09"
 |------------|---------------|--------|------|--------|
 | 2026-10-09 | 16 | 16 | 0 | secure-phase State B, orchestrator (L1 grep evidence; short-circuit) |
 | 2026-10-10 | 28 | 28 | 0 | secure-phase State A, orchestrator (gap plans 40-05..40-07: T-40-16..27 added, L1 grep evidence; short-circuit) |
+| 2026-10-10 | 37 | 36 | 1 | secure-phase State A, orchestrator (gap plans 40-08..40-09: T-40-28..36 added, L1 grep evidence, T-40-32 accepted as AR-40-03; T-40-28 left open on the 40-REVIEW.md CR-01/CR-02 reproductions) |
 
 ---
 
@@ -91,7 +102,7 @@ created: "2026-10-09"
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
 - [x] Accepted risks documented in Accepted Risks Log
-- [x] `threats_open: 0` confirmed
+- [ ] `threats_open: 0` confirmed (1 open after the 40-08..40-09 re-audit: T-40-28)
 - [x] `status: verified` set in frontmatter
 
-**Approval:** verified 2026-10-09; re-verified 2026-10-10 after gap plans 40-05..40-07
+**Approval:** verified 2026-10-09; re-verified 2026-10-10 after gap plans 40-05..40-07; re-audited 2026-10-10 after gap plans 40-08..40-09 -- 1 threat open (T-40-28, high)
