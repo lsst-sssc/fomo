@@ -4,18 +4,18 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: gaps_found
-stopped_at: Completed 40-09-PLAN.md
-last_updated: "2026-10-10T17:20:03.937Z"
+status: executing
+stopped_at: Completed 40-10-PLAN.md
+last_updated: "2026-10-10T17:59:33.262Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 40 execution started
-state_head: 7823d0ff7bc6254c86f0f28d30e4bd653ac9fa9d
+state_head: 3c23dec5914e8a666ec7001469f5ed7bf4c38cc2
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 29
-  completed_plans: 26
-  percent: 90
+  completed_plans: 27
+  percent: 93
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — READY TO EXECUTE
-Plan: 9 of 9
-Status: Gaps found — re-verification 112/115 (guard CR-01/CR-02 routes outside the override; 5 notebook cells keep "never opened")
+Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
+Plan: 10 of 12
+Status: Ready to execute
 Last activity: 2026-10-10 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 90%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 93%)
 
 ## Performance Metrics
 
@@ -67,6 +67,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P07 | 20 min | 3 tasks | 9 files |
 | Phase 40 P08 | 12 min | 3 tasks | 5 files |
 | Phase 40 P09 | 19 min | 3 tasks | 10 files |
+| Phase 40 P10 | 16 min | 3 tasks | 2 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -118,6 +119,9 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: 40-08: R12/R0 guard extended to whole capabilities (process, environment, connection replacement, code from a string, ATTACH); the 40-06 completeness claim is withdrawn and the residual named in the docstring (D-G1)
 - [Phase 40]: 40-08: helper switches every alias to the dummy backend before a best-effort close and re-raises its own error; teardown second line says what setup checked (D-G2)
 - [Phase 40]: 40-09: all eight pre-executed notebooks re-executed on the exception-safe helper; teardown and refusal prose narrowed to what the helper checks (D-G2, D-G3); NF-14 labels and requirement-table citations made data-independent (D-G4); developer override for the residual WARN-02 risk recorded last (D-G1)
+- [Phase 40]: 40-10: R12 matches every listed name at every identifier, in every dotted part of a str or bytes constant and in code inside strings (two levels); a string counts as code only when it holds a statement or a call
+- [Phase 40]: 40-10: R0 is an allow-list over IPython's own TransformerManager (harmless only: %matplotlib inline, a first-line %%time or %%capture; %config is not harmless) plus an automagic rule for one-line cells built from IPython's live magic registry
+- [Phase 40]: 40-10: R12 adds connection, _connections, Database, getoutputerror, get_output_error_code, process_handler, import_string, resolve_name, locate, Macro and ATTACH (; R6 adds copytree, copyfileobj, move and write_bytes
 
 ### Pending Todos
 
@@ -189,8 +193,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-10T15:27:44.057Z
-**Stopped at:** Completed 40-09-PLAN.md
+**Last session:** 2026-10-10T17:59:24.330Z
+**Stopped at:** Completed 40-10-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
