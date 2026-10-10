@@ -67,9 +67,10 @@ that refusal, or any later failure once the helper has started reading Django's 
 database until the kernel is restarted. A failure before the settings are read (for example snapshot mode with no
 developer database) routes nothing, and the setup cell can simply be run again. A refusal or failure once the
 settings are being read switches every database alias to Django's dummy backend (any query raises
-`ImproperlyConfigured`) before it closes the connections, so a close that fails cannot leave a database reachable,
-then removes the scratch directory, puts the two variables back and raises the original error. When the checks
-pass, the helper runs `django.setup()`, migrates the scratch database to head and prints `Resolved database: ...`.
+`ImproperlyConfigured`) before it closes the connections, then drops Django's cached connection wrappers whether or
+not the close worked, so no query made through Django can reach a database; it then removes the scratch directory,
+puts the two variables back and raises the original error. When the checks pass, the helper runs `django.setup()`,
+migrates the scratch database to head and prints `Resolved database: ...`.
 
 The teardown refuses any directory other than the one this kernel's setup created directly inside the temporary
 directory. For that one it closes Django's connections, removes the directory and restores `FOMO_DATABASE_PATH`
@@ -88,9 +89,13 @@ numbers they print change from one regeneration to the next because the develope
 A snapshot holds a full copy of the developer database. If a run fails before the teardown cell, delete any
 leftover `/tmp/fomo-notebook-db-*` directory yourself.
 
-`solsys_code/tests/test_pre_executed_notebooks.py` checks every notebook in `pre_executed/`: it checks that a
+`solsys_code/tests/test_pre_executed_notebooks.py` checks every notebook in `pre_executed/`. It checks that a
 notebook calls the helper first; never sets Django up, chooses a database, starts a process, changes the environment
-or runs code built from a string; never byte-copies; and shows output from one fresh run. Its module docstring lists
-what a static check of a notebook's source cannot see. It reads each notebook's JSON and never executes one.
+or runs code built from a string or loaded from another file, whether the name is written in its code, in an import
+or inside a string; never byte-copies or byte-writes a file with shutil's copy functions, `move` or `write_bytes`;
+contains only Python that IPython runs unchanged, apart from `%matplotlib inline` and a first-line `%%time` or
+`%%capture`; has no one-line cell that IPython would run as a magic or an alias; and shows output from one fresh
+run. Its module docstring lists what a static check of a notebook's source cannot see. It reads each notebook's JSON
+and never executes one.
 `solsys_code/tests/test_notebook_helper.py` runs the helper itself, and a test in the first module keeps the two
 lists above equal to each notebook's `mode`.

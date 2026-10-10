@@ -187,15 +187,17 @@ def _restore_environ(previous):
 def _disable_django_databases():
     """Leave Django unable to reach any database, so a refused or half-finished setup cannot be used.
 
-    Every configured alias is switched to Django's dummy backend first, which raises
-    ``ImproperlyConfigured`` on any query. The alias dicts are changed in place because Django's
-    connection handler and its cached connection wrappers hold the same dict objects as
-    ``settings.DATABASES``, so the switch alone leaves no real database reachable and a close that fails
-    afterwards cannot undo it. Then every connection is closed on a best-effort basis (a failure,
-    including Django's own refusal when no ``default`` alias exists, is logged and never raised), and
-    every cached wrapper is dropped so the next access builds a dummy one. When the setup failed before
-    the settings were read, a dummy-only configuration is installed instead, so a later query still
-    cannot reach a real database.
+    Every configured alias is first switched in place to Django's dummy backend (``ENGINE`` set to
+    ``django.db.backends.dummy``, ``NAME`` emptied). Django's connection handler and its connection
+    wrappers hold the same dict objects as ``settings.DATABASES``, so the switch makes every wrapper
+    built afterwards a dummy one, which raises ``ImproperlyConfigured`` on any query. On its own the
+    switch does not stop a cached wrapper that already holds an open connection (for example after a
+    failure part-way through ``migrate``): that wrapper keeps using its connection whatever its settings
+    now say. So every connection is then closed on a best-effort basis (a failure, including Django's
+    own refusal when no ``default`` alias exists, is logged and never raised), and every cached wrapper
+    is dropped whether or not the close worked, so the next query through Django builds a new, dummy
+    wrapper. When the setup failed before the settings were read, a dummy-only configuration is
+    installed instead.
     """
     from django.conf import settings as django_settings
     from django.db import connections
