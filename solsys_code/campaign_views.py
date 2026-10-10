@@ -29,6 +29,7 @@ from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.http import urlencode
 from django.views.generic import FormView, ListView, TemplateView, View
 from django_filters.views import FilterView
 from django_tables2 import RequestConfig
@@ -47,6 +48,8 @@ from .campaign_forms import CampaignGapAnalysisForm, CampaignRunSubmissionForm
 from .campaign_gap import clamp_date_range, get_or_compute_gap
 from .campaign_reconciler import reconcile_run
 from .campaign_tables import (
+    CONFIRMED_TABLE_PREFIX,
+    DISMISSED_TABLE_PREFIX,
     ApprovalQueueTable,
     AttributionConfirmedTable,
     AttributionDismissedTable,
@@ -1180,6 +1183,58 @@ class SiteSearchView(View):
 
 _ATTRIBUTION_BANDS = (campaign_attribution.BAND_HIGH, campaign_attribution.BAND_MEDIUM, campaign_attribution.BAND_LOW)
 
+# Phase 40 (WARN-07, D-22): the Dismissed and Confirmed tables' django-tables2 prefixes, used both to
+# build the tables and to name the return-state keys below, so a rename cannot desynchronise them.
+_DISMISSED_TABLE_PREFIX = DISMISSED_TABLE_PREFIX
+_CONFIRMED_TABLE_PREFIX = CONFIRMED_TABLE_PREFIX
+
+# django-tables2's default field names ('page', 'sort') behind each table's prefix. A test pins these
+# to the constructed tables' own ``prefixed_page_field`` / ``prefixed_order_by_field``.
+_RETURN_STATE_PAGE_KEYS = (f'{_DISMISSED_TABLE_PREFIX}page', f'{_CONFIRMED_TABLE_PREFIX}page')
+_RETURN_STATE_SORT_KEYS = (f'{_DISMISSED_TABLE_PREFIX}sort', f'{_CONFIRMED_TABLE_PREFIX}sort')
+
+# ASVS V5: a page is 1-6 ASCII digits with no leading zero (no unbounded ``int()`` on input); a sort is an
+# optional minus and a lower-case column name (django-tables2 ignores an unknown column name itself).
+_RETURN_PAGE_RE = re.compile(r'[1-9][0-9]{0,5}')
+_RETURN_SORT_RE = re.compile(r'-?[a-z_]{1,40}')
+
+# D-25: the section an Undo lands on, keyed by the validated action -- never taken from input. The
+# worklist actions (confirm, dismiss, confirm_selected) add no fragment.
+_ATTRIBUTION_RETURN_FRAGMENTS = {
+    'undo_dismissal': 'attribution-dismissed-section',
+    'undo_confirmation': 'attribution-confirmed-section',
+}
+
+
+def attribution_return_state(data) -> dict[str, str]:
+    """D-22: the attribution page's return state -- the band filter and each table's page and
+    sort -- reduced to its validated values.
+
+    The one whitelist shared by the GET render (which writes the state into hidden form inputs)
+    and the POST redirect (which re-reads it, so a tampered form cannot reach the redirect). Only
+    the five named keys survive, in a fixed order, each only when its value matches its pattern;
+    every other key and every other value is dropped silently.
+
+    Args:
+        data: a ``QueryDict`` (``request.GET`` or ``request.POST``) or any mapping with ``.get``.
+
+    Returns:
+        dict[str, str]: a subset of ``band``, ``dismissed-page``, ``dismissed-sort``,
+            ``confirmed-page`` and ``confirmed-sort``, in that order.
+    """
+    state: dict[str, str] = {}
+    band = data.get('band')
+    if band in _ATTRIBUTION_BANDS:
+        state['band'] = band
+    for page_key, sort_key in zip(_RETURN_STATE_PAGE_KEYS, _RETURN_STATE_SORT_KEYS, strict=True):
+        page = data.get(page_key)
+        if page is not None and _RETURN_PAGE_RE.fullmatch(page):
+            state[page_key] = page
+        sort = data.get(sort_key)
+        if sort is not None and _RETURN_SORT_RE.fullmatch(sort):
+            state[sort_key] = sort
+    return state
+
 
 def _dismissed_attribution_rows(limit: int = 50) -> list:
     """D-07/D-14: the Dismissed section's rows -- the union of both dismissal models, newest
@@ -1274,16 +1329,36 @@ class AttributionQueueView(StaffRequiredMixin, TemplateView):
         # D-07/D-14: two independent table instances (distinct prefixes so their pagination
         # never collides with each other or with event_page/record_page above), mirroring
         # ApprovalQueueView's own pending_table/decided_table construction.
+        # D-22/D-24: the validated page/sort/band state is handed to the tables so their Undo forms
+        # post it back; the tables never validate it themselves.
+        return_state = attribution_return_state(self.request.GET)
         dismissed_table = AttributionDismissedTable(
-            context['dismissed_rows'], prefix='dismissed-', request=self.request, order_by=()
+            context['dismissed_rows'],
+            prefix=_DISMISSED_TABLE_PREFIX,
+            request=self.request,
+            order_by=(),
+            return_state=return_state,
         )
         confirmed_table = AttributionConfirmedTable(
-            context['confirmed_rows'], prefix='confirmed-', request=self.request, order_by=()
+            context['confirmed_rows'],
+            prefix=_CONFIRMED_TABLE_PREFIX,
+            request=self.request,
+            order_by=(),
+            return_state=return_state,
         )
         RequestConfig(self.request).configure(dismissed_table)
         RequestConfig(self.request).configure(confirmed_table)
         context['dismissed_table'] = dismissed_table
         context['confirmed_table'] = confirmed_table
+        # D-23: the worklist and bulk forms carry the same state through one template include.
+        context['return_state_fields'] = list(return_state.items())
+        # IN-15: one boolean for the Dismissed section's open/closed state, used for its section
+        # class, its heading's ``collapsed`` class and ``aria-expanded``. It is open while its own
+        # page or sort is in the validated state; the Confirmed table's state alone leaves it folded.
+        context['dismissed_section_open'] = (
+            dismissed_table.prefixed_page_field in return_state
+            or dismissed_table.prefixed_order_by_field in return_state
+        )
 
         # D-02: one shared definition for both this page's own header count and the
         # campaign-list banner -- never a second inline .count(). Computed unfiltered
@@ -1384,13 +1459,24 @@ class AttributionDecisionView(StaffRequiredMixin, View):
         return self._undo_dismissal(request, kind, orphan_pk, run_pk)
 
     def _redirect(self, request):
-        """Redirect back to the worklist, preserving the band filter (D-10) if the form
-        carried it as a hidden field, so the staff member returns to the filter they were
-        working in."""
-        band = request.POST.get('band')
-        if band in _ATTRIBUTION_BANDS:
-            return redirect(f'{reverse("campaigns:attribution")}?band={band}')
-        return redirect('campaigns:attribution')
+        """Redirect back to the attribution page for every action (D-22 to D-27), keeping the
+        staff member's place: the band filter (D-10) and each table's page and sort.
+
+        The path is always ``reverse('campaigns:attribution')``; the query string is only the
+        values ``attribution_return_state()`` validates from the POST (T-40-11: no open redirect,
+        no header injection); the fragment is one of two constants chosen by the validated action
+        -- an Undo lands on the section it was pressed in (D-25), a worklist action on the top of
+        the page. A page past the end is kept as posted: django-tables2 renders the last page that
+        still has rows, so acting on the only row of the last page needs no clamping here (D-27).
+        """
+        url = reverse('campaigns:attribution')
+        state = attribution_return_state(request.POST)
+        if state:
+            url = f'{url}?{urlencode(state)}'
+        fragment = _ATTRIBUTION_RETURN_FRAGMENTS.get(request.POST.get('action'))
+        if fragment:
+            url = f'{url}#{fragment}'
+        return redirect(url)
 
     def _do_confirm_event(self, request, orphan_pk: int, run_pk: int) -> str:
         """Event-side confirm write (Pattern 3): a field SET on an existing row, not a row
@@ -1582,7 +1668,7 @@ class AttributionDecisionView(StaffRequiredMixin, View):
                     pass  # already dismissed (e.g. a prior undo) -- the link is cleared either way.
 
         if changed_count:
-            messages.success(request, 'Confirmation undone — back in the queue.')
+            messages.success(request, 'Confirmation undone — the pair is now in Dismissed.')
         else:
             messages.error(request, 'This candidate no longer exists.')
         return self._redirect(request)

@@ -10,7 +10,7 @@ are resolved manually here via the model's ``TextChoices`` rather than relied on
 import django_tables2 as tables
 from django.middleware.csrf import get_token
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.http import urlencode
 from django_tables2.utils import Accessor
 
@@ -566,6 +566,36 @@ _UNDO_DISMISSAL_PROMPT_RECORD = (
 )
 
 
+# The django-tables2 prefixes the attribution view gives the two tables. The tables name their own
+# return-state page key from these (rather than from ``prefixed_page_field``) so an unconfigured table,
+# built without a prefix, still posts ``dismissed-page`` / ``confirmed-page``; ``campaign_views`` imports
+# them to construct the tables, so the two sides cannot drift.
+DISMISSED_TABLE_PREFIX = 'dismissed-'
+CONFIRMED_TABLE_PREFIX = 'confirmed-'
+
+
+def _return_state_inputs(table):
+    """WARN-07 (D-22, D-24): the hidden inputs an Undo form posts so the redirect can bring the staff
+    member back to the same place -- the view's validated band/page/sort state plus this table's own
+    current page.
+
+    The page is always sent, under the table's own ``return_state_prefix``: its page number once
+    django-tables2 has paginated it, ``1`` for a table that was never configured (``request=None``).
+    So a section opened by a click on page 1, which has no page key in the URL, still reopens after
+    the Undo.
+
+    Args:
+        table: an ``AttributionDismissedTable`` or ``AttributionConfirmedTable``.
+
+    Returns:
+        SafeString: one ``<input type="hidden">`` per state pair, values autoescaped.
+    """
+    state = dict(table.return_state)
+    page = getattr(table, 'page', None)
+    state[f'{table.return_state_prefix}page'] = str(page.number) if page is not None else '1'
+    return format_html_join('', '<input type="hidden" name="{}" value="{}">', state.items())
+
+
 class AttributionDismissedTable(tables.Table):
     """D-07/D-14 Dismissed section: rows are a plain Python list mixing
     ``CalendarEventDismissal``/``ObservationRecordDismissal`` instances (see
@@ -582,6 +612,8 @@ class AttributionDismissedTable(tables.Table):
     (``CampaignRunTable.render_window_start()``'s existing stored-XSS note applies here too).
     """
 
+    return_state_prefix = DISMISSED_TABLE_PREFIX
+
     orphan = tables.Column(empty_values=(), orderable=False, verbose_name='Orphan')
     run = tables.Column(empty_values=(), orderable=False, verbose_name='Run')
     dismissed_by = tables.Column(verbose_name='Dismissed by')
@@ -597,8 +629,10 @@ class AttributionDismissedTable(tables.Table):
         # its unstyled default pager (UAT G-37.1-1-pager).
         template_name = 'django_tables2/bootstrap5-responsive.html'
 
-    def __init__(self, *args, request=None, **kwargs):
+    def __init__(self, *args, request=None, return_state=None, **kwargs):
         self.request = request
+        # WARN-07: the view's validated band/page/sort state, posted back by the Undo form (D-22).
+        self.return_state = dict(return_state or {})
         super().__init__(*args, **kwargs)
 
     @staticmethod
@@ -648,14 +682,16 @@ class AttributionDismissedTable(tables.Table):
             '<input type="hidden" name="kind" value="{2}">'
             '<input type="hidden" name="orphan_pk" value="{3}">'
             '<input type="hidden" name="run_pk" value="{4}">'
+            '{5}'
             '<button type="submit" class="btn btn-sm btn-outline-secondary" '
-            'onclick="return confirm(\'{5}\')">Undo</button>'
+            'onclick="return confirm(\'{6}\')">Undo</button>'
             '</form>',
             decide_url,
             csrf_token,
             kind,
             orphan.pk,
             record.run.pk,
+            _return_state_inputs(self),
             prompt,
         )
 
@@ -670,6 +706,8 @@ class AttributionConfirmedTable(tables.Table):
     A ``CampaignRunObservation`` written by an ingest command's exact-identity match has
     ``confirmed_by`` None; its "Confirmed by" cell reads "System (exact match)" (37.1 D-05).
     """
+
+    return_state_prefix = CONFIRMED_TABLE_PREFIX
 
     orphan = tables.Column(empty_values=(), orderable=False, verbose_name='Orphan')
     run = tables.Column(empty_values=(), orderable=False, verbose_name='Run')
@@ -688,8 +726,10 @@ class AttributionConfirmedTable(tables.Table):
         # its unstyled default pager (UAT G-37.1-1-pager).
         template_name = 'django_tables2/bootstrap5-responsive.html'
 
-    def __init__(self, *args, request=None, **kwargs):
+    def __init__(self, *args, request=None, return_state=None, **kwargs):
         self.request = request
+        # WARN-07: the view's validated band/page/sort state, posted back by the Undo form (D-22).
+        self.return_state = dict(return_state or {})
         super().__init__(*args, **kwargs)
 
     @staticmethod
@@ -744,13 +784,15 @@ class AttributionConfirmedTable(tables.Table):
             '<input type="hidden" name="kind" value="{2}">'
             '<input type="hidden" name="orphan_pk" value="{3}">'
             '<input type="hidden" name="run_pk" value="{4}">'
+            '{5}'
             '<button type="submit" class="btn btn-sm btn-outline-secondary" '
             'onclick="return confirm(\'Undo this confirmation? '
-            'It will move this pair to the Dismissed section below.\')">Undo</button>'
+            'It will move this pair to the Dismissed section above.\')">Undo</button>'
             '</form>',
             decide_url,
             csrf_token,
             kind,
             orphan.pk,
             record.run.pk,
+            _return_state_inputs(self),
         )

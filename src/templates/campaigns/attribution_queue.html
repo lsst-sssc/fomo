@@ -241,18 +241,23 @@ still fold it away with its heading.
 
 Dismissed renders folded away on a plain load (the Phase 28 collapsed section), but opens
 while its own table is being paged or sorted -- a page or sort link inside it reloads the page,
-which would otherwise fold it shut again. Only the field NAMES are tested against request.GET;
-no query-string value is echoed into the page.
+which would otherwise fold it shut again -- and after any action posted from it (an Undo always
+posts its page, 40-04 D-24, so the redirect carries it back). One context boolean,
+dismissed_section_open, decides all three places below; the view sets it from the validated
+return state, never from raw request.GET, and no query-string value is echoed into the page.
+
+Both section divs carry scroll-margin-top: 5rem (the base template's own top offset) so a
+redirect ending in a section fragment is not scrolled under the fixed navbar.
 {% endcomment %}
 <h5 class="fw-bold mb-3 mt-4">
-  <button class="btn btn-link p-0 fw-bold{% if dismissed_table.prefixed_page_field in request.GET or dismissed_table.prefixed_order_by_field in request.GET %}{% else %} collapsed{% endif %}"
+  <button class="btn btn-link p-0 fw-bold{% if not dismissed_section_open %} collapsed{% endif %}"
           type="button" data-bs-toggle="collapse" data-bs-target="#attribution-dismissed-section"
-          aria-expanded="{% if dismissed_table.prefixed_page_field in request.GET or dismissed_table.prefixed_order_by_field in request.GET %}true{% else %}false{% endif %}"
+          aria-expanded="{% if dismissed_section_open %}true{% else %}false{% endif %}"
           aria-controls="attribution-dismissed-section">
     Dismissed
   </button>
 </h5>
-<div id="attribution-dismissed-section" class="collapse{% if dismissed_table.prefixed_page_field in request.GET or dismissed_table.prefixed_order_by_field in request.GET %} show{% endif %}">
+<div id="attribution-dismissed-section" class="collapse{% if dismissed_section_open %} show{% endif %}" style="scroll-margin-top: 5rem;">
   {% render_table dismissed_table %}
 </div>
 
@@ -263,7 +268,7 @@ no query-string value is echoed into the page.
     Confirmed
   </button>
 </h5>
-<div id="attribution-confirmed-section" class="collapse show">
+<div id="attribution-confirmed-section" class="collapse show" style="scroll-margin-top: 5rem;">
   {% render_table confirmed_table %}
 </div>
 {% endblock %}

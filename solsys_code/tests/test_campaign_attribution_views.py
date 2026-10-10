@@ -10,6 +10,7 @@ context assembly). Plan 28-04's classes below are written against the real templ
 GET-render the page directly through ``self.client.get()``, now that it exists.
 """
 
+import html.parser
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
@@ -255,7 +256,7 @@ class TestConfirmUndo(AttributionViewTestBase):
         dismissal = CalendarEventDismissal.objects.get(event=event, run=self.campaign_run)
         self.assertEqual(dismissal.dismissed_by, self.staff_user)
         self.assertIsNotNone(dismissal.dismissed_at)
-        self.assertIn('Confirmation undone — back in the queue.', self._message_strings(response))
+        self.assertIn('Confirmation undone — the pair is now in Dismissed.', self._message_strings(response))
         # The orphan does NOT return to the backlog while the undo's dismissal stands.
         backlog_pks = {g.orphan.pk for g in event_attribution_backlog()}
         self.assertNotIn(event.pk, backlog_pks)
@@ -275,7 +276,7 @@ class TestConfirmUndo(AttributionViewTestBase):
         dismissal = ObservationRecordDismissal.objects.get(observation_record=record, run=self.campaign_run)
         self.assertEqual(dismissal.dismissed_by, self.staff_user)
         self.assertIsNotNone(dismissal.dismissed_at)
-        self.assertIn('Confirmation undone — back in the queue.', self._message_strings(response))
+        self.assertIn('Confirmation undone — the pair is now in Dismissed.', self._message_strings(response))
 
     def test_orphan_returns_to_backlog_only_after_dismissal_is_itself_undone(self):
         event = self._make_event()
@@ -415,7 +416,7 @@ class TestUndoConfirmationOrdering(AttributionViewTestBase):
         dismissal = CalendarEventDismissal.objects.get(event=event, run=self.campaign_run)
         self.assertEqual(dismissal.dismissed_by, self.staff_user)
         self.assertIsNotNone(dismissal.dismissed_at)
-        self.assertIn('Confirmation undone — back in the queue.', self._message_strings(response))
+        self.assertIn('Confirmation undone — the pair is now in Dismissed.', self._message_strings(response))
 
 
 class TestDismissAndUndoDismissal(AttributionViewTestBase):
@@ -1369,7 +1370,7 @@ class TestSystemLinkInConfirmedTable(AttributionViewTestBase):
         self.assertFalse(CampaignRunObservation.objects.filter(observation_record=record).exists())
         dismissal = ObservationRecordDismissal.objects.get(observation_record=record, run=run)
         self.assertEqual(dismissal.dismissed_by, self.staff_user)
-        self.assertIn('Confirmation undone — back in the queue.', self._message_strings(response))
+        self.assertIn('Confirmation undone — the pair is now in Dismissed.', self._message_strings(response))
         self.assertEqual(allocation_events(run).count(), 3)
         self.assertTrue(CalendarEvent.objects.filter(url=retired_url).exists())
 
@@ -1392,3 +1393,144 @@ class TestUndoDismissalPrompt(AttributionViewTestBase):
         html = str(AttributionDismissedTable([], request=None).render_actions(dismissal))
         self.assertIn('Undo this dismissal? It will return to the worklist above.', html)
         self.assertNotIn('link it to that run automatically', html)
+
+
+class _SectionFormParser(html.parser.HTMLParser):
+    """Collects every ``<form>`` (its ``action`` and its hidden inputs as ordered name/value pairs)
+    in the fragment of rendered page it is fed. Feed it one section's HTML so a test reads the real
+    rendered Undo form and posts exactly what a browser would."""
+
+    def __init__(self):
+        super().__init__()
+        self.forms: list[dict] = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
+        if tag == 'form':
+            self.forms.append({'action': attrs_dict.get('action'), 'hidden': []})
+        elif tag == 'input' and attrs_dict.get('type') == 'hidden' and self.forms:
+            self.forms[-1]['hidden'].append((attrs_dict['name'], attrs_dict.get('value', '')))
+
+
+class _SectionTagParser(html.parser.HTMLParser):
+    """Records the attributes of the two collapsible section ``div``s and their heading buttons."""
+
+    def __init__(self):
+        super().__init__()
+        self.sections: dict[str, dict] = {}
+        self.triggers: dict[str, dict] = {}
+
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
+        if attrs_dict.get('id') in ('attribution-dismissed-section', 'attribution-confirmed-section'):
+            self.sections[attrs_dict['id']] = attrs_dict
+        if tag == 'button' and 'data-bs-target' in attrs_dict:
+            self.triggers[attrs_dict['data-bs-target']] = attrs_dict
+
+
+class TestAttributionReturnState(AttributionViewTestBase):
+    """WARN-07 (40-04, D-22 to D-28): every attribution action returns the staff member to the same
+    band, section, page and sort. The Undo tests read the real rendered form and post exactly its
+    hidden fields, so they prove the whole chain: table form, whitelisted redirect, section state."""
+
+    DISMISSED_ID = 'attribution-dismissed-section'
+    CONFIRMED_ID = 'attribution-confirmed-section'
+
+    def setUp(self):
+        self.client.force_login(self.staff_user)
+
+    def _section_html(self, content: str, section_id: str) -> str:
+        """The page text from ``section_id``'s div to the next section's div (or the end)."""
+        start = content.index(f'id="{section_id}"')
+        if section_id == self.DISMISSED_ID:
+            return content[start : content.index(f'id="{self.CONFIRMED_ID}"')]
+        return content[start:]
+
+    def _undo_form(self, response, section_id: str) -> dict:
+        """The single Undo form inside ``section_id`` of a GET response."""
+        parser = _SectionFormParser()
+        parser.feed(self._section_html(response.content.decode(), section_id))
+        undo_forms = [f for f in parser.forms if f['action'] == reverse('campaigns:attribution_decide')]
+        self.assertEqual(len(undo_forms), 1, undo_forms)
+        return undo_forms[0]
+
+    def _sections(self, response) -> _SectionTagParser:
+        parser = _SectionTagParser()
+        parser.feed(response.content.decode())
+        return parser
+
+    def _dismiss_record(self, **record_kwargs) -> ObservationRecordDismissal:
+        return ObservationRecordDismissal.objects.create(
+            observation_record=self._make_record(**record_kwargs),
+            run=self.campaign_run,
+            dismissed_by=self.staff_user,
+            dismissed_at=timezone.now(),
+            reason='Wrong night',
+        )
+
+    def _confirm_record(self, **record_kwargs) -> CampaignRunObservation:
+        return CampaignRunObservation.objects.create(
+            run=self.campaign_run,
+            observation_record=self._make_record(**record_kwargs),
+            confirmed_by=self.staff_user,
+            confirmed_at=timezone.now(),
+        )
+
+    def test_undo_on_a_dismissed_row_reopens_the_dismissed_section_on_the_same_page(self):
+        """D-28: post the hidden fields of the rendered Undo form and land on the open section."""
+        dismissal = self._dismiss_record()
+        attribution_url = reverse('campaigns:attribution')
+        page = self.client.get(attribution_url, {'dismissed-page': '1'})
+        form = self._undo_form(page, self.DISMISSED_ID)
+
+        response = self.client.post(form['action'], dict(form['hidden']), follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.redirect_chain[-1][0], f'{attribution_url}?dismissed-page=1#attribution-dismissed-section'
+        )
+        sections = self._sections(response)
+        section = sections.sections[self.DISMISSED_ID]
+        self.assertEqual(set(section['class'].split()), {'collapse', 'show'})
+        trigger = sections.triggers[f'#{self.DISMISSED_ID}']
+        self.assertEqual(trigger['aria-expanded'], 'true')
+        self.assertNotIn('collapsed', trigger['class'].split())
+        self.assertFalse(ObservationRecordDismissal.objects.filter(pk=dismissal.pk).exists())
+
+    def test_undo_from_the_dismissed_table_always_sends_its_page_even_on_a_plain_load(self):
+        """D-24: a section opened by click on a plain load still posts its page, and so does a table
+        built with ``request=None`` that was never paginated."""
+        dismissal = self._dismiss_record()
+        page = self.client.get(reverse('campaigns:attribution'))
+        form = self._undo_form(page, self.DISMISSED_ID)
+        self.assertIn(('dismissed-page', '1'), form['hidden'])
+
+        html_text = str(AttributionDismissedTable([], request=None).render_actions(dismissal))
+        self.assertIn('name="dismissed-page" value="1"', html_text)
+
+    def test_undo_on_a_confirmed_row_lands_on_the_confirmed_section_and_leaves_dismissed_as_it_was(self):
+        """D-25, D-26: the Confirmed Undo lands on its own fragment; Dismissed is open afterwards
+        only when its state was in the URL beforehand."""
+        attribution_url = reverse('campaigns:attribution')
+        for opened_dismissed in (False, True):
+            with self.subTest(dismissed_was_open=opened_dismissed):
+                CampaignRunObservation.objects.all().delete()
+                ObservationRecordDismissal.objects.all().delete()
+                self._confirm_record(observation_id=f'CONF-{opened_dismissed}')
+                query = {'dismissed-page': '1'} if opened_dismissed else {}
+                page = self.client.get(attribution_url, query)
+                form = self._undo_form(page, self.CONFIRMED_ID)
+                self.assertIn(('confirmed-page', '1'), form['hidden'])
+                self.assertEqual(('dismissed-page', '1') in form['hidden'], opened_dismissed)
+
+                response = self.client.post(form['action'], dict(form['hidden']), follow=True)
+
+                expected_query = '?dismissed-page=1&confirmed-page=1' if opened_dismissed else '?confirmed-page=1'
+                self.assertEqual(
+                    response.redirect_chain[-1][0],
+                    f'{attribution_url}{expected_query}#attribution-confirmed-section',
+                )
+                sections = self._sections(response)
+                dismissed_classes = set(sections.sections[self.DISMISSED_ID]['class'].split())
+                self.assertEqual('show' in dismissed_classes, opened_dismissed)
+                self.assertEqual(ObservationRecordDismissal.objects.count(), 1)
