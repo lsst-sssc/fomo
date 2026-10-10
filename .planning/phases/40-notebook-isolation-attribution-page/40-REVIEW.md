@@ -1,6 +1,6 @@
 ---
 phase: 40-notebook-isolation-attribution-page
-reviewed: 2026-10-10T05:37:47Z
+reviewed: 2026-10-10T15:36:37Z
 depth: deep
 files_reviewed: 12
 files_reviewed_list:
@@ -17,213 +17,259 @@ files_reviewed_list:
   - solsys_code/tests/test_notebook_helper.py
   - solsys_code/tests/test_pre_executed_notebooks.py
 findings:
-  critical: 0
+  critical: 2
   warning: 2
-  info: 3
+  info: 1
   total: 5
 status: issues_found
 ---
 
-# Phase 40: Code Review Report (re-review after gap-closure plans 40-05, 40-06, 40-07)
+# Phase 40: Code Review Report (third round: gap plans 40-08 and 40-09)
 
-**Reviewed:** 2026-10-10T05:37:47Z
+**Reviewed:** 2026-10-10T15:36:37Z
 **Depth:** deep
 **Files Reviewed:** 12
 **Status:** issues_found
 
 ## Summary
 
-Scope: the 12 files listed, compared with `e129b4ff5ff1901696549f22ada2b0bc8c851044`. That covers the
-fail-closed rework of `docs/notebooks/fomo_nb_utils.py`, guard rule R12 in
-`solsys_code/tests/test_pre_executed_notebooks.py`, the new helper tests, the README, and all eight notebooks
-re-executed on the new helper.
+Scope: the 12 listed files, compared with `269d8c5` (HEAD `7e1fdad`). That covers the extension of guard rules
+R12 and R0 from database names to whole capabilities, the exception-safe fail-closed step in
+`fomo_nb_utils.py`, the new helper tests, the README, and all eight notebooks re-executed on the new helper.
 
 What I ran:
-- `python manage.py test solsys_code.tests.test_notebook_helper solsys_code.tests.test_pre_executed_notebooks --parallel`:
-  77 tests, OK.
-- Subprocess probes of the real helper and of `isolation_problems()`, each in a scratch `TMPDIR`. None of them
-  opened `src/fomo_db.sqlite3` for writing. The only read was a `mode=ro` check that the developer database's
-  journal mode is `delete`, so the `mode=ro` snapshot needs no `-shm` file.
-- Notebook source diffs compared with the diff base (prose and code only, outputs left out), and a read of the
-  committed output of every snapshot-dependent cell.
+- `python manage.py test --noinput solsys_code.tests.test_notebook_helper solsys_code.tests.test_pre_executed_notebooks --parallel`:
+  93 tests, OK.
+- A guard probe (`$HOME/tmp/rv40/probe_guard.py`). It appends candidate source to the setup cell of a copy of
+  `import_campaign_csv_demo.ipynb`, keeping the committed output, or inserts a new cell with the counts
+  renumbered, and calls `isolation_problems()`. This is the same method as `TestReReviewFormsOnARealNotebook`.
+- A runtime probe (`$HOME/tmp/rv40/runtime_probe.py`). It runs a real `setup_scratch_django(mode='fresh')` with
+  `TMPDIR` under `$HOME/tmp`, runs each guard-clean form against a throwaway `other.sqlite3`, then runs the
+  real teardown. Nothing opened `src/fomo_db.sqlite3`.
+- IPython `InteractiveShell.transform_cell` / `run_cell` on dummy files under `$HOME/tmp/rv40/ipy`.
 
-**What the previous round's "fixed" items look like now:**
+**Previous round, as of HEAD:**
 
-| ID | Ledger | Verified |
-|----|--------|----------|
-| CR-01 | fixed | **Yes.** `check_database_settings()` runs on the lazy settings before `django.setup()` (`fomo_nb_utils.py:295-300`). After a refusal, `apps.ready` stays `False` and every alias is a dummy. A failure in migrate also leaves only dummy aliases. A second setup is refused. `TestHelperRefusalLeavesNoDatabase` proves all of this in child processes. There is one exception-safety gap in the disable step (WR-02 below). |
-| WR-01 | fixed | **Partly.** R12 catches both verifier probes and every spelling it lists. It misses an ORM re-route through a fresh `ConnectionHandler` wrapper, and a child process started with a cleared environment. I reproduced both (WR-01 below). |
-| WR-02 | fixed | **Yes** for the configured case: an extra alias or any `DATABASE_ROUTERS` entry is refused before setup. The teardown line is unchanged, by the developer's decision. |
-| IN-01 | fixed | **Yes.** `_restore_environ()` runs on the failure path (after the disable step, which needs the async opt-in) and in teardown. `test_teardown_restores_the_routing_environment` covers it. |
-| IN-02 | fixed | **Yes** for the helper: the evidence line names only the settings module. As the ledger records, `campaign_lifecycle_demo` still publishes `/home/tlister/venv/...` through spiceypy's stderr line. |
-| IN-05 | fixed | **Yes.** All eight `NamedTemporaryFile` calls in `load_telescope_runs_demo` pass `dir=scratch_db_dir`, and the committed output shows the files inside the scratch directory. |
-| IN-06 | fixed | **Yes.** Teardown checks the name prefix, that the directory is directly inside the resolved temp directory, and that it matches `_active_setup`. All three checks run before Django is imported. |
-| IN-07 | deferred in part | The helper-test part is done: `re.escape(tmp)` in both regexes, a real snapshot subprocess test, and a forced snapshot-failure test. The `campaign_views.py` alias part is outside this round's file scope. |
+| ID | Verified |
+|----|----------|
+| WR-01 (four re-review forms) | **Yes.** Forms (a)-(d) are reported, and `TestReReviewFormsOnARealNotebook` passes. The capability extension still leaves plain-source routes open; see CR-01 and CR-02. |
+| WR-02 (fail-closed step) | **Yes.** Every alias is switched to the dummy backend before `close_all()`, the close is best-effort, and a clean-up error is logged while the original error is re-raised. All three `TestHelperFailClosedIsExceptionSafe` cases pass, including the case with no `default` alias. |
+| IN-01 (refusal wording) | **Yes.** The README and the setup markdown of all eight notebooks now separate failures before the settings are read from failures after. |
+| IN-02 (snapshot prose) | **Yes.** The NF-14 labels come from `NF14_EXPECTED_UNEXPLAINED` and agree with the `duplicate_identity=3` output. The PROJ-01 and PROJ-03 rows cite the real heading and the real `Projected events by stage marker:` label. |
 
-WR-03, IN-03 and IN-04 from the previous round concern `test_bootstrap5_rendering.py`, `campaign_views.py`,
-`campaign_tables.py` and the attribution template. Those files are outside this round's scope, so they stay
-`open` in the ledger and are not repeated here.
+The 40-09 override in `40-VERIFICATION.md` accepts only two kinds of gap: values assembled or looked up at
+runtime, and code outside the notebook. CR-01 and CR-02 are neither. Each is readable, literal notebook source
+that passes the whole extended guard. Five of the forms were run for real and reached a database other than the
+scratch one, or overwrote a file, with the helper's teardown still printing its normal lines. Because the
+override's stated basis does not hold, SC 2's first half is not met. Both are classified as BLOCKER for that
+reason.
 
-No new critical issue. The two warnings are a guard blind spot that the module docstring does not admit, and a
-disable step that is not exception-safe.
+## Critical Issues
+
+### CR-01: R12 misses plain-source process, connection and ATTACH routes: module names are not matched as names, the `connection` proxy is not listed, and `ATTACH (` passes
+
+**File:** `solsys_code/tests/test_pre_executed_notebooks.py:520-549` (`_database_rerouting_problems`), `:74-92` (`REROUTE_NAMES`), `:157` (`ATTACH_SQL`), `:28-43` (module docstring); `docs/notebooks/README.md:91-93`
+
+**Issue:** The docstring (lines 39-42) says each R12 name is matched "wherever it appears -- as a name, an
+attribute, a keyword, an imported name or an exact string constant". The override repeats that claim. It does
+not hold for the module tables (`PROCESS_MODULES`, `DYNAMIC_CODE_MODULES`):
+
+- Line 522 checks a `Name` against `_R12_NAME_TABLES` and `_R12_BUILTIN_TABLES` only.
+- Line 532-533 checks a from-import alias against the same two tables only.
+- Lines 544 and 548 check the module tables against the first component of the imported module only.
+
+So `subprocess` is reported when it is imported directly or used as an attribute (`webbrowser.subprocess`). It
+is not reported when it is imported from any module that re-exports it. Each of the following returned `[]`
+from `isolation_problems()` on the real-notebook copy:
+
+```python
+# (a) a process, via a module that re-exports subprocess (no runtime assembly; run for real: child started
+#     with env={'PATH': '/usr/bin'}, so it has no FOMO_DATABASE_PATH)
+from webbrowser import subprocess            # also: from django.utils.autoreload import subprocess as sp
+subprocess.run([sys.executable, 'manage.py', 'flush', '--noinput'], cwd=repo_root_path, env={'PATH': '/usr/bin'})
+
+# (b) re-routing the ORM through the singular `connection` proxy. Run for real: Group.objects.create()
+#     wrote its row to other.sqlite3
+from django.db import connection
+connection._connections.settings['default']['NAME'] = '/home/someone/other.sqlite3'
+connection.close()
+
+# (c) a new raw connection or a swapped connection without `sqlite3` or a listed name. Both run for real:
+#     a row landed in other.sqlite3
+connection.connection = connection.Database.connect('/home/someone/other.sqlite3', isolation_level=None)
+dev = type(connection.connection)('/home/someone/other.sqlite3')
+
+# (d) ATTACH with a parenthesised expression. Run for real: the INSERT landed in other.sqlite3
+cursor.execute('ATTACH (%s) AS dev', [path])          # also "ATTACH('/x.sqlite3') AS dev"
+
+# (e) a dynamic lookup by a literal (not assembled) string
+from django.utils.module_loading import import_string
+import_string('os.system')('...')                     # also pkgutil.resolve_name('subprocess:run')
+```
+
+Why each one passes:
+- (b): `connection._connections.settings` has the dotted name `connection._connections.settings`. That does not
+  end in `.connections.settings`, so `REROUTE_DOTTED_SUFFIXES` does not match it. `connection`, `_connections`
+  and `Database` are on no list.
+- (d): `ATTACH_SQL` requires whitespace followed by `database`, a quote or a parameter marker. SQLite takes any
+  expression after `ATTACH`.
+- (e): the string-constant check is an exact match. `'os.system'` is not `'system'`, and `'subprocess:run'` is
+  not `'subprocess'`, although `sys.modules['subprocess']` is caught.
+- Related: `IPython.utils.process.getoutputerror`, `get_output_error_code` and `process_handler` also pass. The
+  synthetic tests cover the `getoutput` sibling, and the override text says "IPython's shell helpers" are
+  reported.
+
+None of these forms assembles a value at runtime or relies on code outside the notebook. README lines 91-93
+("never sets Django up, chooses a database, starts a process ...") overstates what the guard checks, for the
+same reasons.
+
+**Fix:** match the module tables everywhere the name tables are matched, list the proxy names, widen ATTACH,
+and add a real-notebook case for each form:
+
+```python
+# _database_rerouting_problems
+if isinstance(node, ast.Name):
+    note(node.id, _R12_NAME_TABLES, _R12_MODULE_TABLES, _R12_BUILTIN_TABLES)
+...
+elif isinstance(node, ast.alias):
+    for name in (node.name.split('.')[-1], node.asname):
+        note(name, _R12_NAME_TABLES, _R12_MODULE_TABLES, _R12_BUILTIN_TABLES)
+elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+    for piece in re.split(r'[.:]', node.value):          # 'os.system', 'subprocess:run'
+        note(piece, _R12_NAME_TABLES, _R12_MODULE_TABLES, _R12_BUILTIN_TABLES)
+
+REROUTE_NAMES |= {'connection', '_connections', 'Database'}  # no real notebook references any of them
+PROCESS_NAMES |= {'getoutputerror', 'get_output_error_code', 'process_handler'}
+DYNAMIC_CODE_NAMES |= {'import_string', 'resolve_name', 'locate'}
+ATTACH_SQL = re.compile(r'\battach\b', re.IGNORECASE)  # any ATTACH; the look-alike prose case still passes
+                                                        # if limited to strings passed to execute()/executemany()
+```
+
+Then either correct the override reason in `40-VERIFICATION.md` or re-verify after the fix, and narrow README
+lines 91-93 to what the guard actually reports.
+
+### CR-02: R0 misses IPython aliases, automagic and shell escapes wrapped in a line magic, so a bare `cp` cell can overwrite the developer database
+
+**File:** `solsys_code/tests/test_pre_executed_notebooks.py:214-218` (`SHELL_ESCAPE`), `:221-231` (`UNPARSEABLE_SUSPECT_TEXT`), `:575-588` (R0 loop)
+
+**Issue:** R0 only knows the escapes listed in `SHELL_ESCAPE`. IPython has more:
+- Default aliases on Linux: `mkdir`, `rmdir`, `mv`, `rm`, `cp`, `cat`, `ls`, `ll`, `lf`, `lk`, `ldir` and `lx`
+  (checked with `IPython.core.alias.default_aliases()`).
+- `automagic` is on by default.
+- `%alias` and `%rehashx` define new shell aliases.
+- `%time` and `%timeit` transform their argument, so `%time !cmd` runs a shell escape that `^\s*!` does not
+  see.
+
+Each of these inserted cells returned `[]` on the real-notebook copy:
+
+```
+cp /tmp/fomo-notebook-db-abc123/* ../../src/
+%cp /tmp/fomo-notebook-db-abc123/* ../../src/
+rm -r ../../src
+%time !rm -r ../../src
+%alias wipe rm -r ../../src
+%rehashx
+%pip install -e ../..
+```
+
+`InteractiveShell.transform_cell('cp scratch/* src/')` gives `get_ipython().run_line_magic('cp', ...)`. On dummy
+files, `run_cell('cp scratch/* src/')` and `run_cell('%time !cp scratch/fomo_db.sqlite3 src/')` each replaced
+`src/fomo_db.sqlite3` with the scratch copy. That is a byte copy over the developer database. The file name is
+never written, nothing is assembled at runtime, and everything is in the notebook. The docstring (lines 22-26)
+says R0 reports any unparseable cell that mentions "a process, a shell command or the environment".
+
+**Fix:** none of the eight real notebooks has an unparseable code cell (checked with `ast.parse` on every code
+cell). So replace the R0 deny-list with an allow-list: an unparseable cell is a problem unless removing a small
+set of harmless magic lines leaves parseable Python.
+
+```python
+HARMLESS_MAGIC_LINE = re.compile(r'^\s*%(?:matplotlib|config)\b.*$|^\s*%%(?:time|capture)\b.*$', re.MULTILINE)
+...
+if tree is None:
+    stripped = HARMLESS_MAGIC_LINE.sub('', source)
+    if _parse(stripped) is None or SHELL_ESCAPE.search(source) or ...:
+        problems.append(...)
+    else:
+        parsed[...] = ast.parse(stripped)   # so R5-R12 also check the code under %%time
+```
+
+Keep the existing `%%time` look-alike test passing, and add the seven cells above as synthetic cases.
 
 ## Warnings
 
-### WR-01: R12 misses a database re-route through a new `ConnectionHandler` wrapper and through a child process with a cleared environment; the teardown still prints "never opened for writing"
+### WR-01: R6 lists only `copy`, `copy2` and `copyfile`, so `shutil.copytree` or `write_bytes` byte-copies over the developer database without naming it
 
-**File:** `solsys_code/tests/test_pre_executed_notebooks.py:32-34, 57-74, 116-125, 361-393`; `docs/notebooks/fomo_nb_utils.py:364`
-**Issue:** R12 is a deny-list of names. It has no entry for Django's own `ConnectionHandler`, for a store into
-`connections[...]`, or for starting a process that runs `manage.py`. I appended each of the following to the
-setup cell of a copy of `import_campaign_csv_demo.ipynb`, with its committed output kept, and
-`isolation_problems()` returned `[]` every time:
+**File:** `solsys_code/tests/test_pre_executed_notebooks.py:185` (`FORBIDDEN_COPY_NAMES`), `:446-464` (`_byte_copy_problems`)
 
-```python
-# (a) ORM re-route without any listed name
-from django.db import connections
-from django.db.utils import ConnectionHandler
-dev = str(repo_root_path / 'src' / ('fomo_db' + '.sqlite3'))
-connections['default'] = ConnectionHandler({'default': {'ENGINE': 'django.db.backends.' + 'sqlite' + '3', 'NAME': dev}})['default']
-
-# (b) child process that no longer inherits the scratch FOMO_DATABASE_PATH
-import subprocess
-subprocess.run([sys.executable, 'manage.py', 'migrate'], cwd=repo_root_path, env={'PATH': '/usr/bin'})
-
-# (c) same through os.environ.clear()
-import os, subprocess
-os.environ.clear()
-subprocess.run([sys.executable, str(repo_root_path / 'manage.py'), 'flush', '--noinput'])
-```
-
-The IPython shell magic `!cd ../.. && env -i PATH=/usr/bin python manage.py flush --noinput` also gets through
-R0, because `manage.py` and `env -i` are not in `UNPARSEABLE_SUSPECT_TEXT`.
-
-I ran (a) for real in a child process after a successful `setup_scratch_django()`, with `NAME` pointed at a
-throwaway file. `Group.objects.create(...)` wrote its row to that file, and the teardown then printed
-`The developer database (src/fomo_db.sqlite3) was never opened for writing.` R10 requires that line as evidence,
-but nothing measures it.
-
-The module docstring's "What the guard does not see" list (lines 32-34) names `exec`/`eval`/`compile`, computed
-`getattr`/`importlib`, code inside imported modules, objects bound to another name, and what libraries do. None
-of those covers (a), (b) or (c), which are plain, readable Python. The 40-06 summary's claim that R12 "covers
-every database re-routing spelling" is therefore too strong. This was the same kind of gap WR-01 was opened for.
-
-**Fix:** extend R12 and R0, add one synthetic case for each, and make the docstring list what is still out of
-reach:
+**Issue:** Each of the following passes the guard on the real-notebook copy. The developer database's file name
+never appears and nothing is looked up:
 
 ```python
-REROUTE_NAMES = frozenset({..., 'ConnectionHandler', 'create_connection', 'configure_settings'})
-# R12: a store into the connection handler replaces the wrapper the ORM uses.
-elif isinstance(node, (ast.Assign, ast.AugAssign, ast.Delete)):
-    targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
-    for target in targets:
-        if isinstance(target, ast.Subscript) and _dotted_name(target.value).split('.')[-1] == 'connections':
-            found.add('connections[...] assignment')
-# R12: a child process can drop the scratch FOMO_DATABASE_PATH.
-SUBPROCESS_NAMES = {'subprocess', 'Popen', 'system', 'spawnv', 'execv'}   # import or call -> problem
-UNPARSEABLE_SUSPECT_TEXT = (..., 'manage.py', 'env -i', 'env -u')
+import shutil
+shutil.copytree(scratch_db_dir, repo_root_path / 'src', dirs_exist_ok=True)
+# or
+for f in scratch_db_dir.iterdir():
+    (repo_root_path / 'src' / f.name).write_bytes(f.read_bytes())
 ```
 
-As an alternative, or in addition, reword the teardown's second line to say what was checked. For example:
-"Django's only configured database was the scratch file above." That claim the helper can stand behind.
+The scratch file has the same base name as the developer database (`SCRATCH_DB_NAME`), so both statements
+overwrite `src/fomo_db.sqlite3`. I checked the `copytree` overwrite on dummy files. The guard docstring
+(line 28) and the README (line 93) say no notebook byte-copies a database.
 
-### WR-02: The fail-closed step is not exception-safe; with no `default` alias it masks the helper's `RuntimeError` and never switches the aliases to the dummy backend
+This is a WARNING, not a BLOCKER, because the destination directory is built by joining path parts. That sits
+next to the "joined path parts" wording in the accepted residual. The developer database's own path is never
+built, though.
 
-**File:** `docs/notebooks/fomo_nb_utils.py:184-207` (called from `306-314`)
-**Issue:** `_disable_django_databases()` calls `connections.close_all()` (line 199) **before** its loop that
-switches each alias to `django.db.backends.dummy` (lines 200-207). `close_all()` evaluates
-`ConnectionHandler.settings`, which raises `ImproperlyConfigured("You must define a 'default' database.")` when
-`DATABASES` has no `default` key. That exception escapes the `try` at line 309. The swap loop never runs, and the
-helper's own `RuntimeError` survives only as `__context__`. I reproduced it with an override settings module
-whose `DATABASES = {'primary': {...sqlite3...}}`:
+**Fix:** add `copytree`, `copyfileobj` and `move` to `FORBIDDEN_COPY_NAMES`, and report any `scratch_db_dir`
+reference outside the setup and teardown statements, because no notebook needs the scratch directory except to
+pass it to the teardown. As an alternative, report any path expression that ends in a `'src'` constant joined
+onto `repo_root_path`.
 
-```
-RAISED ImproperlyConfigured You must define a 'default' database.
-CAUSE/CONTEXT RuntimeError A notebook scratch setup supports only the 'default' database, but the settings also define 'primary'; ...
-DATABASES after: {'primary': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': '.../primary.sqlite3'}}
-```
+### WR-02: three notebooks still publish the unmeasured "developer database was never opened" claim that D-G2 withdrew
 
-In this exact case no database is reachable, because Django refuses every connection while `default` is
-missing. But that comes from Django's own check, not from the helper. The guarantee the docstring
-(lines 263-267) and the README (lines 66-68) state ("switches every database alias to Django's dummy backend",
-"raises `RuntimeError`") does not hold. Any other exception from `close_all()` would also skip the swap. For
-example, `SynchronousOnlyOperation` from `@async_unsafe close()` when a user has exported
-`DJANGO_ALLOW_ASYNC_UNSAFE=''` (which `setdefault` keeps and Django treats as unset) and migrate fails in
-Jupyter. The swap is the part that makes the helper fail closed, so it should not depend on the close step
-succeeding first.
+**File:** `docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb` (teardown markdown `46602df0`); `campaign_lifecycle_demo.ipynb` (setup markdown `7dfef438`, teardown markdown `234805b6`); `load_telescope_runs_demo.ipynb` (setup markdown `49ff72df`, teardown markdown `31ff3edb`)
 
-**Fix:** switch the settings first, close afterwards, and never let the clean-up replace the original error:
+**Issue:** D-G2 replaced the teardown's hard-coded "never opened for writing" line with a statement of what the
+helper checked. 40-09 moved five notebooks' teardown markdown to that statement (T1). The 40-09 interface table
+listed no teardown markdown cell for these three notebooks, but each has one, unchanged since `269d8c5`:
 
-```python
-def _disable_django_databases():
-    from django.conf import settings as django_settings
-    from django.db import connections
+- `46602df0`, `234805b6` and `31ff3edb` end with "The developer database was never opened by this notebook run."
+- The setup cells `7dfef438` ("the developer database is never opened at all (UAT G-33-4)") and `49ff72df`
+  ("is never opened at all (T-35-16)") make the same claim.
 
-    if not django_settings.configured:
-        django_settings.configure(DATABASES={'default': {'ENGINE': 'django.db.backends.dummy'}})
-    # Switch first: cached wrappers hold these same dicts, so this alone makes every one of them unusable.
-    for alias_settings in django_settings.DATABASES.values():
-        alias_settings['ENGINE'] = 'django.db.backends.dummy'
-        alias_settings['NAME'] = ''
-    try:
-        connections.close_all()  # best effort; every alias is already a dummy
-    except Exception:
-        pass
-    for alias in list(django_settings.DATABASES):
-        try:
-            del connections[alias]
-        except AttributeError:
-            pass
-```
+The teardown output cell right below each of the three teardown markdown cells prints the new "Before
+django.setup() ran, the helper checked ..." line. So the prose and the output beside it now make different
+claims, which the 40-09 human check (plan line 434) says must not happen. The plan's "no old wording or claim in
+any cell" check missed these cells because it matched only the literal "opened for writing". CR-01 and CR-02
+show that nothing measures this claim.
 
-Wrap the call at line 310 so that a clean-up error is logged and the original exception is re-raised. Add a
-`TestHelperRefusalLeavesNoDatabase` case with a settings module that has no `default` alias, and assert that the
-child sees `RuntimeError`.
+**Fix:** in the three teardown markdown cells, replace the last sentence with T1, as was done for the other
+five. In `7dfef438` and `49ff72df`, change "is never opened at all" to "is not needed, and the helper never opens
+it in fresh mode". Then broaden the 40-09 style check to `never opened` / `never .* writes the developer`.
 
 ## Info
 
-### IN-01: README and all eight notebooks say a failed setup leaves no reachable database and cannot be re-run, which is not true for failures before the settings are read
+### IN-01: `_disable_django_databases` docstring overstates what the in-place switch does on its own
 
-**File:** `docs/notebooks/README.md:66-68, 77-78`; the setup markdown cell of every notebook under `docs/notebooks/pre_executed/` (for example `telescope_runs_demo.ipynb` cell 1, `reconcile_campaign_runs_demo.ipynb` cell 1 item 2)
-**Issue:** the prose says "after a refusal, or any later failure in the setup, no cell can reach a database until
-the kernel is restarted". The README also says that re-running the setup cell "where a setup already failed,
-raises `RuntimeError`". Several failures happen in `prepare_scratch_database()` (`fomo_nb_utils.py:281`),
-before the `try` and before the settings are read: snapshot mode with no `src/fomo_db.sqlite3`, an unknown
-mode, a `mkdtemp` failure, or a backup error. These leave Django unconfigured, do not run the disable step, and
-allow a second setup call. That behaviour is fine, since nothing was routed and a retry is safe. Only the prose
-overstates it. The function docstring says it precisely ("Once the settings are loaded, any failure ...").
-**Fix:** say "after a refusal of the database settings, or any failure once Django's settings are loaded, ..."
-and "re-running the setup cell after Django's settings were loaded raises `RuntimeError`".
+**File:** `docs/notebooks/fomo_nb_utils.py:190-195, 205-208`
 
-### IN-02: Snapshot-notebook prose that does not match the committed output
+**Issue:** The docstring says "the switch alone leaves no real database reachable and a close that fails
+afterwards cannot undo it". That is not true for a wrapper that already holds an open connection, for example
+after a failure partway through `migrate`. `BaseDatabaseWrapper.ensure_connection()` reconnects only when
+`self.connection is None`, so a cached wrapper whose close failed keeps using its open sqlite3 connection
+whatever its `settings_dict` now says. What actually removes that route is the `del connections[alias]` loop,
+which always runs. `test_a_failing_connection_close_still_disables_every_alias_and_keeps_the_original_error`
+does not exercise this case, because its refusal happens before any connection is opened. There is a second,
+smaller gap: an alias whose value is not a dict (`None`) raises `TypeError` in the switch loop at line 207.
+Aliases later in the loop are then not switched, although Django's own `configure_settings` refuses that
+configuration anyway.
 
-**File:** `docs/notebooks/pre_executed/reconcile_campaign_runs_demo.ipynb` (code cell 5, the NF-14 cell, lines `print(f'dry run CommandError (expected -- pk=334 plus the duplicate-identity group): ...')` and its two siblings); `docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb` (code cell 13, the requirement table)
-**Issue:** the 40-07 commit `304022a` says the snapshot notebooks' "data-dependent prose match[es] the new
-output", but some does not:
-- The three NF-14 `print` labels hard-code "expected -- pk=334 plus the duplicate-identity group". The committed
-  output on the same lines reads `3 event(s) could not be explained ... (duplicate_identity=3)`, and the BEFORE
-  table shows `blank_url: 0`, so the snapshot holds no pk=334. The published output contradicts itself.
-- The requirement table cites `cells under "Per-corpus reconciliation"` (PROJ-01) and `"Per-marker tally" cell`
-  (PROJ-03). Neither heading exists. The sections are "The whole real corpus, not a sample" and an unheaded tally
-  cell.
-
-Both predate this phase, but both notebooks were re-executed and their prose re-checked in this round.
-**Fix:** build the NF-14 label from the data, for example `expected -- the duplicate-identity group` plus any
-pre-existing unexplained pks found in the BEFORE snapshot, and point the two table rows at the real headings.
-
-### IN-03: Two branches of the fail-closed path have no executed test
-
-**File:** `solsys_code/tests/test_notebook_helper.py` (no case for `fomo_nb_utils.py:197-198` or for the `configured`-only branch of `275`)
-**Issue:** `_disable_django_databases()`'s `if not django_settings.configured: configure(dummy)` branch runs when
-the settings module itself fails to import, for example a broken `local_settings.py`. No test reaches it. My
-first probe hit it by accident (`ModuleNotFoundError: No module named 'src'`) and it behaved correctly, but a
-regression there would not be caught. Likewise, the refusal when settings are configured but `apps.ready` is
-`False` is tested only indirectly, through the second-setup probe after a refusal.
-**Fix:** add a child-process case with `DJANGO_SETTINGS_MODULE` naming a module that raises on import. Assert
-that the error propagates, that `connections['default'].cursor()` raises `ImproperlyConfigured`, and that a
-second setup is refused.
+**Fix:** reword the docstring to "the switch makes every new wrapper a dummy, and dropping the cached wrappers
+removes any connection that is still open". Optionally, add a child case that opens `connections['default']`,
+forces `migrate` to fail with `close_all` patched to raise, and asserts that the next query is refused.
 
 ---
 
-_Reviewed: 2026-10-10T05:37:47Z_
+_Reviewed: 2026-10-10T15:36:37Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
