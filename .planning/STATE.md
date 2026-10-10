@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: executing
-stopped_at: Completed 40-10-PLAN.md
-last_updated: "2026-10-10T17:59:33.262Z"
+stopped_at: Completed 40-11-PLAN.md
+last_updated: "2026-10-10T18:12:18.728Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 40 execution started
-state_head: 3c23dec5914e8a666ec7001469f5ed7bf4c38cc2
+state_head: 3f8a062f4939666bba678f5c1a175bcc407e84de
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 29
-  completed_plans: 27
-  percent: 93
+  completed_plans: 28
+  percent: 97
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 ## Current Position
 
 Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
-Plan: 10 of 12
+Plan: 11 of 12
 Status: Ready to execute
 Last activity: 2026-10-10 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 93%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 97%)
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P08 | 12 min | 3 tasks | 5 files |
 | Phase 40 P09 | 19 min | 3 tasks | 10 files |
 | Phase 40 P10 | 16 min | 3 tasks | 2 files |
+| Phase 40 P11 | 9 min | 2 tasks | 8 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -122,6 +123,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: 40-10: R12 matches every listed name at every identifier, in every dotted part of a str or bytes constant and in code inside strings (two levels); a string counts as code only when it holds a statement or a call
 - [Phase 40]: 40-10: R0 is an allow-list over IPython's own TransformerManager (harmless only: %matplotlib inline, a first-line %%time or %%capture; %config is not harmless) plus an automagic rule for one-line cells built from IPython's live magic registry
 - [Phase 40]: 40-10: R12 adds connection, _connections, Database, getoutputerror, get_output_error_code, process_handler, import_string, resolve_name, locate, Macro and ATTACH (; R6 adds copytree, copyfileobj, move and write_bytes
+- [Phase 40]: 40-11: the guard module docstring and README describe the guard as 40-10 left it, rule by rule, and name exactly the residual RES; string code is described with 40-10's test (a string that parses and holds a statement or a call)
+- [Phase 40]: 40-11: the _disable_django_databases docstring change is a docstring only, so no notebook is re-executed for IN-01 (D-G6 c); the matching warning text in the helper's code is left for Phase 41 triage
 
 ### Pending Todos
 
@@ -193,8 +196,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-10T17:59:24.330Z
-**Stopped at:** Completed 40-10-PLAN.md
+**Last session:** 2026-10-10T18:11:58.016Z
+**Stopped at:** Completed 40-11-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
