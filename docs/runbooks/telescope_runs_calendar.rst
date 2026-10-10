@@ -936,7 +936,9 @@ small, visually subordinate chip after the evidence, there for staff to
 sanity-check the banding while the matcher is new, not to be read on its
 own. Each row is also tagged with a named confidence band -- **High**,
 **Medium** or **Low** -- and the band filter at the top of the page
-narrows either worklist to one band at a time.
+narrows either worklist to one band at a time. A High-band candidate row
+is also marked with a green bar down its left edge, so the strongest
+candidates stand out while you scan a long list.
 
 **The checkbox gate.** A checkbox appears on a candidate row only when it
 is a High-band candidate *and* the only High-band candidate for its
@@ -956,11 +958,24 @@ an unconfirmed guess can never be mistaken for a confirmed attribution. It exist
 the queue can actually drain -- without it, a rejected candidate would
 return on every page load -- and it is fully reversible from the
 "Dismissed" section on the same page, which is folded away until you click
-its **Dismissed** heading and stays open while you page through it. It lists
-who dismissed each pair and offers an Undo button for every row. That reason box is
-required for Dismiss only -- clicking Confirm on the same row never asks
-for one, because a confirmation records the pair itself rather than a
-rejection of it.
+its **Dismissed** heading and stays open while you page through it or sort
+it. It lists who dismissed each pair and offers an Undo button for every row.
+That reason box is required for Dismiss only -- clicking Confirm on the same
+row never asks for one, because a confirmation records the pair itself rather
+than a rejection of it.
+
+The page keeps your place. Pressing Undo on a Dismissed row brings you back
+to the same page of the Dismissed section, still open and with your band
+filter, so you can work down the list pressing Undo on the next row without
+re-opening the section or re-paging. Every other action on the page --
+Confirm, Dismiss, Confirm selected, and Undo in the Confirmed section --
+likewise keeps the band filter and each table's page and sort. If the row you
+acted on was the only one left on its page, you land on the
+last page that still has rows rather than on an empty page or back on page 1.
+The page, sort and filter are carried in the page's own forms and checked
+again by the server, so a hand-edited value is ignored rather than followed.
+The confirmation prompts on the two Undo buttons are plain browser dialogs;
+cancel one and nothing changes.
 
 Undoing a *confirmed* attribution writes a dismissal for that same pair
 as part of the same action. This is what keeps the undo attributable (the
@@ -968,7 +983,10 @@ link's own audit fields are cleared by the undo, so the trace has to live
 somewhere else) and what stops the matcher immediately re-suggesting the
 exact pair a staff member just decided was wrong. A freshly-undone
 confirmation therefore appears in the Dismissed section, not directly
-back in an open worklist, until that dismissal is itself undone.
+back in an open worklist, until that dismissal is itself undone. After the
+Undo the page comes back on the Confirmed section, on the same page, and the
+Dismissed section stays as it was -- folded, if it was folded -- so open its
+heading to find the pair.
 
 A linked record's own calendar entry follows the link, so the Confirmed
 table lists that pair once, as the record's row, and that row's Undo is the

@@ -22,7 +22,7 @@ import os
 import re
 import tempfile
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from pathlib import Path
 
@@ -564,6 +564,73 @@ class TestBootstrap5Rendering(StaticLiveServerTestCase):
         unmarked = self.page.locator('table.table tbody tr:not(.bg-light):not(.border-start)').first
         unmarked.wait_for(state='attached')
         self.assertNotEqual(unmarked.evaluate('el => getComputedStyle(el).borderLeftWidth'), '4px')
+
+        assert page_errors == []
+
+    def test_undo_on_a_dismissed_row_keeps_the_section_open_on_the_same_page(self):
+        """WARN-07 / ROADMAP success criterion 5, in a real browser: with 27 dismissals, on page 2 of
+        the open Dismissed section, accepting the Undo confirmation on a row lands on page 2 of the
+        same section, still open, with the other page-2 row still listed. The server tests cannot see
+        the Undo button's ``confirm()`` dialog, so this test accepts it the way a person does."""
+        staff = get_user_model().objects.create_user(username='bs5-undo-staff', password='pw', is_staff=True)
+        campaign = TargetList.objects.create(name='BS5 Undo Campaign')
+        target = NonSiderealTargetFactory.create()
+        campaign.targets.add(target)
+        observatory = Observatory.objects.create(obscode='E10', name='Siding Spring', short_name='SSO')
+        run = CampaignRun.objects.create(
+            campaign=campaign,
+            telescope_instrument='FTS/MuSCAT4',
+            window_start=date(2026, 7, 7),
+            window_end=date(2026, 7, 21),
+            site=observatory,
+            telescope_class='',
+        )
+        base = timezone.now()
+        for index in range(27):
+            record = ObservationRecord.objects.create(
+                target=target,
+                user=staff,
+                facility='LCO',
+                observation_id=f'BS5-UNDO-{index}',
+                status='PENDING',
+                parameters={
+                    'instrument_type': '2M0-SCICAM-MUSCAT',
+                    'start': datetime(2026, 7, 7, 22, 0).isoformat(),
+                    'end': datetime(2026, 7, 8, 6, 0).isoformat(),
+                },
+            )
+            ObservationRecordDismissal.objects.create(
+                observation_record=record,
+                run=run,
+                dismissed_by=staff,
+                dismissed_at=base - timedelta(minutes=index),
+                reason=f'Browser undo row {index}',
+            )
+
+        self._log_in_browser(staff)
+        page_errors = []
+        self.page.on('pageerror', lambda exc: page_errors.append(str(exc)))
+        # The Undo button asks "Undo this dismissal? ..." through window.confirm(); accept it.
+        self.page.on('dialog', lambda dialog: dialog.accept())
+
+        self.page.goto(f'{self.live_server_url}{reverse("campaigns:attribution")}?dismissed-page=2')
+        dismissed = self.page.locator('#attribution-dismissed-section')
+        dismissed.wait_for(state='visible')
+        rows = dismissed.locator('tbody tr')
+        self.assertEqual(rows.count(), 2)
+        self.assertIn('Browser undo row 25', rows.nth(0).inner_text())
+
+        with self.page.expect_navigation():
+            rows.nth(0).get_by_role('button', name='Undo').click()
+
+        self.assertIn('dismissed-page=2', self.page.url)
+        self.assertTrue(self.page.url.endswith('#attribution-dismissed-section'), self.page.url)
+        dismissed.wait_for(state='visible')
+        rows = dismissed.locator('tbody tr')
+        self.assertEqual(rows.count(), 1)
+        self.assertIn('Browser undo row 26', rows.nth(0).inner_text())
+        self.assertNotIn('Browser undo row 25', dismissed.inner_text())
+        self.assertEqual(ObservationRecordDismissal.objects.count(), 26)
 
         assert page_errors == []
 
