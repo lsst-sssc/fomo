@@ -21,6 +21,7 @@ AST cannot read (for example ``exec()`` of a built string), and does not claim t
 """
 
 import ast
+import copy
 import importlib.util
 import json
 import re
@@ -39,6 +40,12 @@ SCRATCH_MODES = ('fresh', 'snapshot')
 SCRATCH_PREFIX = 'fomo-notebook-db-'
 DEVELOPER_DB_NAME = 'fomo_db.sqlite3'
 DB_ENV_VAR = 'FOMO_DATABASE_PATH'
+# R12: names a notebook never needs, because only the helper may choose or change the database.
+REROUTE_NAMES = frozenset({'DATABASES', 'settings_dict', 'override_settings', 'developer_database_path'})
+# R12: attribute chains (matched when they equal, or end with ``.`` plus, one of these) that reach the same dicts.
+REROUTE_DOTTED_SUFFIXES = ()
+# Text every R12 problem carries, so a test can tell an R12 report from any other rule's.
+REROUTE_MARKER = '(R12:'
 RESOLVED_LINE = re.compile(r"Resolved database: '([^']+)'")
 TEARDOWN_OUTPUT = 'Removed scratch database directory:'
 EXPECTED_NOTEBOOKS = frozenset(
@@ -316,6 +323,35 @@ def _byte_copy_problems(parsed) -> list[str]:
     return problems
 
 
+def _database_rerouting_problems(parsed) -> list[str]:
+    """R12: no notebook re-routes Django's database after the helper call, under any of the names it could use."""
+    problems = []
+    for number, _cell, tree in parsed:
+        if tree is None:
+            continue
+        found = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in REROUTE_NAMES:
+                found.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                if node.attr in REROUTE_NAMES:
+                    found.add(node.attr)
+                dotted = _dotted_name(node)
+                found.update(
+                    suffix for suffix in REROUTE_DOTTED_SUFFIXES if dotted == suffix or dotted.endswith(f'.{suffix}')
+                )
+            elif isinstance(node, ast.keyword) and node.arg in REROUTE_NAMES:
+                found.add(node.arg)
+            elif isinstance(node, ast.alias):
+                found.update(name for name in (node.name.split('.')[-1], node.asname) if name in REROUTE_NAMES)
+        problems.extend(
+            f'code cell {number} references {name}; only {SETUP_FUNCTION} may choose the database '
+            f'{REROUTE_MARKER} no re-routing after setup)'
+            for name in sorted(found)
+        )
+    return problems
+
+
 def isolation_problems(notebook: dict) -> list[str]:
     """Return human-readable reasons ``notebook`` could touch a real database or show stale output.
 
@@ -325,7 +361,8 @@ def isolation_problems(notebook: dict) -> list[str]:
     Returns:
         A list of problems, in statement order where it matters; empty when the notebook is clean. A notebook
         that imports nothing from Django, the project app or a TOM plugin is only checked for the rules that
-        apply to every notebook (no own database routing, no byte copy, no developer database file name).
+        apply to every notebook (no own database routing, no byte copy, no developer database file name, and
+        none of the names R12 lists for re-routing the database after setup).
     """
     problems = []
     code_cells = _code_cells(notebook)
@@ -341,9 +378,10 @@ def isolation_problems(notebook: dict) -> list[str]:
                 f'code cell {number} is not parseable Python but mentions Django or a database, so it cannot be checked'
             )
 
-    # R5, R6, R7 apply to every notebook.
+    # R5, R6, R7, R12 apply to every notebook.
     problems.extend(_database_routing_problems(parsed))
     problems.extend(_byte_copy_problems(parsed))
+    problems.extend(_database_rerouting_problems(parsed))
 
     if not is_django_backed(notebook):
         return problems
@@ -706,6 +744,70 @@ class TestIsolationRulesOnSyntheticNotebooks(SimpleTestCase):
 
 def _load_notebook(path: Path) -> dict:
     return json.loads(path.read_text(encoding='utf-8'))
+
+
+def _append_to_setup_cell(notebook: dict, source: str) -> dict:
+    """Return a copy of ``notebook`` with ``source`` appended to the code cell that holds the helper call.
+
+    Appending to the setup cell, rather than inserting a new cell, keeps the execution counts contiguous and
+    leaves every other cell and every committed output as it was, so only the rule under test can fire.
+
+    Args:
+        notebook: A parsed ``.ipynb`` file with one valid helper call.
+        source: Python source to add after the existing setup cell source, each line ending in a newline.
+
+    Returns:
+        A deep copy of ``notebook``; the argument is not modified.
+    """
+    modified = copy.deepcopy(notebook)
+    setup_number = setup_call(modified)[0]
+    cell = _code_cells(modified)[setup_number - 1]
+    cell['source'] = _cell_source(cell).rstrip('\n') + '\n' + source
+    return modified
+
+
+def _rerouting_names(problems: list[str]) -> set[str]:
+    """Return the names that R12 problems say a notebook references (``references <name>;``)."""
+    return {match.group(1) for problem in problems for match in re.finditer(r'references (\S+);', problem)}
+
+
+class TestRerouteRuleOnARealNotebook(SimpleTestCase):
+    """WR-01 / VERIFICATION gap 2: a notebook that calls the helper and then re-routes Django's database.
+
+    The two probes are the verifier's own, appended to the setup cell of a copy of a real notebook with its
+    committed output kept. Before rule R12 existed ``isolation_problems()`` returned ``[]`` for both.
+    """
+
+    SETTINGS_DICT_PROBE = (
+        'from django.db import connections\n'
+        'from fomo_nb_utils import developer_database_path\n'
+        "connections['default'].close()\n"
+        "connections['default'].settings_dict['NAME'] = str(developer_database_path(repo_root_path))\n"
+    )
+    OVERRIDE_SETTINGS_PROBE = (
+        'from django.test import override_settings\n'
+        'from fomo_nb_utils import developer_database_path\n'
+        "override_settings(DATABASES={'default': {'ENGINE': 'django.db.backends.sqlite3', "
+        "'NAME': str(developer_database_path(repo_root_path))}}).enable()\n"
+    )
+
+    def setUp(self):
+        self.notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+
+    def test_the_unmodified_real_notebook_has_no_problems(self):
+        self.assertEqual(isolation_problems(self.notebook), [])
+
+    def test_a_settings_dict_reroute_after_setup_is_reported_on_a_real_notebook(self):
+        problems = isolation_problems(_append_to_setup_cell(self.notebook, self.SETTINGS_DICT_PROBE))
+        self.assertTrue(problems, 'the guard missed a settings_dict re-route after the helper call')
+        self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+        self.assertTrue({'settings_dict', 'developer_database_path'} <= _rerouting_names(problems), problems)
+
+    def test_an_override_settings_reroute_after_setup_is_reported_on_a_real_notebook(self):
+        problems = isolation_problems(_append_to_setup_cell(self.notebook, self.OVERRIDE_SETTINGS_PROBE))
+        self.assertTrue(problems, 'the guard missed an override_settings re-route after the helper call')
+        self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+        self.assertTrue({'override_settings', 'DATABASES', 'developer_database_path'} <= _rerouting_names(problems))
 
 
 class TestPreExecutedNotebooksUseTheHelper(SimpleTestCase):
