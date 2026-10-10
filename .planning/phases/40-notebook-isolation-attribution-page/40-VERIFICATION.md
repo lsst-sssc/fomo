@@ -45,6 +45,29 @@ covered_files:
 covered_digest: "v3:sha256:fcbe19ccff572c899820bf90bd63472a7209e9c3d93e00a6a514a124826b8fde"
 behavior_unverified: 0
 overrides_applied: 0
+overrides:
+  - must_have: "ROADMAP SC 2 (first half) / WARN-02: The notebook guard test fails for a notebook whose current source routes Django to the developer database even when that notebook's committed output is stale"
+    reason: >-
+      Rule R12, extended in 40-08 [301bd93, f1b4bb6, c45edbc], reports in every notebook any reference to
+      Django's database settings and connection objects (DATABASES, DATABASE_ROUTERS, settings_dict,
+      connections, ConnectionHandler, create_connection, get_connection_params, get_new_connection,
+      override_settings, modify_settings, DatabaseWrapper, load_backend, sqlite3, raw SQL ATTACH), to
+      starting a process (subprocess, multiprocessing, pty, pexpect, ptyprocess, psutil, Jupyter kernel
+      clients, os.system, os.popen, os.exec*, os.spawn*, os.posix_spawn*, os.fork, asyncio's
+      create_subprocess_*, Popen, ProcessPoolExecutor, get_ipython and IPython's shell helpers), to the
+      environment (os.environ, environb, putenv, unsetenv) and to running code from a string or another file
+      (exec, eval, compile, __import__, __builtins__, importlib, runpy, builtins, ctypes, cffi, call_command
+      of shell, shell_plus or runscript, execute_from_command_line), wherever the name appears, so binding
+      one to another name is reported too; R0 reports shell escapes, process magics and manage.py, env -i or
+      env -u in an unparseable cell. All four re-review forms and both round-1 probes are reported on a copy
+      of a real notebook (40-08 must_haves). What stays out of reach is deliberate obfuscation that no
+      static check of a notebook's own source can enumerate, exactly as the guard docstring names it: values
+      assembled or looked up at runtime (a name, module, SQL statement or file path built from pieces, or
+      fetched with getattr, globals(), vars() or sys.modules), code decoded at runtime, and code moved
+      outside the notebook into a module it imports or a library function that starts a process or writes a
+      file under a name these lists do not contain.
+    accepted_by: "Tim Lister"
+    accepted_at: "2026-10-10T13:46:17Z"
 re_verification:
   previous_status: gaps_found
   previous_score: 49/50 (prohibitions 7/8)
