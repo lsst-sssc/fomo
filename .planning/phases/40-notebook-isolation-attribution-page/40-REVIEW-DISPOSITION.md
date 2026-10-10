@@ -13,11 +13,11 @@ findings:
     title: "The fail-closed step is not exception-safe; with no `default` alias it masks the helper's `RuntimeError` and never switches the aliases to the dummy backend"
   - id: IN-01
     severity: info
-    disposition: open
+    disposition: fixed
     title: "README and all eight notebooks say a failed setup leaves no reachable database and cannot be re-run, which is not true for failures before the settings are read"
   - id: IN-02
     severity: info
-    disposition: open
+    disposition: fixed
     title: "Snapshot-notebook prose that does not match the committed output"
   - id: IN-03
     severity: info
@@ -47,7 +47,7 @@ findings:
     severity: info
     disposition: deferred
     title: "Small test and code tidy-ups"
-open: 5
+open: 3
 total: 11
 recorded: 2026-10-10T05:45:34.727Z
 ---
@@ -58,8 +58,8 @@ recorded: 2026-10-10T05:45:34.727Z
 |---------|----------|-------------|--------|
 | WR-01 | warning | fixed | Fixed in 40-08 Task 1 and Task 2 (301bd93, f1b4bb6): rule R12 now reports whole capabilities in every notebook (Django connection objects and database settings, starting a process, the environment, code from a string or another file, raw SQL ATTACH) and R0 reports shell escapes, process magics and manage.py / env -i / env -u text; all four re-review forms are reported on a copy of import_campaign_csv_demo; the docstring names the residual, which 40-09 records as an override; the teardown line was reworded in 40-08 Task 3 (c45edbc) |
 | WR-02 | warning | fixed | Fixed in 40-08 Task 3 (c45edbc): every alias is switched to the dummy backend before a best-effort close, a clean-up error is logged and the setup own error is re-raised; TestHelperFailClosedIsExceptionSafe proves RuntimeError with no default alias |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
+| IN-01 | info | fixed | Fixed in 40-08 Task 3 (c45edbc) and 40-09 (25eae59, c68bf7b, 0020360): the README and all eight setup cells now say a failed setup leaves no database reachable only once the helper has read Django's settings, and that an earlier failure routes nothing and may be retried |
+| IN-02 | info | fixed | Fixed in 40-09 Task 3 (0020360): reconcile_campaign_runs_demo's three NF-14 labels describe what the cell counts instead of a hard-coded record, and project_observation_calendar_demo's requirement table cites its real section and tally cell |
 | IN-03 | info | open | - |
 | CR-01 | critical | fixed | fixed in 40-05 Task 1 (222a25f): settings checked before django.setup(); any setup failure switches every database alias to the dummy backend, removes the scratch directory and restores the environment; TestHelperRefusalLeavesNoDatabase proves apps.ready False, a refused raw cursor and a refused second setup; notebooks re-executed in 40-07 (not in the current review) |
 | WR-03 | warning | open | - (not in the current review) |
