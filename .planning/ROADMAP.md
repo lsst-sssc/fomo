@@ -328,7 +328,7 @@ Plans:
   4. On the attribution page, High-band rows show their marker again, a template test asserts the marker is present in the rendered HTML, and the page's templates use Bootstrap 5.3 class names only
   5. A staff member working down the Dismissed list can press Undo on a row and land back on the same page with the Dismissed section still open, with no re-open or re-page between rows
 
-**Plans**: 7/9 plans executed (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07; 40-08 and 40-09 close the 2026-10-10 re-review's WR-01, WR-02, IN-01 and IN-02 and record the developer's override for the residual WARN-02 risk)
+**Plans**: 8/9 plans executed (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07; 40-08 and 40-09 close the 2026-10-10 re-review's WR-01, WR-02, IN-01 and IN-02 and record the developer's override for the residual WARN-02 risk)
 
 Plans:
 **Wave 1**
@@ -351,7 +351,7 @@ Plans:
 - [x] 40-07-PLAN.md — Gap closure (tracer: load_telescope_runs_demo re-executed on the fixed helper with its schedule files inside the scratch directory): all eight notebooks' setup prose describes the check-before-setup order and they are re-executed with the new evidence line; snapshot prose re-checked against the new output; home-path inventory; review ledger records CR-01, WR-01, WR-02, IN-01, IN-02, IN-05, IN-06 fixed and IN-07 deferred in part (IN-02, IN-05; WARN-05, WARN-02, WARN-03)
 
 **Wave 7** *(gap closure, blocked on Wave 6 completion)*
-- [ ] 40-08-PLAN.md — Gap closure (tracer: the re-review's four forms -- a new ConnectionHandler store, a child manage.py with a bare or cleared environment, a shell escape -- reported on a copy of a real notebook): guard rule R12 bans whole capabilities (Django's connection objects and settings, starting a process, the environment, code from a string or another file, raw SQL ATTACH) wherever named, R0 reports shell escapes and manage.py / env -i / env -u, a test per form, docstring names the residual; the helper switches every alias to the dummy backend before a best-effort close and re-raises its own error; teardown line says what setup checked; README refusal wording narrowed; ledger WR-01, WR-02 (WR-01, WR-02, IN-01; WARN-02, WARN-03, WARN-05)
+- [x] 40-08-PLAN.md — Gap closure (tracer: the re-review's four forms -- a new ConnectionHandler store, a child manage.py with a bare or cleared environment, a shell escape -- reported on a copy of a real notebook): guard rule R12 bans whole capabilities (Django's connection objects and settings, starting a process, the environment, code from a string or another file, raw SQL ATTACH) wherever named, R0 reports shell escapes and manage.py / env -i / env -u, a test per form, docstring names the residual; the helper switches every alias to the dummy backend before a best-effort close and re-raises its own error; teardown line says what setup checked; README refusal wording narrowed; ledger WR-01, WR-02 (WR-01, WR-02, IN-01; WARN-02, WARN-03, WARN-05)
 
 **Wave 8** *(gap closure, blocked on Wave 7 completion)*
 - [ ] 40-09-PLAN.md — Gap closure (tracer: telescope_runs_demo re-executed on the 40-08 helper with the new teardown line): all eight notebooks re-executed with narrowed setup and teardown prose; reconcile's NF-14 labels describe what the cell counts and the projector's requirement table cites real headings; ledger IN-01, IN-02; the developer's override for the residual WARN-02 risk recorded last (IN-01, IN-02; WARN-05, WARN-02, WARN-03)
@@ -447,7 +447,7 @@ Plans:
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
 | 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 4/4 | Complete    | 2026-10-09 |
-| 40. Notebook Isolation & Attribution Page | v2.5 | 7/7 | In Progress | - |
+| 40. Notebook Isolation & Attribution Page | v2.5 | 8/9 | In Progress | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
 

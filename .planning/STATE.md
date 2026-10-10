@@ -4,18 +4,18 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: verifying
-stopped_at: Completed 40-07-PLAN.md
-last_updated: "2026-10-10T14:26:56.214Z"
-last_activity: 2026-10-09
+status: executing
+stopped_at: Completed 40-08-PLAN.md
+last_updated: "2026-10-10T15:09:37.730Z"
+last_activity: 2026-10-10
 last_activity_desc: Phase 40 execution started
-state_head: f7e11fe9a73872ae3823e8eeab9a7492375a0768
+state_head: dfc29d82df646bd80e425925d6db4956034f85d8
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 26
-  completed_plans: 24
-  percent: 92
+  completed_plans: 25
+  percent: 96
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — READY TO EXECUTE
-Plan: 7 of 7
-Status: Gaps found — re-verification 79/80 (WR-01 re-route forms open)
-Last activity: 2026-10-09 — Phase 40 execution started
+Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
+Plan: 9 of 9
+Status: Ready to execute
+Last activity: 2026-10-10 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 92%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 96%)
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P05 | 15min | 3 tasks | 3 files |
 | Phase 40 P06 | 6 min | 2 tasks | 1 files |
 | Phase 40 P07 | 20 min | 3 tasks | 9 files |
+| Phase 40 P08 | 12 min | 3 tasks | 5 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -113,6 +114,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: 40-05: helper fails closed -- settings checked before django.setup(); any later failure switches every alias to the dummy backend; _active_setup module-level record carries scratch dir and previous env to teardown
 - [Phase 40]: 40-06: R12 reports database-routing names (not intent) in every notebook, Django-backed or not; its names also feed R0's unparseable-cell list so the two cannot drift
 - [Phase 40]: 40-07: spiceypy 'Using fallback library' stderr line (a /home/ path) in campaign_lifecycle_demo is third-party log output, listed in the SUMMARY and left in place
+- [Phase 40]: 40-08: R12/R0 guard extended to whole capabilities (process, environment, connection replacement, code from a string, ATTACH); the 40-06 completeness claim is withdrawn and the residual named in the docstring (D-G1)
+- [Phase 40]: 40-08: helper switches every alias to the dummy backend before a best-effort close and re-raises its own error; teardown second line says what setup checked (D-G2)
 
 ### Pending Todos
 
@@ -184,8 +187,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-10T05:28:54.750Z
-**Stopped at:** Completed 40-07-PLAN.md
+**Last session:** 2026-10-10T15:09:37.519Z
+**Stopped at:** Completed 40-08-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
