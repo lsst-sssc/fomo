@@ -81,22 +81,28 @@ overrides:
       (import_string('subprocess.run')) is reported. R0 reports any code cell that is not Python IPython runs
       unchanged, checked with IPython's own TransformerManager, once %matplotlib inline lines and a first-line
       %%time or %%capture (with only its --no-stderr, --no-stdout and --no-display flags and an output name)
-      are removed, and any one-line cell whose first word is an IPython line magic or alias, which IPython's
-      automagic would run, unless an earlier cell binds that name, the word is a builtin or a keyword, or it
-      is followed by = or a comma. R6 reports shutil's copy, copy2, copyfile, copytree, copyfileobj and move
-      and any write_bytes, called, referenced, imported or looked up through a string. Every literal form in
-      the third review (CR-01, CR-02, WR-01), the re-review's four forms and both round-1 probes is reported
-      on a copy of a real notebook, and every real pre-executed notebook passes the guard. The guard docstring
-      makes no claim of completeness and names what stays out of reach: the guard reads only the notebook's
-      own source, so values assembled or looked up at runtime (a name, module, SQL statement or file path
-      built from pieces, or fetched with getattr, globals(), vars() or sys.modules using such a string), code
-      decoded at runtime (pickle, marshal, codecs, base64), code outside the notebook (a module it imports,
-      IPython's profile and start-up files with the extensions, aliases and magics they define, or a library
-      function that starts a process or writes a file under a name these lists do not contain) and, left out
-      on purpose, JavaScript or HTML in a cell's output, which a notebook front end may run when the notebook
-      is opened, are not seen.
+      are removed, and, since 40-13 [905408a], any one-line cell whose first word is an IPython line magic or
+      alias, because IPython's automagic runs it unless the name is bound when the cell runs, whatever an
+      earlier cell assigns, imports or defines; only a word that is a builtin or a keyword, or one followed by
+      = or a comma, is exempt. R5 and R7 report a str or bytes constant that names FOMO_DATABASE_PATH or
+      fomo_db.sqlite3 (40-13 [4f02628]). R6 reports shutil's copy2, copyfile, copytree and copyfileobj at
+      every identifier the parser records and as a string part, copy and move read from an expression that
+      mentions shutil or a name the notebook binds to it in any cell through an import, an assignment, a loop,
+      a with, a comprehension or a parameter default (40-13 [4f02628]), and any write_bytes; copy and move
+      reached only through a function's return value, a call's side effect or a module that holds shutil under
+      another name are not reported. Every literal form in the third review (CR-01, CR-02, WR-01), the fourth
+      review's CR-01 and WR-01 forms, the re-review's four forms and both round-1 probes is reported on a copy
+      of a real notebook, the fourth review's WR-02 bytes literals on the reference notebook, and every real
+      pre-executed notebook passes the guard. The guard docstring makes no claim of completeness and names
+      what stays out of reach: the guard reads only the notebook's own source, so values assembled or looked
+      up at runtime (a name, module, SQL statement or file path built from pieces, or fetched with getattr,
+      globals(), vars() or sys.modules using such a string), code decoded at runtime (pickle, marshal, codecs,
+      base64), code outside the notebook (a module it imports, IPython's profile and start-up files with the
+      extensions, aliases and magics they define, or a library function that starts a process or writes a file
+      under a name these lists do not contain) and, left out on purpose, JavaScript or HTML in a cell's
+      output, which a notebook front end may run when the notebook is opened, are not seen.
     accepted_by: "Tim Lister"
-    accepted_at: "2026-10-10T19:14:57Z"
+    accepted_at: "2026-10-10T23:20:47Z"
 re_verification:
   previous_status: gaps_found
   previous_score: 112/115 (prohibitions 31/31)
