@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: executing
-stopped_at: Completed 40-05-PLAN.md
-last_updated: "2026-10-10T04:58:13.896Z"
+stopped_at: Completed 40-06-PLAN.md
+last_updated: "2026-10-10T05:06:05.132Z"
 last_activity: 2026-10-09
 last_activity_desc: Phase 40 execution started
-state_head: 7075edd43e13a853959818ee9096680cef39e0cd
+state_head: 53ceb449aeed4cea6caa90d323c30483938ca3e2
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 24
-  completed_plans: 22
-  percent: 92
+  completed_plans: 23
+  percent: 96
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 ## Current Position
 
 Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-10-09 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 92%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 96%)
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P03 | 30 min | 3 tasks | 12 files |
 | Phase 40 P04 | 11 min | 3 tasks | 10 files |
 | Phase 40 P05 | 15min | 3 tasks | 3 files |
+| Phase 40 P06 | 6 min | 2 tasks | 1 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -109,6 +110,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: 40-04: UI-SPEC F1 (scroll-margin-top 5rem on both section divs) and F3 (Undo-confirmation prompt says above; flash says the pair is now in Dismissed) applied in 66c1285 — User adopted both on 2026-10-09; they post-date the plan text
 - [Phase 40]: 40-05: WR-02 decision -- notebook setup refuses any DATABASES alias other than default and any DATABASE_ROUTERS (refuse, not support)
 - [Phase 40]: 40-05: helper fails closed -- settings checked before django.setup(); any later failure switches every alias to the dummy backend; _active_setup module-level record carries scratch dir and previous env to teardown
+- [Phase 40]: 40-06: R12 reports database-routing names (not intent) in every notebook, Django-backed or not; its names also feed R0's unparseable-cell list so the two cannot drift
 
 ### Pending Todos
 
@@ -180,8 +182,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-10T04:58:13.708Z
-**Stopped at:** Completed 40-05-PLAN.md
+**Last session:** 2026-10-10T05:06:04.954Z
+**Stopped at:** Completed 40-06-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
