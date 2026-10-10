@@ -6,16 +6,16 @@ current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: gaps_found
 stopped_at: Completed 40-12-PLAN.md
-last_updated: "2026-10-10T19:18:49.640Z"
+last_updated: "2026-10-10T22:07:58.513Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 40 re-verification after gap round 4 — gaps_found 142/146
-state_head: d6dba7c382d8f5906a3ec4a8d2257a55a3655fc8
+state_head: e08f8eb727811349ee96e78fb46bd8c3727e088b
 progress:
   total_phases: 6
   completed_phases: 42
-  total_plans: 29
+  total_plans: 31
   completed_plans: 29
-  percent: 100
+  percent: 94
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — GAPS FOUND
-Plan: 12 of 12
-Status: Gaps found — re-verification 142/146 (automagic exemption trusts non-binding stores (review CR-01); R6 misses a rebound shutil (WR-01); docstring, README and override reason overstate both)
-Last activity: 2026-10-10 — Phase 40 gap round 4 executed (40-10..40-12) and re-verified: gaps_found 142/146
+Phase: 40 (Notebook Isolation & Attribution Page) — READY TO EXECUTE
+Plan: 12 of 14
+Status: Ready to execute — gap round 5 planned (40-13 guard fixes CR-01/WR-01/WR-02 + ipykernel floor; 40-14 docstring/README/override rewording with blocking-human approval)
+Last activity: 2026-10-10 — Phase 40 gap round 5 planned (40-13, 40-14); plan checker passed
 
-Progress: [████████████████████] 17/17 plans ([██████████] 100%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 94%)
 
 ## Performance Metrics
 
