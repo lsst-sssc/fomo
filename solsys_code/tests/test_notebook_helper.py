@@ -17,6 +17,7 @@ import hashlib
 import importlib.util
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -310,6 +311,24 @@ class TestSnapshotAndRouting(SimpleTestCase):
         self.assertTrue(created[0].name.startswith(_SCRATCH_PREFIX), created[0])
         self.assertFalse(created[0].exists(), 'the failed snapshot left its scratch directory behind')
 
+    def test_teardown_refuses_a_scratch_named_directory_outside_the_temp_directory(self):
+        helper = _load_helper()
+        with tempfile.TemporaryDirectory() as tmp:
+            stray = Path(tmp) / f'{_SCRATCH_PREFIX}archive'
+            stray.mkdir()
+            with self.assertRaises(RuntimeError):
+                helper.teardown_scratch_django(stray)
+            self.assertTrue(stray.is_dir(), 'teardown removed a directory outside the temp directory')
+
+    def test_teardown_refuses_a_scratch_directory_setup_did_not_create(self):
+        helper = _load_helper()
+        # Directly inside the temp directory and correctly named, but this interpreter's setup never made it.
+        sibling = Path(tempfile.mkdtemp(prefix=_SCRATCH_PREFIX))
+        self.addCleanup(shutil.rmtree, sibling, True)
+        with self.assertRaises(RuntimeError):
+            helper.teardown_scratch_django(sibling)
+        self.assertTrue(sibling.is_dir(), 'teardown removed a directory its setup did not create')
+
 
 class TestDatabaseSettingsCheck(SimpleTestCase):
     """WR-02 (40-REVIEW.md): the pure check that refuses a second alias or a router before Django starts.
@@ -580,4 +599,37 @@ class TestHelperSnapshotRunsForReal(SimpleTestCase):
             self.assertGreater(int(result.stdout.split('MIGRATION_ROWS')[1].split()[0]), 0)
             self.assertEqual(_sha256(source), before, 'the source database changed')
             self.assertIn('Removed scratch database directory:', result.stdout)
+            self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
+
+
+class TestHelperRestoresTheEnvironment(SimpleTestCase):
+    """IN-01 (40-REVIEW.md): the routing variables used to stay set after the teardown.
+
+    A later subprocess started from the kernel then inherited a ``FOMO_DATABASE_PATH`` that pointed
+    at a deleted directory. The helper now puts both variables back to their values before the setup.
+    """
+
+    def test_teardown_restores_the_routing_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            previous = Path(tmp) / 'previous-value.sqlite3'
+            script = (
+                'import os, sys\n'
+                'from pathlib import Path\n'
+                'os.environ.pop("DJANGO_ALLOW_ASYNC_UNSAFE", None)\n'
+                f'os.environ["FOMO_DATABASE_PATH"] = {str(previous)!r}\n'
+                f'sys.path.insert(0, {str(HELPER_PATH.parent)!r})\n'
+                'from fomo_nb_utils import setup_scratch_django, teardown_scratch_django\n'
+                f'scratch = setup_scratch_django({str(_REPO_ROOT)!r}, mode="fresh")\n'
+                'during = os.environ["FOMO_DATABASE_PATH"] == str(Path(scratch) / "fomo_db.sqlite3")\n'
+                'print("DURING", during, repr(os.environ.get("DJANGO_ALLOW_ASYNC_UNSAFE")))\n'
+                'teardown_scratch_django(scratch)\n'
+                f'print("AFTER_FOMO", os.environ.get("FOMO_DATABASE_PATH") == {str(previous)!r})\n'
+                'print("AFTER_ASYNC", repr(os.environ.get("DJANGO_ALLOW_ASYNC_UNSAFE")))\n'
+            )
+            result = _run_helper_script(script, {'TMPDIR': tmp})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("DURING True 'true'", result.stdout)
+            self.assertIn('AFTER_FOMO True', result.stdout)
+            self.assertIn('AFTER_ASYNC None', result.stdout)
+            self.assertFalse(previous.exists(), 'the previous-value database was created')
             self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])

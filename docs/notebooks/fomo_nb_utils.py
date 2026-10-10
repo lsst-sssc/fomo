@@ -60,6 +60,13 @@ TEARDOWN_LINE_PREFIX = 'Removed scratch database directory:'
 # The environment variables setup_scratch_django() changes; a failed setup and the teardown put them back.
 _ROUTING_ENVIRON = ('FOMO_DATABASE_PATH', 'DJANGO_ALLOW_ASYNC_UNSAFE')
 
+# The scratch directory and the previous environment values of the one setup this interpreter allows,
+# read by teardown_scratch_django(). setup_scratch_django() refuses a second setup per interpreter, so this
+# record cannot mix two setups. It is a deliberate exception to the project note about module-level mutable
+# state: returning the values instead would change the `scratch_db_dir = setup_scratch_django(...)` /
+# `teardown_scratch_django(scratch_db_dir)` call shape that every notebook and the guard depend on (D-06).
+_active_setup = {}
+
 _MODE_DESCRIPTIONS = {
     'fresh': 'fresh scratch database, migrated from empty',
     'snapshot': (
@@ -305,25 +312,44 @@ def setup_scratch_django(repo_root, mode='fresh'):
             shutil.rmtree(scratch_db_path.parent, ignore_errors=True)
             _restore_environ(previous_environ)
         raise
+    _active_setup['scratch_dir'] = scratch_db_path.parent
+    _active_setup['previous_environ'] = previous_environ
     print(f'Django ready: settings module={os.environ["DJANGO_SETTINGS_MODULE"]!r}')
     print(f'Resolved database: {resolved_name!r} ({_MODE_DESCRIPTIONS[mode]})')
     return scratch_db_path.parent
 
 
 def teardown_scratch_django(scratch_dir):
-    """Close Django's database connections and remove the scratch directory.
+    """Close Django's database connections, remove the scratch directory and restore the environment.
+
+    Only the directory this interpreter's ``setup_scratch_django()`` created is accepted, and only when
+    it sits directly inside the temporary directory; every check runs before Django is imported or
+    anything is closed or removed.
 
     Args:
         scratch_dir: the directory ``setup_scratch_django()`` returned.
 
     Raises:
-        RuntimeError: ``scratch_dir`` is not an existing directory named ``fomo-notebook-db-*``;
-            nothing is closed or removed in that case.
+        RuntimeError: ``scratch_dir`` is not an existing directory named ``fomo-notebook-db-*``, is
+            not directly inside the resolved temporary directory, or is not the directory a
+            successful ``setup_scratch_django()`` created in this interpreter (including when no
+            setup ran or the setup failed); nothing is closed or removed in that case.
         OSError: the directory could not be removed (errors are not swallowed).
     """
     path = Path(scratch_dir)
     if not path.name.startswith(SCRATCH_DIR_PREFIX) or not path.is_dir():
         raise RuntimeError(f'Refusing to remove {str(path)!r}: not an existing directory named {SCRATCH_DIR_PREFIX}*.')
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    if path.resolve().parent != temp_root:
+        raise RuntimeError(
+            f'Refusing to remove {str(path)!r}: not directly inside the temporary directory {str(temp_root)!r}.'
+        )
+    recorded = _active_setup.get('scratch_dir')
+    if recorded is None or Path(recorded).resolve() != path.resolve():
+        raise RuntimeError(
+            f'Refusing to remove {str(path)!r}: it is not the scratch directory setup_scratch_django() created in '
+            'this interpreter.'
+        )
     from django.apps import apps
 
     if apps.ready:
@@ -331,5 +357,8 @@ def teardown_scratch_django(scratch_dir):
 
         connections.close_all()
     shutil.rmtree(path)
+    # Restored only after close_all(), which is async_unsafe and needs DJANGO_ALLOW_ASYNC_UNSAFE still set.
+    _restore_environ(_active_setup['previous_environ'])
+    _active_setup.clear()
     print(f'{TEARDOWN_LINE_PREFIX} {path}')
     print('The developer database (src/fomo_db.sqlite3) was never opened for writing.')

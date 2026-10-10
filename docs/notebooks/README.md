@@ -56,18 +56,26 @@ scratch_db_dir = setup_scratch_django(repo_root_path, mode='fresh')  # or mode='
 
 before anything imports Django. The last cell calls `teardown_scratch_django(scratch_db_dir)`.
 
-The setup function creates a `/tmp/fomo-notebook-db-*` directory, points `FOMO_DATABASE_PATH` at a database in
-it with a plain assignment (never `setdefault`, so an inherited value cannot win), and in snapshot mode fills it
-with SQLite's online backup of `src/fomo_db.sqlite3`, opened through a read-only (`mode=ro`) connection so the
-unattended runner can write the developer database at the same moment. It then runs `django.setup()`, raises a
-`RuntimeError` if Django resolved any other database (for example because a `local_settings.py` overrides
-`DATABASES`; a real `raise`, so it also fires under `python -O`), migrates the scratch database to head and prints
-`Resolved database: ...`. The teardown closes Django's connections and removes the directory.
+The setup function creates a `/tmp/fomo-notebook-db-*` directory, records the current values of
+`FOMO_DATABASE_PATH` and `DJANGO_ALLOW_ASYNC_UNSAFE`, and points `FOMO_DATABASE_PATH` at a database in the
+directory with a plain assignment (never `setdefault`, so an inherited value cannot win). In snapshot mode it
+fills that database with SQLite's online backup of `src/fomo_db.sqlite3`, opened through a read-only (`mode=ro`)
+connection so the unattended runner can write the developer database at the same moment. Before `django.setup()`
+runs, the helper raises a `RuntimeError` (a real `raise`, so it also fires under `python -O`) unless Django would
+use exactly the scratch database file, with no database alias other than `default` and no `DATABASE_ROUTERS`;
+after a refusal, or any later failure in the setup, no cell can reach a database until the kernel is restarted.
+A refusal or failure switches every database alias to Django's dummy backend (any query raises
+`ImproperlyConfigured`), removes the scratch directory and puts the two variables back. When the checks pass, the
+helper runs `django.setup()`, migrates the scratch database to head and prints `Resolved database: ...`.
+
+The teardown refuses any directory other than the one this kernel's setup created directly inside the temporary
+directory. For that one it closes Django's connections, removes the directory and restores `FOMO_DATABASE_PATH`
+and `DJANGO_ALLOW_ASYNC_UNSAFE` to their values before the setup.
 
 To regenerate a notebook, run `pre-commit run ruff-format --files <notebook>`, then, from this `pre_executed/`
 directory, `env TMPDIR=/tmp jupyter nbconvert --to notebook --execute --inplace <notebook>`, or choose
-*Restart and Run All* in Jupyter. Re-running the setup cell in a kernel that has already set Django up raises
-`RuntimeError`; restart the kernel instead. Never export `FOMO_DATABASE_PATH` yourself -- the helper sets it --
+*Restart and Run All* in Jupyter. Re-running the setup cell in a kernel that has already set Django up, or where a setup already
+failed, raises `RuntimeError`; restart the kernel instead. Never export `FOMO_DATABASE_PATH` yourself -- the helper sets it --
 and commit the notebook with its output.
 
 The two snapshot notebooks need a populated `src/fomo_db.sqlite3` (they raise `RuntimeError` without one), and the
