@@ -127,6 +127,39 @@ def check_resolved_database(resolved_name, scratch_db_path):
         )
 
 
+def check_database_settings(databases, database_routers, scratch_db_path):
+    """Raise unless Django's settings reach the scratch database file and nothing else.
+
+    Checked in a fixed order, so the message always names the first problem: any database alias other
+    than ``'default'`` (even one whose ``NAME`` is the scratch file), then any non-empty
+    ``DATABASE_ROUTERS``, then the ``default`` file itself. A notebook cannot prove that every write
+    reaches the scratch file once a second alias or a router exists, so both are refused rather than
+    supported. These are ``raise`` statements, never ``assert``: ``python -O`` strips assertions.
+
+    Args:
+        databases: ``settings.DATABASES`` as Django would use it.
+        database_routers: ``settings.DATABASE_ROUTERS`` as Django would use it.
+        scratch_db_path: path of the scratch database this run created.
+
+    Raises:
+        RuntimeError: an extra alias or a router is configured, or the ``default`` database is
+            missing, has no ``NAME``, or is not the scratch database.
+    """
+    extra_aliases = sorted(alias for alias in databases if alias != 'default')
+    if extra_aliases:
+        named = ', '.join(repr(alias) for alias in extra_aliases)
+        raise RuntimeError(
+            "A notebook scratch setup supports only the 'default' database, but the settings also define "
+            f'{named}; a notebook cannot prove every write reaches the scratch database.'
+        )
+    if database_routers:
+        raise RuntimeError(
+            f'DATABASE_ROUTERS is set ({database_routers!r}); a notebook cannot prove every write reaches the '
+            'scratch database once a router can send queries elsewhere.'
+        )
+    check_resolved_database((databases.get('default') or {}).get('NAME'), scratch_db_path)
+
+
 def _restore_environ(previous):
     """Put environment variables back to the values they had before the setup.
 
@@ -218,7 +251,8 @@ def setup_scratch_django(repo_root, mode='fresh'):
 
     Raises:
         RuntimeError: Django is already set up or configured in this interpreter (restart the
-            kernel), snapshot mode found no developer database, or the settings resolve a database
+            kernel), snapshot mode found no developer database, or the settings define a database
+            alias other than ``default``, a ``DATABASE_ROUTERS`` entry, or a ``default`` database
             other than the scratch one. Once the settings are loaded, any failure (the refusal
             itself, or a later one such as in ``migrate``) closes every connection and switches every
             database alias to Django's dummy backend before the error propagates, so no database is
@@ -251,8 +285,8 @@ def setup_scratch_django(repo_root, mode='fresh'):
 
         # Reading the lazy settings loads the settings module without populating the app registry or
         # opening a connection, so the database Django would use is checked before django.setup().
-        resolved_name = (django_settings.DATABASES.get('default') or {}).get('NAME')
-        check_resolved_database(resolved_name, scratch_db_path)
+        check_database_settings(django_settings.DATABASES, django_settings.DATABASE_ROUTERS, scratch_db_path)
+        resolved_name = django_settings.DATABASES['default']['NAME']
 
         import django
 
@@ -271,7 +305,7 @@ def setup_scratch_django(repo_root, mode='fresh'):
             shutil.rmtree(scratch_db_path.parent, ignore_errors=True)
             _restore_environ(previous_environ)
         raise
-    print(f'Django ready: settings module={os.environ["DJANGO_SETTINGS_MODULE"]!r}, repo_root={str(repo_root)!r}')
+    print(f'Django ready: settings module={os.environ["DJANGO_SETTINGS_MODULE"]!r}')
     print(f'Resolved database: {resolved_name!r} ({_MODE_DESCRIPTIONS[mode]})')
     return scratch_db_path.parent
 

@@ -16,6 +16,7 @@ import ast
 import hashlib
 import importlib.util
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -284,6 +285,93 @@ class TestSnapshotAndRouting(SimpleTestCase):
                 helper.teardown_scratch_django(tmp)
             self.assertTrue(Path(tmp).is_dir())
 
+    def test_a_failed_snapshot_removes_the_scratch_directory(self):
+        helper = _load_helper()
+        real_mkdtemp = tempfile.mkdtemp
+        created = []
+
+        def recording_mkdtemp(*args, **kwargs):
+            path = real_mkdtemp(*args, **kwargs)
+            created.append(Path(path))
+            return path
+
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / 'src').mkdir()
+            _make_sqlite_file(Path(root) / 'src' / 'fomo_db.sqlite3')
+            with (
+                mock.patch.object(helper.tempfile, 'mkdtemp', side_effect=recording_mkdtemp),
+                mock.patch.object(
+                    helper, 'snapshot_database', side_effect=sqlite3.OperationalError('forced snapshot failure')
+                ),
+            ):
+                with self.assertRaises(sqlite3.OperationalError):
+                    helper.prepare_scratch_database(root, mode='snapshot')
+        self.assertEqual(len(created), 1)
+        self.assertTrue(created[0].name.startswith(_SCRATCH_PREFIX), created[0])
+        self.assertFalse(created[0].exists(), 'the failed snapshot left its scratch directory behind')
+
+
+class TestDatabaseSettingsCheck(SimpleTestCase):
+    """WR-02 (40-REVIEW.md): the pure check that refuses a second alias or a router before Django starts.
+
+    Developer decision of 2026-10-09: a notebook cannot prove that every write reaches the scratch
+    file once a second database alias or a database router exists, so both are refused rather than
+    supported. The check runs on the settings values alone, in this process.
+    """
+
+    def test_accepts_only_the_scratch_default_database(self):
+        helper = _load_helper()
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / 'fomo_db.sqlite3'
+            scratch.write_bytes(b'')
+            databases = {'default': {'NAME': str(scratch)}}
+            helper.check_database_settings(databases, [], scratch)
+            helper.check_database_settings(databases, (), scratch)
+
+    def test_refuses_a_second_alias_even_when_it_names_the_scratch_file(self):
+        helper = _load_helper()
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / 'fomo_db.sqlite3'
+            scratch.write_bytes(b'')
+            databases = {'default': {'NAME': str(scratch)}, 'other': {'NAME': str(scratch)}}
+            with self.assertRaises(RuntimeError) as caught:
+                helper.check_database_settings(databases, [], scratch)
+            self.assertIn("'other'", str(caught.exception))
+
+    def test_refuses_database_routers(self):
+        helper = _load_helper()
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / 'fomo_db.sqlite3'
+            scratch.write_bytes(b'')
+            with self.assertRaises(RuntimeError) as caught:
+                helper.check_database_settings({'default': {'NAME': str(scratch)}}, ['x.Router'], scratch)
+            self.assertIn('DATABASE_ROUTERS', str(caught.exception))
+
+    def test_refuses_a_missing_or_empty_default(self):
+        helper = _load_helper()
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / 'fomo_db.sqlite3'
+            scratch.write_bytes(b'')
+            for databases in ({}, {'default': {}}, {'default': {'NAME': ''}}):
+                with self.subTest(databases=databases):
+                    with self.assertRaises(RuntimeError) as caught:
+                        helper.check_database_settings(databases, [], scratch)
+                    self.assertNotIsInstance(caught.exception, AssertionError)
+
+    def test_names_the_extra_alias_before_the_routers(self):
+        helper = _load_helper()
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / 'fomo_db.sqlite3'
+            scratch.write_bytes(b'')
+            databases = {'default': {'NAME': str(scratch)}, 'zeta': {'NAME': 'z'}, 'alpha': {'NAME': 'a'}}
+            with self.assertRaises(RuntimeError) as caught:
+                helper.check_database_settings(databases, ['x.Router'], scratch)
+            message = str(caught.exception)
+            self.assertIn("'alpha'", message)
+            self.assertIn("'zeta'", message)
+            self.assertLess(message.index("'alpha'"), message.index("'zeta'"))
+            self.assertNotIn('DATABASE_ROUTERS', message)
+
 
 class TestHelperRunsForReal(SimpleTestCase):
     """Subprocess runs of the real helper, each in a fresh interpreter and a test-owned temp directory."""
@@ -305,9 +393,12 @@ class TestHelperRunsForReal(SimpleTestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertRegex(
                 result.stdout,
-                rf"Resolved database: '{tmp}/{_SCRATCH_PREFIX}[^/']+/fomo_db\.sqlite3' "
+                rf"Resolved database: '{re.escape(tmp)}/{_SCRATCH_PREFIX}[^/']+/fomo_db\.sqlite3' "
                 r'\(fresh scratch database, migrated from empty\)',
             )
+            # IN-02: the evidence line names the settings module and no longer publishes the checkout path.
+            self.assertIn("Django ready: settings module='src.fomo.settings'\n", result.stdout)
+            self.assertNotIn(str(_REPO_ROOT), result.stdout)
             rows = int(result.stdout.split('MIGRATION_ROWS')[1].split()[0])
             self.assertGreater(rows, 0)
             self.assertIn('Removed scratch database directory:', result.stdout)
@@ -419,4 +510,74 @@ class TestHelperRefusalLeavesNoDatabase(SimpleTestCase):
             self.assertNotIn('WRITE_SUCCEEDED', result.stdout)
             self.assertNotIn('ORM_SUCCEEDED', result.stdout)
             self.assertNotIn('Resolved database:', result.stdout)
+            self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
+
+    def test_a_second_alias_or_a_router_is_refused_before_django_setup(self):
+        cases = (
+            ('second alias', 'other'),
+            ('router', 'router'),
+        )
+        for label, kind in cases:
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                other_db = Path(tmp) / 'other.sqlite3'
+                if kind == 'other':
+                    extra = (
+                        "DATABASES = {**DATABASES, 'other': {'ENGINE': 'django.db.backends.sqlite3', "
+                        f"'NAME': {str(other_db)!r}}}}}\n"
+                    )
+                else:
+                    extra = "DATABASE_ROUTERS = ['not_a_module_for_helper_test.Router']\n"
+                module = _write_override_settings(tmp, extra)
+                env = {'TMPDIR': tmp, 'PYTHONPATH': tmp, 'DJANGO_SETTINGS_MODULE': module}
+                result = _run_helper_script(_refusal_probe_script(), env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertRegex(
+                    result.stdout, r"REFUSED .*'other'" if kind == 'other' else r'REFUSED .*DATABASE_ROUTERS'
+                )
+                self.assertIn('APPS_READY False', result.stdout)
+                self.assertIn('WRITE_REFUSED default ImproperlyConfigured', result.stdout)
+                if kind == 'other':
+                    self.assertIn('WRITE_REFUSED other ImproperlyConfigured', result.stdout)
+                self.assertNotIn('WRITE_SUCCEEDED', result.stdout)
+                self.assertFalse(other_db.exists(), 'the second database was created')
+                self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
+
+
+class TestHelperSnapshotRunsForReal(SimpleTestCase):
+    """IN-07 helper-test part (D-11: tests run the real helper): snapshot mode, executed for real.
+
+    Snapshot mode had only its pure part tested. This runs it in a child process against a throwaway
+    "developer database" in a test-owned root, never the real ``src/fomo_db.sqlite3``, and confirms
+    the read-only online backup (D-02) leaves the source bytes unchanged.
+    """
+
+    def test_snapshot_setup_copies_the_developer_rows_migrates_and_tears_down(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'src').mkdir()
+            source = Path(tmp) / 'src' / 'fomo_db.sqlite3'
+            _make_sqlite_file(source)
+            before = _sha256(source)
+            script = (
+                'import sqlite3, sys\n'
+                'from pathlib import Path\n'
+                f'sys.path.insert(0, {str(HELPER_PATH.parent)!r})\n'
+                'from fomo_nb_utils import setup_scratch_django, teardown_scratch_django\n'
+                f'scratch = setup_scratch_django({tmp!r}, mode="snapshot")\n'
+                'connection = sqlite3.connect(Path(scratch) / "fomo_db.sqlite3")\n'
+                'print("MARKER_ROWS", connection.execute("SELECT label FROM marker").fetchall())\n'
+                'print("MIGRATION_ROWS", connection.execute("SELECT COUNT(*) FROM django_migrations").fetchone()[0])\n'
+                'connection.close()\n'
+                'teardown_scratch_django(scratch)\n'
+            )
+            result = _run_helper_script(script, {'TMPDIR': tmp})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertRegex(
+                result.stdout,
+                rf"Resolved database: '{re.escape(tmp)}/{_SCRATCH_PREFIX}[^/']+/fomo_db\.sqlite3' "
+                r'\(scratch copy of the developer database',
+            )
+            self.assertIn("MARKER_ROWS [('developer-row',)]", result.stdout)
+            self.assertGreater(int(result.stdout.split('MIGRATION_ROWS')[1].split()[0]), 0)
+            self.assertEqual(_sha256(source), before, 'the source database changed')
+            self.assertIn('Removed scratch database directory:', result.stdout)
             self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
