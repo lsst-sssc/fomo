@@ -475,6 +475,62 @@ _R12_NAME_TABLES = (
 _R12_MODULE_TABLES = ((PROCESS_MODULES, 'process'), (DYNAMIC_CODE_MODULES, 'dynamic code'))
 # R12: builtins matched as a name, an imported name or an exact string, but never as an attribute.
 _R12_BUILTIN_TABLES = ((DYNAMIC_CODE_BUILTINS, 'dynamic code'),)
+# R12: the table groups an identifier is matched against -- every table, or every table but the builtins for an
+# attribute (so ``re.compile`` and a DataFrame's ``eval`` stay allowed).
+_R12_EVERY_TABLE = (_R12_NAME_TABLES, _R12_MODULE_TABLES, _R12_BUILTIN_TABLES)
+_R12_ATTRIBUTE_TABLES = (_R12_NAME_TABLES, _R12_MODULE_TABLES)
+# Type parameter nodes (``def f[T]()``), which only Python 3.12 and later define.
+_TYPE_PARAM_NODES = tuple(
+    node_type
+    for node_type in (getattr(ast, name, None) for name in ('TypeVar', 'ParamSpec', 'TypeVarTuple'))
+    if node_type is not None
+)
+
+
+def _identifiers(node: ast.AST):
+    """Yield ``(identifier, table groups)`` for every identifier an AST node carries.
+
+    The parser records identifiers in many places besides a plain name: attributes, imported module paths and
+    names, keyword arguments, parameters, function, class and exception names, global and nonlocal names, match
+    captures and class-pattern attributes, and type parameters. A listed name written in any of them is reported,
+    so importing it from another module (``from webbrowser import subprocess``) or binding it under another name
+    cannot hide it. An attribute, and a class-pattern attribute (``case object(subprocess=sp)``, an attribute
+    lookup), is never matched against the builtins.
+
+    Args:
+        node: Any node of a parsed cell.
+
+    Yields:
+        ``(identifier, table groups)`` pairs, the groups being the R12 tables to match the identifier against.
+    """
+    if isinstance(node, ast.Name):
+        yield node.id, _R12_EVERY_TABLE
+    elif isinstance(node, ast.Attribute):
+        yield node.attr, _R12_ATTRIBUTE_TABLES
+    elif isinstance(node, ast.alias):
+        for name in (node.name, node.asname):
+            for part in (name or '').split('.'):
+                yield part, _R12_EVERY_TABLE
+    elif isinstance(node, ast.ImportFrom):
+        for part in (node.module or '').split('.'):
+            yield part, _R12_EVERY_TABLE
+    elif isinstance(node, (ast.keyword, ast.arg)):
+        if node.arg is not None:
+            yield node.arg, _R12_EVERY_TABLE
+    elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, *_TYPE_PARAM_NODES)):
+        yield node.name, _R12_EVERY_TABLE
+    elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+        if node.name is not None:
+            yield node.name, _R12_EVERY_TABLE
+    elif isinstance(node, (ast.Global, ast.Nonlocal)):
+        for name in node.names:
+            yield name, _R12_EVERY_TABLE
+    elif isinstance(node, ast.MatchMapping):
+        if node.rest is not None:
+            yield node.rest, _R12_EVERY_TABLE
+    elif isinstance(node, ast.MatchClass):
+        for name in node.kwd_attrs:
+            yield name, _R12_ATTRIBUTE_TABLES
 
 
 def _capability_of(name: str | None, tables) -> str | None:
@@ -503,8 +559,11 @@ def _database_rerouting_problems(parsed) -> list[str]:
 
     The capabilities are Django's database settings and connection objects, starting a process, changing the
     environment, running code built from a string or loaded from another file, and attaching another database
-    through raw SQL. Each name is matched wherever it appears (a name, an attribute, an imported name, a keyword
-    or an exact string constant), so binding one to another name first is reported too.
+    through raw SQL. Each listed name is matched at every identifier the parser records (a name, an attribute, every
+    part of an imported module path, an imported name or alias, a keyword argument, a parameter, a function, class
+    or exception name, a global or nonlocal name, a match capture or class-pattern attribute, a type parameter --
+    attributes and class-pattern attributes never against the builtins) and as an exact string constant, so
+    importing one from another module or binding it to another name first is reported too.
     """
     problems = []
     for number, _cell, tree in parsed:
@@ -518,19 +577,13 @@ def _database_rerouting_problems(parsed) -> list[str]:
                 found[name] = capability
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.Name):
-                note(node.id, _R12_NAME_TABLES, _R12_BUILTIN_TABLES)
-            elif isinstance(node, ast.Attribute):
-                note(node.attr, _R12_NAME_TABLES, _R12_MODULE_TABLES)
+            for name, table_groups in _identifiers(node):
+                note(name, *table_groups)
+            if isinstance(node, ast.Attribute):
                 dotted = _dotted_name(node)
                 for suffix in REROUTE_DOTTED_SUFFIXES:
                     if dotted == suffix or dotted.endswith(f'.{suffix}'):
                         found[suffix] = 'database'
-            elif isinstance(node, ast.keyword):
-                note(node.arg, ((REROUTE_NAMES, 'database'),))
-            elif isinstance(node, ast.alias):
-                for name in (node.name.split('.')[-1], node.asname):
-                    note(name, _R12_NAME_TABLES, _R12_BUILTIN_TABLES)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 note(node.value, _R12_NAME_TABLES, _R12_MODULE_TABLES, _R12_BUILTIN_TABLES)
                 if ATTACH_SQL.search(node.value):
@@ -540,14 +593,10 @@ def _database_rerouting_problems(parsed) -> list[str]:
                 if command in CODE_RUNNING_COMMANDS:
                     found[f"call_command('{command}')"] = 'dynamic code'
             if isinstance(node, ast.Import):
-                for alias in node.names:
-                    note(alias.name.split('.')[0], _R12_MODULE_TABLES)
                 if any('sqlite3' in alias.name.split('.') for alias in node.names):
                     found['sqlite3'] = 'database'
-            elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                note((node.module or '').split('.')[0], _R12_MODULE_TABLES)
-                if 'sqlite3' in (node.module or '').split('.'):
-                    found['sqlite3'] = 'database'
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and 'sqlite3' in (node.module or '').split('.'):
+                found['sqlite3'] = 'database'
         problems.extend(
             f'code cell {number} references {name}; {R12_REASONS[capability]} '
             f'{REROUTE_MARKER} no re-routing after setup)'
@@ -1106,6 +1155,37 @@ class TestReReviewFormsOnARealNotebook(SimpleTestCase):
             self.assertTrue(any('not parseable' in problem for problem in problems), problems)
 
 
+class TestThirdReviewFormsOnARealNotebook(SimpleTestCase):
+    """CR-01 and CR-02 of the third review (2026-10-10), verification gap 1 and developer decision D-G5.
+
+    Readable, literal ways to reach the developer database that the extended guard still passed: a process module
+    imported from another module, a process looked up by a literal string, the connection proxy, ``ATTACH (``,
+    IPython aliases, automagic and escapes after a line magic. Each is added to a copy of a real notebook with its
+    committed output kept.
+    """
+
+    RUN_ARGS = "([sys.executable, 'manage.py', 'flush', '--noinput'], cwd=repo_root_path, env={'PATH': '/usr/bin'})\n"
+
+    def setUp(self):
+        self.notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+
+    def assert_only_r12_names(self, source, expected):
+        """Check that appending ``source`` to the setup cell yields only R12 problems naming ``expected``."""
+        problems = isolation_problems(_append_to_setup_cell(self.notebook, source))
+        self.assertTrue(problems, 'the guard missed a re-route after the helper call')
+        self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+        self.assertTrue(set(expected) <= _rerouting_names(problems), problems)
+
+    def test_subprocess_imported_from_another_module_is_reported_on_a_real_notebook(self):
+        forms = {
+            'webbrowser': 'from webbrowser import subprocess\nsubprocess.run' + self.RUN_ARGS,
+            'autoreload': 'from django.utils.autoreload import subprocess as sp\nsp.run' + self.RUN_ARGS,
+        }
+        for label, source in forms.items():
+            with self.subTest(label):
+                self.assert_only_r12_names(source, {'subprocess'})
+
+
 def _assert_r12_reports(testcase, cases):
     """Check that each ``(source, expected names)`` case yields only R12 problems naming the expected names.
 
@@ -1407,6 +1487,58 @@ class TestCapabilityRulesOnSyntheticNotebooks(SimpleTestCase):
                 _first_problem_mentions(
                     self, isolation_problems(_notebook(extra_cells=[_code(f'%%time\nx = {name}\n')])), 'not parseable'
                 )
+
+
+class TestR12MatchesEveryIdentifierAndString(SimpleTestCase):
+    """CR-01 of the third review and developer decision D-G5 (1).
+
+    Every name R12 lists is reported at every identifier the parser records and in every part of a string or bytes
+    constant and in code inside a string, so importing it from another module or binding it under another name is
+    reported. Every case is the reference notebook plus one extra cell.
+    """
+
+    def test_a_listed_name_is_reported_wherever_a_name_appears(self):
+        _assert_r12_reports(
+            self,
+            [
+                ('x = subprocess\n', ['subprocess']),
+                ('x = runpy\n', ['runpy']),
+                ('from webbrowser import subprocess\n', ['subprocess']),
+                ('from webbrowser import importlib\n', ['importlib']),
+                ('import json as subprocess\n', ['subprocess']),
+                ('import pkg.subprocess.thing\n', ['subprocess']),
+                ('from pkg.subprocess import thing\n', ['subprocess']),
+                ('f(subprocess=1)\n', ['subprocess']),
+                ('f(environ=1)\n', ['environ']),
+                ('def f(subprocess):\n    pass\n', ['subprocess']),
+                ('def importlib():\n    pass\n', ['importlib']),
+                ('class Popen:\n    pass\n', ['Popen']),
+                ('try:\n    pass\nexcept OSError as environ:\n    pass\n', ['environ']),
+                ('def f():\n    global environ\n', ['environ']),
+                ('match webbrowser:\n    case object(subprocess=sp):\n        pass\n', ['subprocess']),
+                ('match x:\n    case [*environ]:\n        pass\n', ['environ']),
+                ('match x:\n    case {**environ}:\n        pass\n', ['environ']),
+                ('match x:\n    case _ as subprocess:\n        pass\n', ['subprocess']),
+                ('f = exec\n', ['exec']),
+            ],
+        )
+
+    def test_names_that_only_look_like_listed_ones_are_not_a_problem(self):
+        sources = [
+            'subprocesses = 3\n',
+            'connection_count = 3\n',
+            'system_link = None\n',
+            'from django.db import transaction\n',
+            "import re\npattern = re.compile('x')\n",
+            "frame.eval('a + b')\n",
+            'frame.copy()\n',
+            "print('subprocess-free')\n",
+            "cursor.execute('SELECT 1')\n",
+            "call_command('load_telescope_runs', 'f.txt')\n",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                self.assertEqual(isolation_problems(_notebook(extra_cells=[_code(source)])), [])
 
 
 class TestPreExecutedNotebooksUseTheHelper(SimpleTestCase):
