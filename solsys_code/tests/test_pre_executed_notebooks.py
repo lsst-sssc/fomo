@@ -50,12 +50,19 @@ a process or writes a file under a name these lists do not contain.
 """
 
 import ast
+import builtins
 import copy
+import functools
 import importlib.util
 import itertools
 import json
+import os
 import re
+import subprocess
+import sys
+import tempfile
 import warnings
+from keyword import iskeyword
 from pathlib import Path
 
 from django.test import SimpleTestCase
@@ -255,6 +262,23 @@ UNPARSEABLE_SUSPECT_TEXT = (
     'env -i',
     'env -u',
 )
+# R0 allow-list (D-G5 2): a whole line ``%matplotlib inline``; any other backend argument, such as module://name,
+# imports a module by name.
+HARMLESS_LINE_MAGIC = re.compile(r'^%matplotlib inline[ \t]*$', re.MULTILINE)
+# R0 allow-list: a first-line ``%%time`` alone (IPython refuses a statement after it) or ``%%capture`` with only its
+# --no-stderr, --no-stdout and --no-display flags and an output name. IPython honours a cell magic only on the first
+# line. ``%config`` is not harmless: ``%config AliasManager.user_aliases = [...]`` defines a shell alias that a later
+# one-line cell runs, and ``%config`` reconfigures other magics.
+HARMLESS_CELL_MAGIC = re.compile(
+    r'\A%%(?:time|capture(?:[ \t]+(?:--no-stderr|--no-stdout|--no-display|[A-Za-z_]\w*))*)[ \t]*$', re.MULTILINE
+)
+# The harmless magic lines, in the words R0's problem text uses.
+HARMLESS_MAGICS_TEXT = '`%matplotlib inline` and a first-line `%%time` or `%%capture`'
+# Magic aliases InteractiveShell.init_magics registers at start-up, on no Magics class.
+IPYTHON_STARTUP_MAGIC_ALIASES = frozenset({'ed', 'hist', 'rep'})
+# Text R0's two Python-but-not-as-read problems carry, so a test can tell them from the parse problems.
+R0_REWRITE_MARKER = '(R0: IPython rewrites'
+R0_AUTOMAGIC_MARKER = '(R0: automagic'
 # Text that must never reach a committed notebook (snapshot output comes from the developer database).
 CREDENTIAL_TEXT = re.compile(r'api_key|Authorization|token=|pbkdf2_sha256\$', re.IGNORECASE)
 HORIZON_DIP_LINE = re.compile(r'Las Campanas \(2402 m\): ([0-9.]+) deg')
@@ -302,6 +326,124 @@ def _parse(source: str) -> ast.Module | None:
         return ast.parse(source)
     except SyntaxError:
         return None
+
+
+def _python_view(source: str) -> str:
+    """Return the Python IPython would run for a cell: the source when it parses, else without harmless magic lines.
+
+    The harmless lines are ``%matplotlib inline`` and a first-line ``%%time`` or ``%%capture``
+    (HARMLESS_LINE_MAGIC, HARMLESS_CELL_MAGIC). Each removed line is left blank, so line numbers stay put.
+    """
+    if _parse(source) is not None:
+        return source
+    return HARMLESS_LINE_MAGIC.sub('', HARMLESS_CELL_MAGIC.sub('', source, count=1))
+
+
+@functools.cache
+def _ipython_transformer():
+    """Return IPython's own static input transformer (prompt stripping, dedent, escapes, magics); needs no shell."""
+    from IPython.core.inputtransformer2 import TransformerManager
+
+    return TransformerManager()
+
+
+def _ipython_rewrites(view: str) -> bool:
+    """Return True unless IPython's static input transformer leaves the meaning of ``view`` unchanged.
+
+    ``In [1]: rm -r -- 'x'`` parses as an annotated assignment, but IPython strips the prompt and runs the alias,
+    so parsing alone is not enough: the transformed text must parse to the same tree.
+
+    Args:
+        view: A cell's Python view, which parses.
+
+    Returns:
+        True when the transformed text does not parse or parses to a different tree.
+    """
+    transformed = _parse(_ipython_transformer().transform_cell(view))
+    return transformed is None or ast.dump(transformed) != ast.dump(ast.parse(view))
+
+
+@functools.cache
+def _ipython_line_magic_names() -> frozenset[str]:
+    """Return every IPython line magic and alias name that automagic can run from a one-line cell.
+
+    Built from IPython itself: the line magics of every Magics class in ``IPython.core.magics``, of the default
+    storemagic extension and of ipykernel's KernelMagics, the default shell aliases, and the magic aliases a shell
+    registers at start-up (IPYTHON_STARTUP_MAGIC_ALIASES). A child-process test pins it against a fresh shell.
+    """
+    from ipykernel.zmqshell import KernelMagics
+    from IPython.core import magics
+    from IPython.core.alias import default_aliases
+    from IPython.core.magic import Magics
+    from IPython.extensions.storemagic import StoreMagics
+
+    classes = [value for value in vars(magics).values() if isinstance(value, type) and issubclass(value, Magics)]
+    names = set(IPYTHON_STARTUP_MAGIC_ALIASES)
+    for magics_class in (*classes, StoreMagics, KernelMagics):
+        names.update(magics_class.magics.get('line', {}))
+    names.update(name for name, _command in default_aliases())
+    return frozenset(names)
+
+
+def _module_bindings(tree: ast.AST) -> set[str]:
+    """Return the names a cell binds at module level, which shadow an IPython magic or alias of the same name.
+
+    Name stores, import bound names (the alias, the first part of ``import a.b``, or the imported name; a star
+    import binds nothing), function and class names and exception names, in compound statements too, but not in
+    the bodies of functions, classes, lambdas and comprehensions.
+    """
+    bound = set()
+    pending = [tree]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound.add(node.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if alias.name != '*':
+                    bound.add(alias.asname or alias.name.split('.')[0])
+        elif isinstance(node, ast.ExceptHandler) and node.name is not None:
+            bound.add(node.name)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+            continue
+        if isinstance(node, (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            continue
+        pending.extend(ast.iter_child_nodes(node))
+    return bound
+
+
+def _automagic_word(view: str, bound: set[str]) -> str | None:
+    """Return the magic or alias IPython's automagic would run for a one-line cell, or None.
+
+    IPython applies automagic only to a cell that is one line, when its first word (as ``split_user_input`` reads
+    it) is a line magic or alias not shadowed by a user name, a builtin or a keyword (AutoMagicChecker) and is not
+    followed by ``=`` or ``,`` (AssignmentChecker). ``rm -r -- 'x'`` is valid Python, yet IPython runs ``rm``.
+    Blank lines do not count, so the check errs towards reporting.
+
+    Args:
+        view: A cell's Python view, which parses and which IPython does not rewrite.
+        bound: Names the notebook binds at module level in earlier cells.
+
+    Returns:
+        The first word when IPython would run it as a magic or alias, otherwise None.
+    """
+    lines = [line for line in view.splitlines() if line.strip()]
+    if len(lines) != 1:
+        return None
+    from IPython.core.splitinput import split_user_input
+
+    _pre, escape, word, rest = split_user_input(lines[0])
+    if (
+        escape
+        or not word.isidentifier()
+        or iskeyword(word)
+        or word in vars(builtins)
+        or word in bound
+        or rest.lstrip()[:1] in ('=', ',')
+    ):
+        return None
+    return word if word in _ipython_line_magic_names() else None
 
 
 def _constant_text(node: ast.AST) -> str | None:
@@ -747,18 +889,25 @@ def isolation_problems(notebook: dict) -> list[str]:
         A list of problems, in statement order where it matters; empty when the notebook is clean. A notebook
         that imports nothing from Django, the project app or a TOM plugin is only checked for the rules that
         apply to every notebook (no own database routing, no byte copy, no developer database file name, and
-        none of the names R12 lists for re-routing the database after setup).
+        none of the names R12 lists for re-routing the database after setup). R0 also applies to every notebook:
+        each code cell must be Python that IPython runs unchanged once ``%matplotlib inline`` and a first-line
+        ``%%time`` or ``%%capture`` are removed, and a one-line cell may not start with an IPython magic or alias
+        the notebook does not define; every later rule reads each cell's Python view.
     """
     problems = []
     code_cells = _code_cells(notebook)
     parsed = _parsed_code_cells(notebook)
 
-    # R0: a cell that is not plain Python is tolerated (IPython magics) unless it is about Django or a database.
+    # R0: a cell must be Python that IPython runs unchanged (D-G5 2). A cell that is not plain Python is reduced to
+    # its Python view (harmless magic lines removed); the deny-list message comes first, then the allow-list. At most
+    # one R0 problem per cell, in cell order.
+    views = []
+    bound: set[str] = set()
     for number, cell, tree in parsed:
-        if tree is not None:
-            continue
         source = _cell_source(cell)
-        if (
+        view = _python_view(source)
+        view_tree = tree if tree is not None else _parse(view)
+        if tree is None and (
             UNPARSEABLE_DJANGO_IMPORT.search(source)
             or SHELL_ESCAPE.search(source)
             or UNPARSEABLE_SUSPECT_NAMES.search(source)
@@ -768,6 +917,26 @@ def isolation_problems(notebook: dict) -> list[str]:
                 f'code cell {number} is not parseable Python but mentions Django, a database, a process, '
                 'a shell command or the environment, so it cannot be checked'
             )
+        elif view_tree is None:
+            problems.append(
+                f'code cell {number} is not parseable Python once its harmless magic lines are removed '
+                f'(only {HARMLESS_MAGICS_TEXT} are allowed), so IPython would run something the guard cannot check'
+            )
+        elif _ipython_rewrites(view):
+            problems.append(
+                f'code cell {number} is Python that IPython would rewrite before running it (a prompt prefix, an '
+                f'escape or a magic), so it cannot be checked {R0_REWRITE_MARKER})'
+            )
+        elif (word := _automagic_word(view, bound)) is not None:
+            problems.append(
+                f'code cell {number} is one line that starts with {word!r}, an IPython magic or alias the notebook '
+                f'does not define, so IPython would run it as a magic or a shell command {R0_AUTOMAGIC_MARKER})'
+            )
+        if view_tree is not None:
+            bound |= _module_bindings(view_tree)
+        views.append((number, cell, view_tree))
+    # Every later rule reads the Python views, so the code under a harmless magic is checked like any other cell.
+    parsed = views
 
     # R5, R6, R7, R12 apply to every notebook.
     problems.extend(_database_routing_problems(parsed))
@@ -1389,6 +1558,65 @@ class TestThirdReviewFormsOnARealNotebook(SimpleTestCase):
                 problems = isolation_problems(_append_to_setup_cell(self.notebook, source))
                 self.assertTrue(any(name in problem and 'byte-copy' in problem for problem in problems), problems)
 
+    def assert_inserted_cell_reports_only(self, sources, text):
+        """Check that each source, inserted as its own cell, yields problems that all contain ``text``."""
+        for source in sources:
+            with self.subTest(source=source):
+                problems = isolation_problems(_insert_code_cell_after_setup(self.notebook, source))
+                self.assertTrue(problems, 'the guard missed a cell IPython would run as something else')
+                self.assertTrue(all(text in problem for problem in problems), problems)
+
+    def test_a_shell_escape_after_a_line_magic_is_reported_on_a_real_notebook(self):
+        self.assert_inserted_cell_reports_only(
+            [
+                '%time !cd ../.. && env --ignore-environment PATH=/usr/bin python -m django flush --noinput '
+                '--settings=src.fomo.settings\n'
+            ],
+            'not parseable',
+        )
+
+    def test_ipython_aliases_and_shell_magics_are_reported_on_a_real_notebook(self):
+        self.assert_inserted_cell_reports_only(
+            [
+                'cp /tmp/fomo-notebook-db-*/* ../../src/\n',
+                '%cp /tmp/fomo-notebook-db-*/* ../../src/\n',
+                'rm -r ../../src\n',
+                '%time !rm -r ../../src\n',
+                '%alias wipe rm -r ../../src\n',
+                '%rehashx\n',
+                '%pip install -e ../..\n',
+            ],
+            'not parseable',
+        )
+
+    def test_a_one_line_alias_or_magic_that_is_valid_python_is_reported_on_a_real_notebook(self):
+        # Each is valid Python, but IPython's automagic runs it as an alias or a magic (rm deletes the directory).
+        self.assert_inserted_cell_reports_only(
+            [
+                "rm -r -- '../../src'\n",
+                'rehashx\n',
+                'store -r\n',
+                'reset -f\n',
+                "sx('rm' ' -r' ' ../../src')\n",
+                "%%time\nrm -r -- '../../src'\n",
+            ],
+            R0_AUTOMAGIC_MARKER,
+        )
+        # Valid Python (an annotated assignment), but IPython strips the prompt and then runs the alias.
+        self.assert_inserted_cell_reports_only(["In [1]: rm -r -- '../../src'\n"], R0_REWRITE_MARKER)
+
+    def test_harmless_magic_lines_leave_a_real_notebook_clean(self):
+        for source in ('%matplotlib inline\n', '%%time\nx = 1\n', '%%capture captured\nx = 1\n'):
+            with self.subTest(source=source):
+                self.assertEqual(isolation_problems(_insert_code_cell_after_setup(self.notebook, source)), [])
+        self.assert_inserted_cell_reports_only(
+            [
+                "%config InlineBackend.figure_format = 'svg'\n",
+                '%matplotlib module://matplotlib_inline.backend_inline\n',
+            ],
+            'not parseable',
+        )
+
 
 def _assert_r12_reports(testcase, cases):
     """Check that each ``(source, expected names)`` case yields only R12 problems naming the expected names.
@@ -1822,6 +2050,126 @@ class TestR6CopyAndWriteFunctions(SimpleTestCase):
         for source, name in cases:
             with self.subTest(source=source):
                 _first_problem_mentions(self, isolation_problems(_notebook(extra_cells=[_code(source)])), name)
+
+
+class TestR0AllowList(SimpleTestCase):
+    """CR-02 of the third review and developer decision D-G5 (2).
+
+    IPython runs more than the escapes R0 listed -- aliases, automagic, escapes after a line magic, prompt prefixes
+    -- so every cell must be Python that IPython runs unchanged, apart from a few harmless magic lines, and a
+    one-line cell may not start with a magic or alias the notebook does not define. Every case is the reference
+    notebook plus the extra cells shown.
+    """
+
+    def problems_with(self, *sources):
+        return isolation_problems(_notebook(extra_cells=[_code(source) for source in sources]))
+
+    def test_a_cell_is_a_problem_unless_it_is_python_that_ipython_runs_unchanged(self):
+        not_parseable = [
+            '!ls\n',
+            '%ls\n',
+            '%time !ls\n',
+            '%%time\n!ls\n',
+            '%%capture\n%cd ..\n',
+            '%%writefile ../../src/x\nx\n',
+            'ls ?\n',
+            '%matplotlib qt\n',
+            # A cell magic with a leading space, or not on the first line, is not one IPython strips.
+            ' %%time\nx = 1\n',
+            'x = 1\n%%time\ny = 1\n',
+            # %%time takes no argument.
+            '%%time --flag\nx = 1\n',
+        ]
+        for source in not_parseable:
+            with self.subTest(source=source):
+                _first_problem_mentions(self, self.problems_with(source), 'not parseable')
+        with self.subTest(source='In [1]: x = 1'):
+            _first_problem_mentions(self, self.problems_with('In [1]: x = 1\n'), R0_REWRITE_MARKER)
+        allowed = [
+            '%matplotlib inline\n',
+            '%%time\nx = 1\n',
+            '%%capture --no-stderr out\nx = 1\n',
+            '%%time\nretrieval = execute_query()\n',
+            '',
+        ]
+        for source in allowed:
+            with self.subTest(source=source):
+                self.assertEqual(self.problems_with(source), [])
+
+    def test_code_under_a_harmless_magic_is_checked_by_every_rule(self):
+        cases = [
+            ('%%capture\nfrom shutil import copytree\ncopytree(a, b)\n', 'copytree'),
+            ('%%time\nimport sqlite3\n', 'references sqlite3;'),
+            ("%%capture\ndb = open('src/fomo_db.sqlite3')\n", DEVELOPER_DB_NAME),
+        ]
+        for source, text in cases:
+            with self.subTest(source=source):
+                _first_problem_mentions(self, self.problems_with(source), text)
+
+    def test_a_one_line_magic_or_alias_is_a_problem_unless_the_notebook_defines_the_name(self):
+        reported = [
+            "rm -r -- 'x'\n",
+            'cp\n',
+            'rehashx\n',
+            'time -x\n',
+            'rm += 3\n',
+            'man -k\n',  # an ipykernel magic
+            'store -r\n',  # storemagic, a default extension
+            'ed\n',  # an alias IPython registers at start-up
+            "rm -r -- 'x'  # trailing comment\n",
+            "rm -r -- 'x'\n\n",  # blank lines do not count
+        ]
+        for source in reported:
+            with self.subTest(source=source):
+                problems = self.problems_with(source)
+                self.assertTrue(problems, 'the guard missed a one-line magic or alias')
+                self.assertTrue(all(R0_AUTOMAGIC_MARKER in problem for problem in problems), problems)
+        allowed = {
+            'time = 5': ['time = 5\n'],
+            'rm = 3': ['rm = 3\n'],
+            'rm, cp = 1, 2': ['rm, cp = 1, 2\n'],
+            'run_report()': ['run_report()\n'],
+            'print(1)': ['print(1)\n'],
+            'time bound by an earlier import': ['import time\n', 'time\n'],
+            'two lines': ["rm -r -- 'x'\ny = 1\n"],
+        }
+        for label, sources in allowed.items():
+            with self.subTest(label):
+                self.assertEqual(self.problems_with(*sources), [])
+        with self.subTest('a dotted first word is never a magic'):
+            problems = self.problems_with('os.system\n')
+            self.assertTrue(problems)
+            self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+            self.assertFalse(any(R0_AUTOMAGIC_MARKER in problem for problem in problems), problems)
+
+    def test_the_automagic_rule_knows_every_line_magic_a_fresh_ipython_shell_has(self):
+        child = (
+            'import json\n'
+            'from traitlets.config import Config\n'
+            'from IPython.core.interactiveshell import InteractiveShell\n'
+            'config = Config()\n'
+            'config.HistoryManager.enabled = False\n'
+            'shell = InteractiveShell.instance(config=config)\n'
+            "shell.extension_manager.load_extension('storemagic')\n"
+            "print(json.dumps(sorted(shell.magics_manager.magics['line'])))\n"
+        )
+        with tempfile.TemporaryDirectory() as ipython_dir:
+            result = subprocess.run(
+                [sys.executable, '-I', '-c', child],
+                cwd=ipython_dir,
+                env={**os.environ, 'IPYTHONDIR': ipython_dir},
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        shell_names = set(json.loads(result.stdout.strip().splitlines()[-1]))
+        known = _ipython_line_magic_names()
+        self.assertEqual(shell_names - known, set())
+        expected = {'cp', 'rm', 'mv', 'rehashx', 'pip', 'alias', 'sx', 'system', 'store', 'reset', 'run', 'time'}
+        expected |= {'env', 'ed', 'hist', 'rep', 'man', 'less'}
+        self.assertTrue(expected <= known, expected - known)
 
 
 class TestPreExecutedNotebooksUseTheHelper(SimpleTestCase):
