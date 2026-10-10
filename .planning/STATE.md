@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
 Plan: 7 of 7
-Status: Plan 7 of 7 complete — awaiting review and verification
+Status: Gaps found — re-verification 79/80 (WR-01 re-route forms open)
 Last activity: 2026-10-09 — Phase 40 execution started
 
 Progress: [████████████████████] 17/17 plans ([██████████] 100%)
