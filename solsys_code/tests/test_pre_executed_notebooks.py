@@ -55,6 +55,7 @@ import importlib.util
 import itertools
 import json
 import re
+import warnings
 from pathlib import Path
 
 from django.test import SimpleTestCase
@@ -91,6 +92,10 @@ REROUTE_NAMES = frozenset(
         # Replacing either method on a connection wrapper re-points it at another database.
         'get_connection_params',
         'get_new_connection',
+        # D-G6 (a): Django's connection proxy, the handler behind it, and the DB-API module a wrapper connects through.
+        'connection',
+        '_connections',
+        'Database',
     }
 )
 # R12 (D-G1 a): modules that start a process or drive a child terminal or kernel; the import is what is reported.
@@ -130,6 +135,10 @@ PROCESS_NAMES = frozenset(
         'run_line_magic',
         'run_cell_magic',
         'get_ipython',
+        # IPython.utils helpers that start a shell.
+        'getoutputerror',
+        'get_output_error_code',
+        'process_handler',
     }
 )
 # R12 (D-G1 c): names that read or change the environment the helper set (``os.getenv`` stays allowed).
@@ -140,7 +149,18 @@ DYNAMIC_CODE_MODULES = frozenset({'importlib', 'runpy', 'builtins', 'ctypes', 'c
 # (so ``re.compile`` and a DataFrame's ``eval`` stay allowed).
 DYNAMIC_CODE_BUILTINS = frozenset({'exec', 'eval', 'compile', '__import__', '__builtins__'})
 # R12: Django entry points that run a command line, and so any management command, in this process.
-DYNAMIC_CODE_NAMES = frozenset({'execute_from_command_line', 'ManagementUtility'})
+DYNAMIC_CODE_NAMES = frozenset(
+    {
+        'execute_from_command_line',
+        'ManagementUtility',
+        # Functions that look a callable up by a dotted string.
+        'import_string',
+        'resolve_name',
+        'locate',
+        # IPython runs a Macro's text when a one-line cell names it.
+        'Macro',
+    }
+)
 # R12: management commands that run code (``shell`` runs a string with ``exec``); ``call_command`` of one is reported.
 CODE_RUNNING_COMMANDS = frozenset({'shell', 'shell_plus', 'runscript'})
 # Every name R12 lists, so R0's whole-word search of an unparseable cell and R12 cannot drift apart.
@@ -153,8 +173,9 @@ R12_ALL_NAMES = (
     | DYNAMIC_CODE_BUILTINS
     | DYNAMIC_CODE_NAMES
 )
-# A string constant that attaches another database to the connection through raw SQL.
-ATTACH_SQL = re.compile(r"\battach\s+(?:database\b|['\"?:@$])", re.IGNORECASE)
+# A string constant that attaches another database to the connection through raw SQL; SQLite takes any expression
+# after ATTACH, so an opening parenthesis (with or without whitespace) counts too (D-G6 a).
+ATTACH_SQL = re.compile(r"\battach(?:\s+(?:database\b|['\"?:@$])|\s*\()", re.IGNORECASE)
 # The reason each R12 capability gives in its problem text; 'database' is the text rule R12 always had.
 R12_REASONS = {
     'database': f'only {SETUP_FUNCTION} may choose the database',
@@ -182,8 +203,13 @@ EXPECTED_NOTEBOOKS = frozenset(
         'telescope_runs_demo.ipynb',
     }
 )
-FORBIDDEN_COPY_NAMES = ('copy', 'copy2', 'copyfile')
+# R6: shutil functions that byte-copy or move a file or a whole directory (D-G6 b).
+FORBIDDEN_COPY_NAMES = ('copy', 'copy2', 'copyfile', 'copytree', 'copyfileobj', 'move')
 FORBIDDEN_COPY_CALLS = tuple(f'shutil.{name}' for name in FORBIDDEN_COPY_NAMES)
+# R6: methods that write a file's bytes, so a scratch file's bytes can land on the developer database (D-G6 b).
+BYTE_WRITE_NAMES = ('write_bytes',)
+# How many levels of code inside a string (a string holding code that holds a string of code) the rules read.
+STRING_CODE_DEPTH = 2
 # Call names that write: an ``assert`` wrapping one would vanish under ``python -O`` (WARN-03).
 WRITE_CALL_NAMES = frozenset(
     {
@@ -276,6 +302,68 @@ def _parse(source: str) -> ast.Module | None:
         return ast.parse(source)
     except SyntaxError:
         return None
+
+
+def _constant_text(node: ast.AST) -> str | None:
+    """Return the text of a str constant, a bytes constant decoded as latin-1, or None for any other node."""
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, str):
+            return node.value
+        if isinstance(node.value, bytes):
+            return node.value.decode('latin-1')
+    return None
+
+
+def _string_parts(text: str) -> list[str]:
+    """Split a string on '.' and ':', the separators of a dotted path (``os.system``, ``subprocess:run``).
+
+    A string with neither separator is its own only part, so matching parts keeps the exact-string match.
+    """
+    return re.split(r'[.:]', text)
+
+
+def _parse_string_code(text: str) -> ast.Module | None:
+    """Parse a string's text as Python and return the tree when it is code, otherwise None.
+
+    A string counts as code when it parses and holds a statement other than a bare expression, or a call. A string
+    that parses only as an expression with no call (prose such as ``'subprocess-free'``, a dotted path, a date
+    ``'2026-10-10'``) runs nothing even when a library runner executes it, and its dotted parts are matched anyway.
+    """
+    with warnings.catch_warnings():
+        # A string holding code may hold invalid escape sequences, which only warn.
+        warnings.simplefilter('ignore')
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
+            return None
+    is_code = any(not isinstance(statement, ast.Expr) for statement in tree.body) or any(
+        isinstance(node, ast.Call) for node in ast.walk(tree)
+    )
+    return tree if is_code else None
+
+
+def _string_code_trees(tree: ast.AST, depth: int = STRING_CODE_DEPTH):
+    """Yield the parsed tree of every str or bytes constant in ``tree`` that is itself Python code.
+
+    Code in a literal string runs as code under ``timeit``, ``pdb``, ``cProfile``, ``code.InteractiveInterpreter``
+    and similar library runners the R12 lists do not name, so the rules read it like the cell's own code. Strings
+    inside those strings are read too, down to ``depth`` levels.
+
+    Args:
+        tree: A parsed cell, or a tree parsed from a string.
+        depth: How many levels of string code to read below ``tree``.
+
+    Yields:
+        Each string-code tree, outer strings before the strings they hold.
+    """
+    if depth <= 0:
+        return
+    for node in ast.walk(tree):
+        text = _constant_text(node)
+        inner = None if text is None else _parse_string_code(text)
+        if inner is not None:
+            yield inner
+            yield from _string_code_trees(inner, depth - 1)
 
 
 def _dotted_name(node: ast.expr) -> str:
@@ -444,23 +532,62 @@ def _database_routing_problems(parsed) -> list[str]:
 
 
 def _byte_copy_problems(parsed) -> list[str]:
-    """R6: no ``shutil.copy*`` call and no import of those names (a byte copy can catch a database mid-write)."""
+    """R6: no byte copy or byte write that can land on a database, under any spelling.
+
+    A byte copy can catch a database mid-write, and the scratch file has the developer database's base name, so a
+    copy or write of a whole directory or file can land on it without naming it. Reported in the cell's code and in
+    code inside its strings: a ``shutil`` copy or move function (FORBIDDEN_COPY_NAMES) called, referenced or
+    imported, through ``shutil`` or an alias of it; any reference to a byte-write method (BYTE_WRITE_NAMES); and any
+    string whose dotted parts name one of them (``getattr(shutil, 'copytree')``). One problem per finding per cell.
+    """
     problems = []
     for number, _cell, tree in parsed:
         if tree is None:
             continue
-        shutil_names = {'shutil'}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                shutil_names.update(alias.asname for alias in node.names if alias.name == 'shutil' and alias.asname)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                dotted = _dotted_name(node.func)
-                if dotted.split('.')[0] in shutil_names and dotted.split('.')[-1] in FORBIDDEN_COPY_NAMES:
-                    problems.append(f'code cell {number} calls {dotted}(); a notebook must never byte-copy a database')
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == 'shutil':
-                if any(alias.name in (*FORBIDDEN_COPY_NAMES, '*') for alias in node.names):
-                    problems.append(f'code cell {number} imports a shutil copy function; a notebook must never copy')
+        found: dict[str, None] = {}
+        for scanned in (tree, *_string_code_trees(tree)):
+            shutil_names = {'shutil'}
+            for node in ast.walk(scanned):
+                if isinstance(node, ast.Import):
+                    shutil_names.update(alias.asname for alias in node.names if alias.name == 'shutil' and alias.asname)
+            called = set()
+            for node in ast.walk(scanned):
+                if isinstance(node, ast.Call):
+                    dotted = _dotted_name(node.func)
+                    if dotted.split('.')[0] in shutil_names and dotted.split('.')[-1] in FORBIDDEN_COPY_NAMES:
+                        found[f'code cell {number} calls {dotted}(); a notebook must never byte-copy a database'] = None
+                        called.add(id(node.func))
+                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == 'shutil':
+                    names = [alias.name for alias in node.names if alias.name in (*FORBIDDEN_COPY_NAMES, '*')]
+                    if names:
+                        found[
+                            f'code cell {number} imports a shutil copy function ({", ".join(names)}); '
+                            'a notebook must never copy'
+                        ] = None
+            for node in ast.walk(scanned):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and id(node) not in called
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id in shutil_names
+                    and node.attr in FORBIDDEN_COPY_NAMES
+                ):
+                    dotted = _dotted_name(node)
+                    found[f'code cell {number} references {dotted}; a notebook must never byte-copy a database'] = None
+                name = node.attr if isinstance(node, ast.Attribute) else getattr(node, 'id', None)
+                if isinstance(node, (ast.Attribute, ast.Name)) and name in BYTE_WRITE_NAMES:
+                    found[
+                        f'code cell {number} references {name}; '
+                        'a notebook must never byte-copy or byte-write a file over a database'
+                    ] = None
+                text = _constant_text(node)
+                for part in _string_parts(text) if text is not None else ():
+                    if part in FORBIDDEN_COPY_NAMES or part in BYTE_WRITE_NAMES:
+                        found[
+                            f'code cell {number} names {part} in a string; '
+                            'a notebook must never look up a byte-copy or byte-write function by name'
+                        ] = None
+        problems.extend(found)
     return problems
 
 
@@ -562,8 +689,10 @@ def _database_rerouting_problems(parsed) -> list[str]:
     through raw SQL. Each listed name is matched at every identifier the parser records (a name, an attribute, every
     part of an imported module path, an imported name or alias, a keyword argument, a parameter, a function, class
     or exception name, a global or nonlocal name, a match capture or class-pattern attribute, a type parameter --
-    attributes and class-pattern attributes never against the builtins) and as an exact string constant, so
-    importing one from another module or binding it to another name first is reported too.
+    attributes and class-pattern attributes never against the builtins) and as every '.' or ':' part of a str or
+    bytes constant, so importing one from another module, binding it to another name first or looking it up by a
+    literal dotted string is reported too. Code inside a string is read like the cell's own code
+    (``_string_code_trees``).
     """
     problems = []
     for number, _cell, tree in parsed:
@@ -576,17 +705,20 @@ def _database_rerouting_problems(parsed) -> list[str]:
             if capability is not None:
                 found[name] = capability
 
-        for node in ast.walk(tree):
+        nodes = itertools.chain.from_iterable(ast.walk(scanned) for scanned in (tree, *_string_code_trees(tree)))
+        for node in nodes:
             for name, table_groups in _identifiers(node):
                 note(name, *table_groups)
+            text = _constant_text(node)
             if isinstance(node, ast.Attribute):
                 dotted = _dotted_name(node)
                 for suffix in REROUTE_DOTTED_SUFFIXES:
                     if dotted == suffix or dotted.endswith(f'.{suffix}'):
                         found[suffix] = 'database'
-            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                note(node.value, _R12_NAME_TABLES, _R12_MODULE_TABLES, _R12_BUILTIN_TABLES)
-                if ATTACH_SQL.search(node.value):
+            elif text is not None:
+                for part in _string_parts(text):
+                    note(part, *_R12_EVERY_TABLE)
+                if ATTACH_SQL.search(text):
                     found['ATTACH'] = 'database'
             elif isinstance(node, ast.Call):
                 command = _call_command_target(node)
@@ -1185,6 +1317,78 @@ class TestThirdReviewFormsOnARealNotebook(SimpleTestCase):
             with self.subTest(label):
                 self.assert_only_r12_names(source, {'subprocess'})
 
+    def test_a_process_looked_up_by_a_literal_string_is_reported_on_a_real_notebook(self):
+        forms = {
+            'import_string': (
+                'from django.utils.module_loading import import_string\n'
+                "import_string('subprocess.run')" + self.RUN_ARGS,
+                {'import_string', 'subprocess'},
+            ),
+            'resolve_name': (
+                "import pkgutil\npkgutil.resolve_name('subprocess:run')" + self.RUN_ARGS,
+                {'resolve_name', 'subprocess'},
+            ),
+        }
+        for label, (source, expected) in forms.items():
+            with self.subTest(label):
+                self.assert_only_r12_names(source, expected)
+
+    def test_ipython_process_helpers_are_reported_on_a_real_notebook(self):
+        forms = {
+            'getoutputerror': (
+                'from IPython.utils.process import getoutputerror\n'
+                "getoutputerror('cd ../.. && env --ignore-environment PATH=/usr/bin "
+                "python manage.py flush --noinput')\n"
+            ),
+            'get_output_error_code': (
+                "from IPython.utils.process import get_output_error_code\nget_output_error_code('ls')\n"
+            ),
+            'process_handler': (
+                "from IPython.utils._process_common import process_handler\nprocess_handler('ls', print)\n"
+            ),
+        }
+        for name, source in forms.items():
+            with self.subTest(name):
+                self.assert_only_r12_names(source, {name})
+
+    def test_the_connection_proxy_database_connect_and_attach_are_reported_on_a_real_notebook(self):
+        forms = {
+            'CR-01 (b)': (
+                'from django.db import connection\n'
+                "connection._connections.settings['default']['NAME'] = '/home/someone/other.sqlite3'\n"
+                'connection.close()\n',
+                {'connection', '_connections'},
+            ),
+            'CR-01 (c)': (
+                'from django.db import connection\n'
+                "connection.connection = connection.Database.connect('/home/someone/other.sqlite3', "
+                'isolation_level=None)\n',
+                {'connection', 'Database'},
+            ),
+            'CR-01 (d)': (
+                'from django.db import connection\n'
+                'with connection.cursor() as cursor:\n'
+                "    cursor.execute('ATTACH (%s) AS dev', ['/home/someone/other.sqlite3'])\n",
+                {'connection', 'ATTACH'},
+            ),
+        }
+        for label, (source, expected) in forms.items():
+            with self.subTest(label):
+                self.assert_only_r12_names(source, expected)
+
+    def test_copytree_and_write_bytes_are_reported_on_a_real_notebook(self):
+        forms = {
+            'copytree': "import shutil\nshutil.copytree(scratch_db_dir, repo_root_path / 'src', dirs_exist_ok=True)\n",
+            'write_bytes': (
+                'for f in scratch_db_dir.iterdir():\n'
+                "    (repo_root_path / 'src' / f.name).write_bytes(f.read_bytes())\n"
+            ),
+        }
+        for name, source in forms.items():
+            with self.subTest(name):
+                problems = isolation_problems(_append_to_setup_cell(self.notebook, source))
+                self.assertTrue(any(name in problem and 'byte-copy' in problem for problem in problems), problems)
+
 
 def _assert_r12_reports(testcase, cases):
     """Check that each ``(source, expected names)`` case yields only R12 problems naming the expected names.
@@ -1523,6 +1727,52 @@ class TestR12MatchesEveryIdentifierAndString(SimpleTestCase):
             ],
         )
 
+    def test_a_listed_name_inside_a_string_or_bytes_constant_is_a_problem(self):
+        _assert_r12_reports(
+            self,
+            [
+                ("import_string('os.system')\n", ['import_string', 'system']),
+                ("pydoc.locate('os.system')\n", ['locate', 'system']),
+                ("operator.attrgetter('environ.clear')(os)()\n", ['environ']),
+                ("pkgutil.resolve_name('subprocess:run')\n", ['resolve_name', 'subprocess']),
+                ("sys.modules[b'subprocess'.decode()].run(a)\n", ['subprocess']),
+                ("x = 'django.db:connection'\n", ['connection']),
+                ("m = Macro('!ls')\n", ['Macro']),
+            ],
+        )
+
+    def test_code_inside_a_string_is_checked_like_code(self):
+        _assert_r12_reports(
+            self,
+            [
+                ("timeit.timeit('from webbrowser import subprocess as sp; sp.run(cmd)')\n", ['subprocess']),
+                ("code.InteractiveInterpreter().runsource('import os; os.system(c)')\n", ['system']),
+                ("cProfile.run('x = __import__(m)')\n", ['__import__']),
+                ("timeit.timeit(stmt='pass', setup='import multiprocessing')\n", ['multiprocessing']),
+                # Two levels: a string holding a string holding code.
+                ('outer = "inner = \'import subprocess\'"\n', ['subprocess']),
+            ],
+        )
+
+    def test_the_connection_proxy_and_attach_with_a_parenthesis_are_a_problem(self):
+        _assert_r12_reports(
+            self,
+            [
+                ('from django.db import connection\n', ['connection']),
+                ('django.db.connection.close()\n', ['connection']),
+                ('c = connection\n', ['connection']),
+                ("import_string('django.db.connection')\n", ['connection']),
+                ('dev = type(connection.connection)(p)\n', ['connection']),
+                ('from django.db.backends.sqlite3.base import Database\n', ['Database', 'sqlite3']),
+                ("connection._connections.settings['default']['NAME'] = x\n", ['connection', '_connections']),
+                ('cursor.execute("ATTACH(\'/x\') AS dev")\n', ['ATTACH']),
+                ("cursor.execute('attach  (?) as dev', [p])\n", ['ATTACH']),
+                ('cursor.execute("ATTACH DATABASE \'x.sqlite3\' AS dev")\n', ['ATTACH']),
+                ("cursor.execute('attach ? as dev', [path])\n", ['ATTACH']),
+                ('cursor.execute("ATTACH \'x.sqlite3\' AS dev")\n', ['ATTACH']),
+            ],
+        )
+
     def test_names_that_only_look_like_listed_ones_are_not_a_problem(self):
         sources = [
             'subprocesses = 3\n',
@@ -1535,10 +1785,43 @@ class TestR12MatchesEveryIdentifierAndString(SimpleTestCase):
             "print('subprocess-free')\n",
             "cursor.execute('SELECT 1')\n",
             "call_command('load_telescope_runs', 'f.txt')\n",
+            "print('attach the observation to its run')\n",
+            "print('a copy of the run')\n",
+            "print('move on to the next cell')\n",
+            'df = frame.copy()\n',
+            "items.move_to_end('k')\n",
         ]
         for source in sources:
             with self.subTest(source=source):
                 self.assertEqual(isolation_problems(_notebook(extra_cells=[_code(source)])), [])
+
+
+class TestR6CopyAndWriteFunctions(SimpleTestCase):
+    """WR-01 of the third review and developer decision D-G6 (b).
+
+    The scratch file has the developer database's base name, so any copy or byte write of a whole directory or file
+    can land on ``src/fomo_db.sqlite3`` without naming it. Every copy and write function is reported as a call, a
+    reference, an import and a name looked up by string. Every case is the reference notebook plus one extra cell.
+    """
+
+    def test_every_copy_and_write_function_in_any_spelling_is_a_problem(self):
+        cases = [
+            ('import shutil\nshutil.copytree(a, b)\n', 'copytree'),
+            ('import shutil\nshutil.copyfileobj(f, g)\n', 'copyfileobj'),
+            ('import shutil\nshutil.move(a, b)\n', 'move'),
+            ('import shutil as sh\nsh.move(a, b)\n', 'move'),
+            ('from shutil import copytree\n', 'copytree'),
+            ('import shutil\ncp = shutil.copytree\n', 'copytree'),
+            ('(dst / f.name).write_bytes(data)\n', 'write_bytes'),
+            ('w = p.write_bytes\n', 'write_bytes'),
+            ("getattr(shutil, 'copytree')(a, b)\n", 'copytree'),
+            ("getattr(shutil, 'move')(a, b)\n", 'move'),
+            ("operator.methodcaller('write_bytes', data)(p)\n", 'write_bytes'),
+            ("timeit.timeit('import shutil; shutil.copytree(a, b)')\n", 'copytree'),
+        ]
+        for source, name in cases:
+            with self.subTest(source=source):
+                _first_problem_mentions(self, isolation_problems(_notebook(extra_cells=[_code(source)])), name)
 
 
 class TestPreExecutedNotebooksUseTheHelper(SimpleTestCase):
