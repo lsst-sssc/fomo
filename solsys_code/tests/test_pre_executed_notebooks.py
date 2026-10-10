@@ -1,7 +1,7 @@
 """Guard tests: every Django-backed pre-executed notebook runs on a scratch database through the shared helper.
 
 Why this module exists (UAT G-37.1-3, then review findings WR-13, WR-14 and WR-17 of the 37.1 review,
-and WR-01 of the Phase 40 review):
+WR-01 of the Phase 40 review, and WR-01 of the 2026-10-10 re-review):
 notebooks under ``docs/notebooks/pre_executed/`` once opened the developer database
 ``src/fomo_db.sqlite3`` and wrote demo rows into it, and a guard that only matched the setup
 cell's text was easy to get around (an own ``FOMO_DATABASE_PATH`` assignment with stale good-looking
@@ -19,24 +19,40 @@ behaviour is proven by running it in ``test_notebook_helper.py``.
 These tests read notebook JSON only and never execute a notebook. Code is inspected with ``ast`` so a
 comment that merely mentions a name cannot satisfy or trip a check.
 
-What the guard checks: R0, a cell that is not parseable Python (IPython magics) must not mention Django or
-a database; R2-R4 and R8-R11, the helper call comes first and once, no own Django setup, one fresh run with
-evidence and teardown output, and no ``assert`` guarding a write; R5-R7, no code naming the database
-variable or the developer database file, and no byte copy of a database; and R12, no re-routing of Django's
-database after the helper call (WR-01). R12 reports, in every notebook, any name, attribute, keyword,
-import name or exact string constant equal to DATABASES, DATABASE_ROUTERS, settings_dict,
-override_settings, modify_settings, developer_database_path, prepare_scratch_database, snapshot_database,
-DatabaseWrapper, load_backend or sqlite3, any attribute chain ending in connections.settings or
-connections.databases, and any import with a sqlite3 module component.
+What the guard checks: R0, a cell that is not parseable Python (IPython magics) must not mention Django, a
+database, a process, a shell command or the environment -- an IPython shell escape (``!ls``, ``files = !ls``), a
+process cell magic (``%%bash``, ``%%sh``, ``%%script``, ``%%python3``), a process or environment line magic
+(``%system``, ``%sx``, ``%run``, ``%env``, ``%set_env``), ``manage.py``, ``env -i``, ``env -u`` or any name R12
+lists; R2-R4 and R8-R11, the helper call comes first and once, no own Django setup, one fresh run with evidence
+and teardown output, and no ``assert`` guarding a write; R5-R7, no code naming the database variable or the
+developer database file, and no byte copy of a database; and R12, which reports, in every notebook, any reference
+to five capabilities that can route around the scratch database (WR-01, D-G1): Django's database settings and
+connection objects (DATABASES, DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the
+helper's internals, DatabaseWrapper, load_backend, ``connections`` and ConnectionHandler, create_connection,
+get_connection_params, get_new_connection, ``connections.settings`` and ``connections.databases``, any
+``sqlite3`` import, and a string constant holding raw SQL ATTACH); starting a process (subprocess,
+multiprocessing, pty, pexpect, ptyprocess, psutil, Jupyter's kernel clients, ``os.system``, ``os.popen``,
+``os.exec*``, ``os.spawn*``, ``os.posix_spawn*``, ``os.fork``, Popen, ProcessPoolExecutor, asyncio's
+``create_subprocess_*``, ``get_ipython`` and IPython's shell helpers); the environment (``os.environ``,
+``os.environb``, ``os.putenv``, ``os.unsetenv``; ``os.getenv`` reads are allowed); and running code from a string
+or another file (exec, eval, compile, ``__import__``, ``__builtins__``, importlib, runpy, builtins, ctypes, cffi,
+``call_command`` of shell, shell_plus or runscript, execute_from_command_line, ManagementUtility). Each R12 name
+is matched wherever it appears -- as a name, an attribute, a keyword, an imported name or an exact string
+constant -- so binding one of them to another name first (``c = connections``, ``run = os.system``) is reported
+too. The guard makes no claim of completeness.
 
-What the guard does not see: code built or run at runtime (``exec``, ``eval`` or ``compile`` of a string,
-``importlib`` or ``getattr`` with a computed name), code inside modules a notebook imports, a re-route made
-through an object first bound to another name, and whatever an imported library does when it runs.
+What the guard does not see: it reads only the notebook's own source and matches literal names and exact strings,
+so deliberate obfuscation is out of its reach. (1) Values assembled or looked up at runtime: a name, module, SQL
+statement or file path built from pieces (string concatenation, f-strings, joined path parts) or fetched with
+``getattr``, ``globals()``, ``vars()`` or ``sys.modules`` using such a string, and code decoded at runtime
+(pickle, marshal, codecs). (2) Code outside the notebook: a module it imports, or a library function that starts
+a process or writes a file under a name these lists do not contain.
 """
 
 import ast
 import copy
 import importlib.util
+import itertools
 import json
 import re
 from pathlib import Path
@@ -72,19 +88,81 @@ REROUTE_NAMES = frozenset(
         'connections',
         'ConnectionHandler',
         'create_connection',
+        # Replacing either method on a connection wrapper re-points it at another database.
+        'get_connection_params',
+        'get_new_connection',
     }
 )
-# R12 (D-G1 a): modules that start a process; the import is what is reported, never a bare name.
-PROCESS_MODULES = frozenset({'subprocess'})
+# R12 (D-G1 a): modules that start a process or drive a child terminal or kernel; the import is what is reported.
+PROCESS_MODULES = frozenset(
+    {
+        'subprocess',
+        'multiprocessing',
+        'pty',
+        'pexpect',
+        'ptyprocess',
+        'psutil',
+        'jupyter_client',
+        'nbclient',
+        'nbconvert',
+    }
+)
 # R12 (D-G1 a): names that start a process, matched as a name, an attribute, an imported name or a string.
-PROCESS_NAMES = frozenset()
+PROCESS_NAMES = frozenset(
+    {
+        'Popen',
+        'ProcessPoolExecutor',
+        'system',
+        'popen',
+        'fork',
+        'forkpty',
+        'startfile',
+        'posix_spawn',
+        'posix_spawnp',
+        *(f'exec{suffix}' for suffix in ('l', 'le', 'lp', 'lpe', 'v', 've', 'vp', 'vpe')),
+        *(f'spawn{suffix}' for suffix in ('l', 'le', 'lp', 'lpe', 'v', 've', 'vp', 'vpe')),
+        'create_subprocess_exec',
+        'create_subprocess_shell',
+        'getoutput',
+        'getstatusoutput',
+        # IPython's own shell access.
+        'system_raw',
+        'run_line_magic',
+        'run_cell_magic',
+        'get_ipython',
+    }
+)
 # R12 (D-G1 c): names that read or change the environment the helper set (``os.getenv`` stays allowed).
-ENVIRON_NAMES = frozenset({'environ'})
+ENVIRON_NAMES = frozenset({'environ', 'environb', 'putenv', 'unsetenv'})
+# R12: modules that run code loaded from a string, another file or a native library; the import is reported.
+DYNAMIC_CODE_MODULES = frozenset({'importlib', 'runpy', 'builtins', 'ctypes', 'cffi'})
+# R12: builtins that run code from a string, matched as a name, an imported name or a string, never as an attribute
+# (so ``re.compile`` and a DataFrame's ``eval`` stay allowed).
+DYNAMIC_CODE_BUILTINS = frozenset({'exec', 'eval', 'compile', '__import__', '__builtins__'})
+# R12: Django entry points that run a command line, and so any management command, in this process.
+DYNAMIC_CODE_NAMES = frozenset({'execute_from_command_line', 'ManagementUtility'})
+# R12: management commands that run code (``shell`` runs a string with ``exec``); ``call_command`` of one is reported.
+CODE_RUNNING_COMMANDS = frozenset({'shell', 'shell_plus', 'runscript'})
+# Every name R12 lists, so R0's whole-word search of an unparseable cell and R12 cannot drift apart.
+R12_ALL_NAMES = (
+    REROUTE_NAMES
+    | PROCESS_MODULES
+    | PROCESS_NAMES
+    | ENVIRON_NAMES
+    | DYNAMIC_CODE_MODULES
+    | DYNAMIC_CODE_BUILTINS
+    | DYNAMIC_CODE_NAMES
+)
+# A string constant that attaches another database to the connection through raw SQL.
+ATTACH_SQL = re.compile(r"\battach\s+(?:database\b|['\"?:@$])", re.IGNORECASE)
 # The reason each R12 capability gives in its problem text; 'database' is the text rule R12 always had.
 R12_REASONS = {
     'database': f'only {SETUP_FUNCTION} may choose the database',
     'process': 'a notebook never starts a process, which would run without the scratch database settings',
     'environment': 'a notebook never changes the environment the helper set; read a variable with os.getenv',
+    'dynamic code': (
+        'a notebook never runs code built from a string or loaded from another file, which the guard cannot read'
+    ),
 }
 # R12: attribute chains (matched when they equal, or end with ``.`` plus, one of these) that reach the same dicts.
 REROUTE_DOTTED_SUFFIXES = ('connections.settings', 'connections.databases')
@@ -138,12 +216,13 @@ SHELL_ESCAPE = re.compile(
     r'^\s*%%?(?:system|sx|sc|bash|sh|script|python|python2|python3|pypy|perl|ruby|run|env|set_env)\b',
     re.MULTILINE,
 )
+# Any name R12 lists, as a whole word, so ``retrieval`` or ``execute_query`` do not trip ``eval`` or ``execute``.
+UNPARSEABLE_SUSPECT_NAMES = re.compile(r'\b(?:' + '|'.join(re.escape(name) for name in sorted(R12_ALL_NAMES)) + r')\b')
 UNPARSEABLE_SUSPECT_TEXT = (
     'django.setup',
     DB_ENV_VAR,
     'shutil.copy',
     DEVELOPER_DB_NAME,
-    *sorted(REROUTE_NAMES),
     *REROUTE_DOTTED_SUFFIXES,
     # D-G1 (d): the project's management entry point and a cleared child environment.
     'manage.py',
@@ -390,9 +469,12 @@ _R12_NAME_TABLES = (
     (REROUTE_NAMES, 'database'),
     (PROCESS_NAMES, 'process'),
     (ENVIRON_NAMES, 'environment'),
+    (DYNAMIC_CODE_NAMES, 'dynamic code'),
 )
 # R12: (module names, capability) pairs matched as an import's first component, an attribute or an exact string.
-_R12_MODULE_TABLES = ((PROCESS_MODULES, 'process'),)
+_R12_MODULE_TABLES = ((PROCESS_MODULES, 'process'), (DYNAMIC_CODE_MODULES, 'dynamic code'))
+# R12: builtins matched as a name, an imported name or an exact string, but never as an attribute.
+_R12_BUILTIN_TABLES = ((DYNAMIC_CODE_BUILTINS, 'dynamic code'),)
 
 
 def _capability_of(name: str | None, tables) -> str | None:
@@ -403,11 +485,26 @@ def _capability_of(name: str | None, tables) -> str | None:
     return None
 
 
+def _call_command_target(call: ast.Call) -> str | None:
+    """Return the constant command of a ``call_command`` call (first argument or ``command_name=``), or None."""
+    if _call_name(call) != 'call_command':
+        return None
+    command = call.args[0] if call.args else None
+    for keyword in call.keywords:
+        if keyword.arg == 'command_name':
+            command = keyword.value
+    if isinstance(command, ast.Constant) and isinstance(command.value, str):
+        return command.value
+    return None
+
+
 def _database_rerouting_problems(parsed) -> list[str]:
     """R12: no notebook uses a capability that can route around the scratch database, under any spelling.
 
-    The capabilities are Django's database settings and connection objects, starting a process, and changing the
-    environment. Each name is matched wherever it appears, so binding one to another name first is reported too.
+    The capabilities are Django's database settings and connection objects, starting a process, changing the
+    environment, running code built from a string or loaded from another file, and attaching another database
+    through raw SQL. Each name is matched wherever it appears (a name, an attribute, an imported name, a keyword
+    or an exact string constant), so binding one to another name first is reported too.
     """
     problems = []
     for number, _cell, tree in parsed:
@@ -415,17 +512,16 @@ def _database_rerouting_problems(parsed) -> list[str]:
             continue
         found: dict[str, str] = {}
 
-        def note(name, tables, found=found):
-            capability = _capability_of(name, tables)
+        def note(name, *table_groups, found=found):
+            capability = _capability_of(name, [pair for tables in table_groups for pair in tables])
             if capability is not None:
                 found[name] = capability
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Name):
-                note(node.id, _R12_NAME_TABLES)
+                note(node.id, _R12_NAME_TABLES, _R12_BUILTIN_TABLES)
             elif isinstance(node, ast.Attribute):
-                note(node.attr, _R12_NAME_TABLES)
-                note(node.attr, _R12_MODULE_TABLES)
+                note(node.attr, _R12_NAME_TABLES, _R12_MODULE_TABLES)
                 dotted = _dotted_name(node)
                 for suffix in REROUTE_DOTTED_SUFFIXES:
                     if dotted == suffix or dotted.endswith(f'.{suffix}'):
@@ -434,10 +530,15 @@ def _database_rerouting_problems(parsed) -> list[str]:
                 note(node.arg, ((REROUTE_NAMES, 'database'),))
             elif isinstance(node, ast.alias):
                 for name in (node.name.split('.')[-1], node.asname):
-                    note(name, _R12_NAME_TABLES)
+                    note(name, _R12_NAME_TABLES, _R12_BUILTIN_TABLES)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                note(node.value, _R12_NAME_TABLES)
-                note(node.value, _R12_MODULE_TABLES)
+                note(node.value, _R12_NAME_TABLES, _R12_MODULE_TABLES, _R12_BUILTIN_TABLES)
+                if ATTACH_SQL.search(node.value):
+                    found['ATTACH'] = 'database'
+            elif isinstance(node, ast.Call):
+                command = _call_command_target(node)
+                if command in CODE_RUNNING_COMMANDS:
+                    found[f"call_command('{command}')"] = 'dynamic code'
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     note(alias.name.split('.')[0], _R12_MODULE_TABLES)
@@ -479,6 +580,7 @@ def isolation_problems(notebook: dict) -> list[str]:
         if (
             UNPARSEABLE_DJANGO_IMPORT.search(source)
             or SHELL_ESCAPE.search(source)
+            or UNPARSEABLE_SUSPECT_NAMES.search(source)
             or any(text in source for text in UNPARSEABLE_SUSPECT_TEXT)
         ):
             problems.append(
@@ -1003,6 +1105,24 @@ class TestReReviewFormsOnARealNotebook(SimpleTestCase):
             self.assertTrue(any('not parseable' in problem for problem in problems), problems)
 
 
+def _assert_r12_reports(testcase, cases):
+    """Check that each ``(source, expected names)`` case yields only R12 problems naming the expected names.
+
+    Each case is the reference notebook plus one extra code cell holding ``source``; one subTest per case.
+
+    Args:
+        testcase: The running ``SimpleTestCase``, which owns the subTests and assertions.
+        cases: ``(source, names)`` pairs; every name must appear as ``references <name>;`` in some problem.
+    """
+    for source, expected in cases:
+        with testcase.subTest(source=source):
+            problems = isolation_problems(_notebook(extra_cells=[_code(source)]))
+            testcase.assertTrue(problems, 'expected the guard to report a problem')
+            testcase.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+            for name in expected:
+                _first_problem_mentions(testcase, problems, f'references {name};')
+
+
 class TestRerouteRuleOnSyntheticNotebooks(SimpleTestCase):
     """WR-01: each way a notebook could re-route Django's database after the helper call, built as a small notebook.
 
@@ -1011,13 +1131,7 @@ class TestRerouteRuleOnSyntheticNotebooks(SimpleTestCase):
 
     def assert_reported(self, cases):
         """Check that each ``(source, expected names)`` case yields only R12 problems naming the expected names."""
-        for source, expected in cases:
-            with self.subTest(source=source):
-                problems = isolation_problems(_notebook(extra_cells=[_code(source)]))
-                self.assertTrue(problems, 'expected the guard to report a problem')
-                self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
-                for name in expected:
-                    _first_problem_mentions(self, problems, f'references {name};')
+        _assert_r12_reports(self, cases)
 
     def test_settings_dict_in_any_spelling_is_a_problem(self):
         self.assert_reported(
@@ -1094,6 +1208,204 @@ class TestRerouteRuleOnSyntheticNotebooks(SimpleTestCase):
     def test_an_unparseable_cell_that_reroutes_is_a_problem(self):
         source = "%%time\nconnections['default'].settings_dict['NAME'] = x\n"
         _first_problem_mentions(self, isolation_problems(_notebook(extra_cells=[_code(source)])), 'not parseable')
+
+
+class TestCapabilityRulesOnSyntheticNotebooks(SimpleTestCase):
+    """WR-01 and D-G1: each capability that could reach the developer database without naming it is reported.
+
+    The capabilities are a process, the environment, a new connection, code from a string or another file and an
+    attached database. Each is reported wherever it is named, so binding it to another name first is reported
+    too. Every case is the reference notebook plus one extra cell, so the only problems reported are R12's.
+    """
+
+    def test_starting_a_process_in_any_spelling_is_a_problem(self):
+        _assert_r12_reports(
+            self,
+            [
+                ('import subprocess\n', ['subprocess']),
+                ('from subprocess import Popen as P\nP(cmd)\n', ['subprocess', 'Popen']),
+                ('import os\nos.system(cmd)\n', ['system']),
+                ('import os as o\no.system(cmd)\n', ['system']),
+                ('run = os.system\n', ['system']),
+                ('from os import system as s\n', ['system']),
+                ('os.popen(cmd)\n', ['popen']),
+                ('os.execv(a, b)\n', ['execv']),
+                ('os.execlpe(a, b, env)\n', ['execlpe']),
+                ('os.spawnlp(m, f, a)\n', ['spawnlp']),
+                ('os.posix_spawn(p, a, e)\n', ['posix_spawn']),
+                ('os.posix_spawnp(p, a, e)\n', ['posix_spawnp']),
+                ('os.fork()\n', ['fork']),
+                ('os.forkpty()\n', ['forkpty']),
+                ('os.startfile(p)\n', ['startfile']),
+                ('import pty\npty.spawn(a)\n', ['pty']),
+                ('asyncio.create_subprocess_exec(a)\n', ['create_subprocess_exec']),
+                ('asyncio.create_subprocess_shell(a)\n', ['create_subprocess_shell']),
+                ('import multiprocessing\n', ['multiprocessing']),
+                ('from concurrent.futures import ProcessPoolExecutor\n', ['ProcessPoolExecutor']),
+                ('import pexpect\n', ['pexpect']),
+                ('import ptyprocess\n', ['ptyprocess']),
+                ('import psutil\npsutil.Popen(a)\n', ['psutil', 'Popen']),
+                ('from jupyter_client import KernelManager\n', ['jupyter_client']),
+                ('import nbclient\n', ['nbclient']),
+                ('from nbconvert.preprocessors import ExecutePreprocessor\n', ['nbconvert']),
+                ('from subprocess import getoutput\n', ['subprocess', 'getoutput']),
+                ("import sys\nsys.modules['subprocess'].run(a)\n", ['subprocess']),
+            ],
+        )
+
+    def test_ipython_shell_access_in_a_parseable_cell_is_a_problem(self):
+        _assert_r12_reports(
+            self,
+            [
+                ("get_ipython().system('ls')\n", ['get_ipython', 'system']),
+                ("get_ipython().getoutput('ls')\n", ['getoutput']),
+                ("get_ipython().system_raw('ls')\n", ['system_raw']),
+                ("get_ipython().run_line_magic('system', 'ls')\n", ['run_line_magic', 'system']),
+                ("get_ipython().run_cell_magic('bash', '', 'ls')\n", ['run_cell_magic']),
+                ('from IPython import get_ipython\n', ['get_ipython']),
+                ('from IPython.utils.process import getoutput\n', ['getoutput']),
+            ],
+        )
+
+    def test_shell_escapes_and_process_magics_are_a_problem(self):
+        sources = [
+            '!ls\n',
+            'files = !ls\n',
+            '%%bash\nls\n',
+            '%%sh\nls\n',
+            '%%script bash\nls\n',
+            '%%python3\nprint(1)\n',
+            '%system ls\n',
+            '%sx ls\n',
+            '%run helper.py\n',
+            '%env HOME=/tmp\n',
+            '%set_env HOME=/tmp\n',
+            '%%time\nos.environ.clear()\n',
+            "%%time\npath = 'manage.py'\n",
+            "%%time\nprint('env -i')\n",
+            "%%time\nprint('env -u HOME')\n",
+            TestReReviewFormsOnARealNotebook.FORM_D,
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                _first_problem_mentions(
+                    self, isolation_problems(_notebook(extra_cells=[_code(source)])), 'not parseable'
+                )
+        for source in ('%matplotlib inline\n', '%%time\nok = a != b\n'):
+            with self.subTest(source=source):
+                self.assertIsNone(SHELL_ESCAPE.search(source))
+
+    def test_replacing_a_database_connection_in_any_spelling_is_a_problem(self):
+        _assert_r12_reports(
+            self,
+            [
+                ("connections['default'] = x\n", ['connections']),
+                ("connections['default'] += x\n", ['connections']),
+                ("connections['default']: object = x\n", ['connections']),
+                ("del connections['default']\n", ['connections']),
+                ("django.db.connections['default'] = x\n", ['connections']),
+                ("c = connections\nc['default'] = x\n", ['connections']),
+                ('from django.db import connections as c\n', ['connections']),
+                ('ConnectionHandler({})\n', ['ConnectionHandler']),
+                ('from django.db.utils import ConnectionHandler\n', ['ConnectionHandler']),
+                ("handler.create_connection('default')\n", ['create_connection']),
+                ('transaction.get_connection().get_connection_params = f\n', ['get_connection_params']),
+                ('wrapper.get_new_connection = f\n', ['get_new_connection']),
+            ],
+        )
+
+    def test_changing_the_environment_in_any_spelling_is_a_problem(self):
+        _assert_r12_reports(
+            self,
+            [
+                ('os.environ.clear()\n', ['environ']),
+                ("os.environ.pop('HOME')\n", ['environ']),
+                ('os.environ.popitem()\n', ['environ']),
+                ("os.environ.update({'A': 'b'})\n", ['environ']),
+                ("os.environ.setdefault('A', 'b')\n", ['environ']),
+                ("os.environ['A'] = 'b'\n", ['environ']),
+                ("del os.environ['A']\n", ['environ']),
+                ("os.environ |= {'A': 'b'}\n", ['environ']),
+                ("os.environb[b'A'] = b'b'\n", ['environb']),
+                ("os.putenv('A', 'b')\n", ['putenv']),
+                ("os.unsetenv('A')\n", ['unsetenv']),
+                ('from os import environ as e\ne.clear()\n', ['environ']),
+                ('e = os.environ\ne.clear()\n', ['environ']),
+            ],
+        )
+
+    def test_running_code_from_a_string_or_another_file_is_a_problem(self):
+        _assert_r12_reports(
+            self,
+            [
+                ('exec(src)\n', ['exec']),
+                ('eval(src)\n', ['eval']),
+                ("compile(src, 'x', 'single')\n", ['compile']),
+                ("__import__('os')\n", ['__import__']),
+                ('__builtins__.exec(src)\n', ['__builtins__']),
+                ('f = exec\n', ['exec']),
+                ('import importlib\nimportlib.import_module(name)\n', ['importlib']),
+                ('from importlib import import_module\n', ['importlib']),
+                ('import runpy\nrunpy.run_path(p)\n', ['runpy']),
+                ('import builtins\n', ['builtins']),
+                ('import ctypes\n', ['ctypes']),
+                ('import cffi\n', ['cffi']),
+                ("call_command('shell', command=src)\n", ["call_command('shell')"]),
+                ("management.call_command('shell_plus')\n", ["call_command('shell_plus')"]),
+                ("call_command(command_name='runscript')\n", ["call_command('runscript')"]),
+                (
+                    'from django.core.management import execute_from_command_line\n',
+                    ['execute_from_command_line'],
+                ),
+                ('django.core.management.ManagementUtility(argv).execute()\n', ['ManagementUtility']),
+            ],
+        )
+
+    def test_attaching_another_database_through_raw_sql_is_a_problem(self):
+        _assert_r12_reports(
+            self,
+            [
+                ('cursor.execute("ATTACH DATABASE \'x.sqlite3\' AS dev")\n', ['ATTACH']),
+                ("cursor.execute('attach ? as dev', [path])\n", ['ATTACH']),
+                ('cursor.execute("ATTACH \'x.sqlite3\' AS dev")\n', ['ATTACH']),
+            ],
+        )
+
+    def test_allowed_look_alikes_are_not_a_problem(self):
+        sources = [
+            "import os\nprint(os.getenv('HOME'))\n",
+            "import re\npattern = re.compile('x')\n",
+            "cursor.execute('SELECT 1')\n",
+            "call_command('load_telescope_runs', 'f.txt')\n",
+            "frame.eval('a + b')\n",
+            "print('attach the observation to its run')\n",
+            'connection_count = 3\n',
+            'system_link = None\n',
+            'from django.db import transaction\n',
+            '%%time\nretrieval = execute_query()\n',
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                self.assertEqual(isolation_problems(_notebook(extra_cells=[_code(source)])), [])
+
+    def test_r12_name_lists_are_disjoint_and_reach_r0(self):
+        sets = [
+            REROUTE_NAMES,
+            PROCESS_MODULES,
+            PROCESS_NAMES,
+            ENVIRON_NAMES,
+            DYNAMIC_CODE_MODULES,
+            DYNAMIC_CODE_BUILTINS,
+            DYNAMIC_CODE_NAMES,
+        ]
+        for first, second in itertools.combinations(sets, 2):
+            self.assertEqual(first & second, frozenset())
+        self.assertEqual(R12_ALL_NAMES, frozenset().union(*sets))
+        for name in sorted(R12_ALL_NAMES):
+            with self.subTest(name=name):
+                _first_problem_mentions(
+                    self, isolation_problems(_notebook(extra_cells=[_code(f'%%time\nx = {name}\n')])), 'not parseable'
+                )
 
 
 class TestPreExecutedNotebooksUseTheHelper(SimpleTestCase):
