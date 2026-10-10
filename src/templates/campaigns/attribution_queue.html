@@ -109,7 +109,7 @@ sentence reads cleanly at true completion.
           <input type="hidden" name="kind" value="event">
           <input type="hidden" name="orphan_pk" value="{{ group.orphan.pk }}">
           <input type="hidden" name="run_pk" value="{{ candidate.run.pk }}">
-          <input type="hidden" name="band" value="{{ band|default:'' }}">
+          {% include 'campaigns/partials/attribution_return_state.html' %}
           <button type="submit" name="action" value="confirm" class="btn btn-sm btn-success" formnovalidate>Confirm</button>
           <input type="text" name="reason" class="form-control form-control-sm" required
                  placeholder="Why doesn't this candidate match? (required)">
@@ -133,7 +133,7 @@ form without nesting.
 <form method="post" action="{% url 'campaigns:attribution_decide' %}" id="bulk-confirm-events" class="mt-2 mb-4">
   {% csrf_token %}
   <input type="hidden" name="action" value="confirm_selected">
-  <input type="hidden" name="band" value="{{ band|default:'' }}">
+  {% include 'campaigns/partials/attribution_return_state.html' %}
   <button type="submit" class="btn btn-primary btn-sm">Confirm selected</button>
 </form>
 
@@ -198,7 +198,7 @@ form without nesting.
           <input type="hidden" name="kind" value="record">
           <input type="hidden" name="orphan_pk" value="{{ group.orphan.pk }}">
           <input type="hidden" name="run_pk" value="{{ candidate.run.pk }}">
-          <input type="hidden" name="band" value="{{ band|default:'' }}">
+          {% include 'campaigns/partials/attribution_return_state.html' %}
           <button type="submit" name="action" value="confirm" class="btn btn-sm btn-success" formnovalidate>Confirm</button>
           <input type="text" name="reason" class="form-control form-control-sm" required
                  placeholder="Why doesn't this candidate match? (required)">
@@ -218,7 +218,7 @@ rather than wrapping it.
 <form method="post" action="{% url 'campaigns:attribution_decide' %}" id="bulk-confirm-records" class="mt-2 mb-4">
   {% csrf_token %}
   <input type="hidden" name="action" value="confirm_selected">
-  <input type="hidden" name="band" value="{{ band|default:'' }}">
+  {% include 'campaigns/partials/attribution_return_state.html' %}
   <button type="submit" class="btn btn-primary btn-sm">Confirm selected</button>
 </form>
 

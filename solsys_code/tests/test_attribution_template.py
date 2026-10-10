@@ -310,6 +310,125 @@ class AttributionCollapseSectionRenderTests(AttributionViewTestBase):
         self.assertEqual(trigger.get('aria-expanded'), 'true')
         self.assertNotIn('collapsed', parser.classes(trigger))
 
+    def test_dismissed_section_renders_open_while_sorting_its_own_table(self):
+        """IN-15: a sort key alone opens Dismissed, and the section, its heading class and its
+        aria-expanded all come from the one boolean, so they agree."""
+        _, parser = self._parse({'dismissed-sort': 'dismissed_at'})
+        section = parser.sections[DISMISSED_SECTION_ID]
+        self.assertEqual(parser.classes(section), {'collapse', 'show'})
+        trigger = parser.triggers[f'#{DISMISSED_SECTION_ID}']
+        self.assertEqual(trigger.get('aria-expanded'), 'true')
+        self.assertNotIn('collapsed', parser.classes(trigger))
+
+    def test_paging_only_the_confirmed_table_leaves_dismissed_folded(self):
+        """IN-15: the Confirmed table's page key does not open the Dismissed section."""
+        _, parser = self._parse({'confirmed-page': '1'})
+        section = parser.sections[DISMISSED_SECTION_ID]
+        self.assertNotIn('show', parser.classes(section))
+        trigger = parser.triggers[f'#{DISMISSED_SECTION_ID}']
+        self.assertEqual(trigger.get('aria-expanded'), 'false')
+        self.assertIn('collapsed', parser.classes(trigger))
+
+    def test_a_malformed_dismissed_page_does_not_open_the_section(self):
+        """IN-15: only validated state counts, so a junk page value leaves the section folded."""
+        _, parser = self._parse({'dismissed-page': 'abc'})
+        self.assertNotIn('show', parser.classes(parser.sections[DISMISSED_SECTION_ID]))
+
+
+class _HiddenFieldParser(html.parser.HTMLParser):
+    """Per ``<form>``: its ``action``, ``id`` and ordered hidden input name/value pairs. Hidden inputs
+    belong to the innermost open form; the page's checkboxes use ``form=`` but are not hidden inputs."""
+
+    def __init__(self):
+        super().__init__()
+        self.forms: list[dict] = []
+        self._open: list[dict] = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
+        if tag == 'form':
+            form = {'id': attrs_dict.get('id'), 'action': attrs_dict.get('action'), 'hidden': []}
+            self.forms.append(form)
+            self._open.append(form)
+        elif tag == 'input' and attrs_dict.get('type') == 'hidden' and self._open:
+            self._open[-1]['hidden'].append((attrs_dict['name'], attrs_dict.get('value', '')))
+
+    def handle_endtag(self, tag):
+        if tag == 'form' and self._open:
+            self._open.pop()
+
+
+class AttributionReturnStateFormTests(AttributionViewTestBase):
+    """WARN-07 (40-04, D-22/D-23): the worklist and bulk forms carry the page's validated return state
+    through one include, and every form posting to the decide URL keeps its CSRF token. GET only --
+    see the module docstring."""
+
+    STATE_KEYS = ('band', 'dismissed-page', 'dismissed-sort', 'confirmed-page', 'confirmed-sort')
+
+    def setUp(self):
+        self._make_event()
+        self._make_record()
+        ObservationRecordDismissal.objects.create(
+            observation_record=self._make_record(night_offset=1),
+            run=self.campaign_run,
+            dismissed_by=self.staff_user,
+            dismissed_at=timezone.now(),
+            reason='Wrong night',
+        )
+        CampaignRunObservation.objects.create(
+            run=self.campaign_run, observation_record=self._make_record(night_offset=2), confirmed_at=timezone.now()
+        )
+        self.client.force_login(self.staff_user)
+
+    def _decide_forms(self, data=None):
+        response = self.client.get(reverse('campaigns:attribution'), data or {})
+        self.assertEqual(response.status_code, 200)
+        parser = _HiddenFieldParser()
+        parser.feed(response.content.decode())
+        decide_url = reverse('campaigns:attribution_decide')
+        return [f for f in parser.forms if f['action'] == decide_url]
+
+    @staticmethod
+    def _worklist_forms(forms):
+        """The two per-candidate forms (hidden ``orphan_pk`` but no hidden ``action``) and the two
+        bulk forms (``confirm_selected``)."""
+        return [
+            f
+            for f in forms
+            if f['id'] in ('bulk-confirm-events', 'bulk-confirm-records')
+            or (any(n == 'orphan_pk' for n, _ in f['hidden']) and not any(n == 'action' for n, _ in f['hidden']))
+        ]
+
+    def test_worklist_and_bulk_forms_carry_the_current_state(self):
+        wanted = {'band': 'high', 'dismissed-page': '1', 'confirmed-sort': 'confirmed_at'}
+        worklist_forms = self._worklist_forms(self._decide_forms(wanted))
+        self.assertEqual(len(worklist_forms), 4, worklist_forms)
+        for form in worklist_forms:
+            with self.subTest(form=form['id'] or 'per-candidate'):
+                names = [n for n, _ in form['hidden']]
+                self.assertIn('csrfmiddlewaretoken', names)
+                for key, value in wanted.items():
+                    self.assertEqual(names.count(key), 1, (key, names))
+                    self.assertIn((key, value), form['hidden'])
+                for key in set(self.STATE_KEYS) - set(wanted):
+                    self.assertNotIn(key, names)
+
+    def test_a_plain_load_adds_no_state_input_to_the_worklist_forms(self):
+        worklist_forms = self._worklist_forms(self._decide_forms())
+        self.assertEqual(len(worklist_forms), 4, worklist_forms)
+        for form in worklist_forms:
+            with self.subTest(form=form['id'] or 'per-candidate'):
+                names = {n for n, _ in form['hidden']}
+                self.assertFalse(names & set(self.STATE_KEYS), names)
+
+    def test_every_attribution_form_keeps_its_csrf_token(self):
+        forms = self._decide_forms({'dismissed-page': '1'})
+        # four worklist forms plus one Undo form in each of Dismissed and Confirmed
+        self.assertEqual(len(forms), 6, forms)
+        for form in forms:
+            with self.subTest(form=form['id'] or [n for n, _ in form['hidden']]):
+                self.assertIn('csrfmiddlewaretoken', [n for n, _ in form['hidden']])
+
 
 class AttributionRenderedFormStructureTests(AttributionViewTestBase):
     """Renders the real page through a GET (never a POST simulating a submit) and parses the

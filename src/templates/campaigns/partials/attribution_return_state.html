@@ -1,0 +1,12 @@
+{% comment %}
+Phase 40 D-22/D-23 (WARN-07): the attribution page's validated return state -- the band filter and
+each table's page and sort -- as hidden inputs, so a Confirm, Dismiss or Confirm selected posts them
+back and the redirect returns the staff member to the same place.
+
+`return_state_fields` is a list of (name, value) pairs built by AttributionQueueView from
+attribution_return_state(request.GET), which keeps only five whitelisted keys with pattern-checked
+values. AttributionDecisionView re-validates the POSTed copy, so nothing here is trusted. Autoescape
+stays on: do not add the safe filter or an autoescape-off block.
+{% endcomment %}
+{% for name, value in return_state_fields %}<input type="hidden" name="{{ name }}" value="{{ value }}">
+{% endfor %}

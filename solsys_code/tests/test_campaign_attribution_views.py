@@ -11,6 +11,7 @@ GET-render the page directly through ``self.client.get()``, now that it exists.
 """
 
 import html.parser
+import urllib.parse
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
@@ -18,6 +19,7 @@ from zoneinfo import ZoneInfo
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.db.models.signals import post_save
+from django.http import QueryDict
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -33,7 +35,13 @@ from solsys_code.campaign_attribution import candidates_for_event, event_attribu
 from solsys_code.campaign_reconciler import reconcile_run
 from solsys_code.campaign_tables import AttributionConfirmedTable, AttributionDismissedTable
 from solsys_code.campaign_utils import unlink_event_from_run
-from solsys_code.campaign_views import AttributionQueueView, _confirmed_attribution_rows
+from solsys_code.campaign_views import (
+    _RETURN_STATE_PAGE_KEYS,
+    _RETURN_STATE_SORT_KEYS,
+    AttributionQueueView,
+    _confirmed_attribution_rows,
+    attribution_return_state,
+)
 from solsys_code.models import (
     CalendarEventDismissal,
     CalendarEventMeta,
@@ -1534,3 +1542,172 @@ class TestAttributionReturnState(AttributionViewTestBase):
                 dismissed_classes = set(sections.sections[self.DISMISSED_ID]['class'].split())
                 self.assertEqual('show' in dismissed_classes, opened_dismissed)
                 self.assertEqual(ObservationRecordDismissal.objects.count(), 1)
+
+    # ---- 40-04 Task 2: every action keeps the state; the clamp; tampering ----
+
+    FULL_STATE = {
+        'band': 'high',
+        'dismissed-page': '1',
+        'dismissed-sort': '-dismissed_at',
+        'confirmed-page': '1',
+        'confirmed-sort': 'confirmed_at',
+    }
+
+    def _post_decision(self, data, follow=False):
+        return self.client.post(reverse('campaigns:attribution_decide'), data, follow=follow)
+
+    def test_every_action_keeps_band_page_and_sort(self):
+        """D-23: all five actions redirect with the same five validated keys; only the two Undos add a
+        fragment, and it is the section they were pressed in."""
+        run_pk = self.campaign_run.pk
+        attribution_url = reverse('campaigns:attribution')
+        confirmed_pair = self._confirm_record(observation_id='KEEP-CONFIRMED')
+        dismissed_pair = self._dismiss_record(observation_id='KEEP-DISMISSED')
+        cases = {
+            'confirm': (
+                {'action': 'confirm', 'kind': 'event', 'orphan_pk': self._make_event(night_offset=1).pk},
+                '',
+            ),
+            'dismiss': (
+                {
+                    'action': 'dismiss',
+                    'kind': 'event',
+                    'orphan_pk': self._make_event(night_offset=2).pk,
+                    'reason': 'Not this one.',
+                },
+                '',
+            ),
+            'confirm_selected': (
+                {
+                    'action': 'confirm_selected',
+                    'candidate_ids': [f'event:{self._make_event(night_offset=3).pk}:{run_pk}'],
+                },
+                '',
+            ),
+            'undo_dismissal': (
+                {'action': 'undo_dismissal', 'kind': 'record', 'orphan_pk': dismissed_pair.observation_record.pk},
+                'attribution-dismissed-section',
+            ),
+            'undo_confirmation': (
+                {'action': 'undo_confirmation', 'kind': 'record', 'orphan_pk': confirmed_pair.observation_record.pk},
+                'attribution-confirmed-section',
+            ),
+        }
+        for action, (data, expected_fragment) in cases.items():
+            with self.subTest(action=action):
+                data = {**data, **self.FULL_STATE}
+                if action != 'confirm_selected':
+                    data['run_pk'] = run_pk
+                response = self._post_decision(data)
+                self.assertEqual(response.status_code, 302)
+                location = urllib.parse.urlsplit(response['Location'])
+                self.assertEqual(location.path, attribution_url)
+                self.assertEqual(urllib.parse.parse_qsl(location.query), list(self.FULL_STATE.items()))
+                self.assertEqual(location.fragment, expected_fragment)
+
+    def test_acting_on_the_only_row_of_the_last_page_lands_on_the_new_last_page(self):
+        """D-27: 26 dismissals fill page 1 and put one on page 2. Undoing that one posts page 2, which
+        no longer exists; the redirect keeps it and the table renders the last page that has rows."""
+        base = timezone.now()
+        oldest = None
+        for index in range(26):
+            oldest = ObservationRecordDismissal.objects.create(
+                observation_record=self._make_record(observation_id=f'CLAMP-{index}'),
+                run=self.campaign_run,
+                dismissed_by=self.staff_user,
+                dismissed_at=base - timedelta(minutes=index),
+                reason=f'Clamp {index}',
+            )
+        attribution_url = reverse('campaigns:attribution')
+        page = self.client.get(attribution_url, {'dismissed-page': '2'})
+        self.assertEqual(page.context['dismissed_table'].page.number, 2)
+        form = self._undo_form(page, self.DISMISSED_ID)
+        self.assertIn(('orphan_pk', str(oldest.observation_record.pk)), form['hidden'])
+        self.assertIn(('dismissed-page', '2'), form['hidden'])
+
+        response = self.client.post(form['action'], dict(form['hidden']), follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.redirect_chain[-1][0], f'{attribution_url}?dismissed-page=2#attribution-dismissed-section'
+        )
+        self.assertEqual(response.context['dismissed_table'].page.number, 1)
+        sections = self._sections(response)
+        self.assertEqual(set(sections.sections[self.DISMISSED_ID]['class'].split()), {'collapse', 'show'})
+        self.assertEqual(ObservationRecordDismissal.objects.count(), 25)
+
+    def test_undoing_the_last_dismissal_shows_the_empty_section_open(self):
+        """Edge: the last remaining dismissal undone leaves an open, empty Dismissed section."""
+        self._dismiss_record()
+        page = self.client.get(reverse('campaigns:attribution'), {'dismissed-page': '1'})
+        form = self._undo_form(page, self.DISMISSED_ID)
+
+        response = self.client.post(form['action'], dict(form['hidden']), follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        sections = self._sections(response)
+        self.assertEqual(set(sections.sections[self.DISMISSED_ID]['class'].split()), {'collapse', 'show'})
+        self.assertIn('No dismissals recorded yet.', self._section_html(response.content.decode(), self.DISMISSED_ID))
+
+    def test_tampered_return_state_is_dropped(self):
+        """V5, T-40-11: an invalid value or an unknown key never reaches the Location; the path is the
+        attribution URL and an undo_dismissal's fragment is the constant."""
+        record = self._make_record(observation_id='TAMPER')
+        attribution_url = reverse('campaigns:attribution')
+        tampered = [
+            ('band', 'evil'),
+            ('band', 'HIGH'),
+            ('band', 'high\r\nSet-Cookie: x=1'),
+            *(('dismissed-page', value) for value in ('0', '-1', 'abc', '1e3', '9999999', '\uff11', '')),
+            *(('dismissed-sort', value) for value in ('a b', 'x;y', 'dismissed_at,reason', 'Dismissed_at', '-')),
+            ('next', 'https://evil.example/'),
+            ('confirmed-per_page', '1'),
+            ('fragment', 'evil'),
+        ]
+        for key, value in tampered:
+            with self.subTest(key=key, value=value):
+                response = self._post_decision(
+                    {
+                        'action': 'undo_dismissal',
+                        'kind': 'record',
+                        'orphan_pk': record.pk,
+                        'run_pk': self.campaign_run.pk,
+                        key: value,
+                    }
+                )
+                self.assertEqual(response.status_code, 302)
+                location = urllib.parse.urlsplit(response['Location'])
+                self.assertEqual(location.path, attribution_url)
+                self.assertEqual(location.netloc, '')
+                self.assertEqual(location.query, '')
+                self.assertEqual(location.fragment, 'attribution-dismissed-section')
+                self.assertNotIn('evil', response['Location'])
+                self.assertNotIn('\r', response['Location'])
+                self.assertNotIn('\n', response['Location'])
+
+    def test_the_return_state_keys_are_the_tables_own_field_names(self):
+        """The whitelist's key names are the constructed tables' own prefixed field names."""
+        response = self.client.get(reverse('campaigns:attribution'))
+        tables_on_page = (response.context['dismissed_table'], response.context['confirmed_table'])
+        self.assertEqual({t.prefixed_page_field for t in tables_on_page}, set(_RETURN_STATE_PAGE_KEYS))
+        self.assertEqual({t.prefixed_order_by_field for t in tables_on_page}, set(_RETURN_STATE_SORT_KEYS))
+
+    def test_attribution_return_state_keeps_only_whitelisted_valid_values(self):
+        """Direct calls: only the five valid keys survive, in the fixed order, whatever the input order."""
+        query = QueryDict(
+            'confirmed-sort=confirmed_at&bogus=1&band=low&dismissed-page=3&dismissed-sort=-a_b'
+            '&confirmed-page=0&next=http://x'
+        )
+        state = attribution_return_state(query)
+        self.assertEqual(
+            list(state.items()),
+            [
+                ('band', 'low'),
+                ('dismissed-page', '3'),
+                ('dismissed-sort', '-a_b'),
+                ('confirmed-sort', 'confirmed_at'),
+            ],
+        )
+        self.assertEqual(attribution_return_state(QueryDict('')), {})
+        self.assertEqual(attribution_return_state(QueryDict('dismissed-page=007&band=')), {})
+        self.assertEqual(attribution_return_state(dict(self.FULL_STATE)), self.FULL_STATE)
