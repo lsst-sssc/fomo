@@ -328,7 +328,7 @@ Plans:
   4. On the attribution page, High-band rows show their marker again, a template test asserts the marker is present in the rendered HTML, and the page's templates use Bootstrap 5.3 class names only
   5. A staff member working down the Dismissed list can press Undo on a row and land back on the same page with the Dismissed section still open, with no re-open or re-page between rows
 
-**Plans**: 4/7 plans executed (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07)
+**Plans**: 5/7 plans executed (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07)
 
 Plans:
 **Wave 1**
@@ -344,7 +344,7 @@ Plans:
 - [x] 40-04-PLAN.md — Undo keeps the Dismissed section open on the same page (tracer: whitelisted `_redirect`, Undo forms carry the state, posting the real rendered form); every action keeps band/page/sort, last-page clamp, tampering dropped; browser test of SC 5; runbook text; `campaign_lifecycle_demo` marker and Undo cells re-executed last; ledger WR-15/18, IN-12/15 (WARN-07, WARN-04)
 
 **Wave 5** *(gap closure, blocked on Wave 4 completion)*
-- [ ] 40-05-PLAN.md — Gap closure (tracer: a refused setup leaves Django unable to reach any database): the helper checks the settings before `django.setup()` (default must be the scratch file, no other alias, no `DATABASE_ROUTERS`); any failure switches every alias to the dummy backend, removes the scratch directory and restores `FOMO_DATABASE_PATH` / `DJANGO_ALLOW_ASYNC_UNSAFE`; teardown restores them too and refuses any directory but the one setup created in the temp directory; the evidence line drops the checkout path; snapshot-mode and failed-snapshot tests; README (CR-01, WR-02, IN-01, IN-02, IN-06, IN-07 in part; WARN-03, WARN-05)
+- [x] 40-05-PLAN.md — Gap closure (tracer: a refused setup leaves Django unable to reach any database): the helper checks the settings before `django.setup()` (default must be the scratch file, no other alias, no `DATABASE_ROUTERS`); any failure switches every alias to the dummy backend, removes the scratch directory and restores `FOMO_DATABASE_PATH` / `DJANGO_ALLOW_ASYNC_UNSAFE`; teardown restores them too and refuses any directory but the one setup created in the temp directory; the evidence line drops the checkout path; snapshot-mode and failed-snapshot tests; README (CR-01, WR-02, IN-01, IN-02, IN-06, IN-07 in part; WARN-03, WARN-05)
 - [ ] 40-06-PLAN.md — Gap closure (tracer: a settings_dict re-route appended to a real notebook is reported): guard rule R12 reports any reference to `DATABASES`, `DATABASE_ROUTERS`, `settings_dict`, `connections.settings`/`.databases`, `override_settings`/`modify_settings`, the helper's internal functions, `DatabaseWrapper`/`load_backend` or `sqlite3` in every notebook, with a test per form; the docstring says what the guard does and does not see (WR-01; WARN-02)
 
 **Wave 6** *(gap closure, blocked on Wave 5 completion)*
@@ -441,7 +441,7 @@ Plans:
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
 | 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 4/4 | Complete    | 2026-10-09 |
-| 40. Notebook Isolation & Attribution Page | v2.5 | 4/4 | In Progress | - |
+| 40. Notebook Isolation & Attribution Page | v2.5 | 5/7 | In Progress | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
 

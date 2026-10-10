@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: executing
-stopped_at: Completed 40-04-PLAN.md
-last_updated: "2026-10-10T03:41:33.735Z"
+stopped_at: Completed 40-05-PLAN.md
+last_updated: "2026-10-10T04:58:13.896Z"
 last_activity: 2026-10-09
 last_activity_desc: Phase 40 execution started
-state_head: 0ad699157c462710485b93fe82e38dff99e55bfb
+state_head: 7075edd43e13a853959818ee9096680cef39e0cd
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 24
-  completed_plans: 21
-  percent: 88
+  completed_plans: 22
+  percent: 92
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — READY TO EXECUTE
-Plan: 4 of 4
+Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-10-09 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 88%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 92%)
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P02 | 20 min | 2 tasks | 9 files |
 | Phase 40 P03 | 30 min | 3 tasks | 12 files |
 | Phase 40 P04 | 11 min | 3 tasks | 10 files |
+| Phase 40 P05 | 15min | 3 tasks | 3 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -106,6 +107,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: 40-03: High-band attribution marker is border-0 border-start border-4 border-success; template class guard scans every repo-owned template directory (DIRS plus in-repo app dirs), never third-party apps
 - [Phase 40]: 40-04: attribution return state travels as hidden form inputs plus one whitelisted redirect (attribution_return_state); the table prefixes live in campaign_tables.py so an unconfigured table still posts dismissed-page/confirmed-page — Keeps the tables free of any view import, and makes request=None tables post the same keys; a page past the end is kept as posted and django-tables2 renders the last page with rows
 - [Phase 40]: 40-04: UI-SPEC F1 (scroll-margin-top 5rem on both section divs) and F3 (Undo-confirmation prompt says above; flash says the pair is now in Dismissed) applied in 66c1285 — User adopted both on 2026-10-09; they post-date the plan text
+- [Phase 40]: 40-05: WR-02 decision -- notebook setup refuses any DATABASES alias other than default and any DATABASE_ROUTERS (refuse, not support)
+- [Phase 40]: 40-05: helper fails closed -- settings checked before django.setup(); any later failure switches every alias to the dummy backend; _active_setup module-level record carries scratch dir and previous env to teardown
 
 ### Pending Todos
 
@@ -177,8 +180,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-10T00:21:21.337Z
-**Stopped at:** Completed 40-04-PLAN.md
+**Last session:** 2026-10-10T04:58:13.708Z
+**Stopped at:** Completed 40-05-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
