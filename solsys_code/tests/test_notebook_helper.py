@@ -144,6 +144,49 @@ def _refusal_probe_script():
     )
 
 
+def _exception_safety_probe_script(prelude, aliases):
+    """Return child-process source that patches the helper, runs a setup and reports what is reachable.
+
+    The child imports the helper, runs ``prelude`` (patching source, may be empty), then calls
+    ``setup_scratch_django`` and prints ``SETUP_SUCCEEDED`` or ``RAISED <exception class> <message>``. It then
+    prints ``APPS_READY``, ``ENGINES`` (sorted ``(alias, ENGINE)`` pairs of ``settings.DATABASES``),
+    ``FOMO_DATABASE_PATH_AFTER`` and, for each alias in ``aliases``, ``WRITE_SUCCEEDED <alias>`` or
+    ``WRITE_REFUSED <alias> <exception class>`` (a raw ``CREATE TABLE`` through that alias's cursor).
+
+    Args:
+        prelude: Python source run after the helper is imported and before the setup call.
+        aliases: database aliases to try a raw write through after the setup.
+
+    Returns:
+        str: the script text, for ``_run_helper_script``.
+    """
+    return (
+        'import os, sys\n'
+        'os.environ.pop("DJANGO_ALLOW_ASYNC_UNSAFE", None)\n'
+        f'sys.path.insert(0, {str(HELPER_PATH.parent)!r})\n'
+        'import fomo_nb_utils\n'
+        f'{prelude}\n'
+        'try:\n'
+        f'    fomo_nb_utils.setup_scratch_django({str(_REPO_ROOT)!r}, mode="fresh")\n'
+        '    print("SETUP_SUCCEEDED")\n'
+        'except Exception as exc:\n'
+        '    print("RAISED", type(exc).__name__, exc)\n'
+        'import django.apps\n'
+        'import django.conf\n'
+        'print("APPS_READY", django.apps.apps.ready)\n'
+        'print("ENGINES", sorted((a, d["ENGINE"]) for a, d in django.conf.settings.DATABASES.items()))\n'
+        'print("FOMO_DATABASE_PATH_AFTER", repr(os.environ.get("FOMO_DATABASE_PATH")))\n'
+        'from django.db import connections\n'
+        f'for alias in {tuple(aliases)!r}:\n'
+        '    try:\n'
+        '        with connections[alias].cursor() as cursor:\n'
+        '            cursor.execute("CREATE TABLE written_after_failure (id INTEGER)")\n'
+        '        print("WRITE_SUCCEEDED", alias)\n'
+        '    except Exception as exc:\n'
+        '        print("WRITE_REFUSED", alias, type(exc).__name__)\n'
+    )
+
+
 class TestNotebookHelperModule(SimpleTestCase):
     """Static and import-time properties of the helper file."""
 
@@ -166,7 +209,7 @@ class TestNotebookHelperModule(SimpleTestCase):
 
     def test_module_level_imports_are_standard_library_or_astropy(self):
         tree = ast.parse(HELPER_PATH.read_text(encoding='utf-8'))
-        allowed = {'os', 'shutil', 'sqlite3', 'tempfile', 'pathlib', 'astropy'}
+        allowed = {'os', 'shutil', 'sqlite3', 'tempfile', 'pathlib', 'astropy', 'logging'}
         for node in tree.body:
             if isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
@@ -421,6 +464,13 @@ class TestHelperRunsForReal(SimpleTestCase):
             rows = int(result.stdout.split('MIGRATION_ROWS')[1].split()[0])
             self.assertGreater(rows, 0)
             self.assertIn('Removed scratch database directory:', result.stdout)
+            # D-G2: the second teardown line says what the setup checked, not that nothing was ever opened.
+            self.assertIn(
+                "Before django.setup() ran, the helper checked that Django's only configured database was the "
+                'scratch file in that directory.\n',
+                result.stdout,
+            )
+            self.assertNotIn('opened ' + 'for writing', result.stdout)
             self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
 
     def test_a_databases_override_is_refused_before_migrate(self):
@@ -560,6 +610,96 @@ class TestHelperRefusalLeavesNoDatabase(SimpleTestCase):
                 self.assertNotIn('WRITE_SUCCEEDED', result.stdout)
                 self.assertFalse(other_db.exists(), 'the second database was created')
                 self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
+
+
+class TestHelperFailClosedIsExceptionSafe(SimpleTestCase):
+    """WR-02 of the 2026-10-10 re-review and developer decision D-G2: the fail-closed step cannot fail open.
+
+    The step used to close the connections before it switched the aliases to the dummy backend, so a close that
+    raised -- including Django's own refusal when no ``default`` alias exists -- skipped the switch and replaced
+    the helper's ``RuntimeError`` with its own error. Each test runs in a fresh interpreter and a test-owned
+    temp directory.
+    """
+
+    def test_a_settings_module_without_a_default_alias_is_refused_with_runtime_error(self):
+        cases = (
+            ('only primary', 'primary', ('default', 'primary'), ()),
+            ('only primary under -O', 'primary', ('default', 'primary'), ('-O',)),
+            ('no aliases', None, ('default',), ()),
+        )
+        for label, alias, probed, python_args in cases:
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                primary_db = Path(tmp) / 'primary.sqlite3'
+                if alias is None:
+                    extra = 'DATABASES = {}\n'
+                else:
+                    extra = (
+                        "DATABASES = {'primary': {'ENGINE': 'django.db.backends.sqlite3', "
+                        f"'NAME': {str(primary_db)!r}}}}}\n"
+                    )
+                module = _write_override_settings(tmp, extra)
+                env = {'TMPDIR': tmp, 'PYTHONPATH': tmp, 'DJANGO_SETTINGS_MODULE': module}
+                result = _run_helper_script(_exception_safety_probe_script('', probed), env, python_args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertRegex(result.stdout, r'RAISED RuntimeError ')
+                self.assertNotIn('RAISED ImproperlyConfigured', result.stdout)
+                if alias is not None:
+                    self.assertRegex(result.stdout, r"RAISED RuntimeError .*'primary'")
+                self.assertIn('APPS_READY False', result.stdout)
+                engines = next(line for line in result.stdout.splitlines() if line.startswith('ENGINES '))
+                self.assertNotIn('sqlite3', engines)
+                self.assertIn('django.db.backends.dummy', engines)
+                self.assertNotIn('WRITE_SUCCEEDED', result.stdout)
+                self.assertIn('FOMO_DATABASE_PATH_AFTER None', result.stdout)
+                self.assertFalse(primary_db.exists(), 'the primary database was created')
+                self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
+
+    def test_a_failing_connection_close_still_disables_every_alias_and_keeps_the_original_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            other_db = Path(tmp) / 'other.sqlite3'
+            module = _write_override_settings(
+                tmp,
+                f"DATABASES = {{'default': {{'ENGINE': 'django.db.backends.sqlite3', 'NAME': {str(other_db)!r}}}}}\n",
+            )
+            prelude = (
+                'import django.db\n'
+                'def _fail_close():\n'
+                '    raise OSError("forced close failure")\n'
+                'django.db.connections.close_all = _fail_close\n'
+            )
+            env = {'TMPDIR': tmp, 'PYTHONPATH': tmp, 'DJANGO_SETTINGS_MODULE': module}
+            result = _run_helper_script(_exception_safety_probe_script(prelude, ('default',)), env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertRegex(result.stdout, r'RAISED RuntimeError .*is not the scratch database')
+            self.assertNotIn('RAISED OSError', result.stdout)
+            self.assertIn("ENGINES [('default', 'django.db.backends.dummy')]", result.stdout)
+            self.assertIn('WRITE_REFUSED default ImproperlyConfigured', result.stdout)
+            self.assertNotIn('WRITE_SUCCEEDED', result.stdout)
+            self.assertFalse(other_db.exists(), 'the override database was created')
+            self.assertIn('forced close failure', result.stderr)
+            self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
+
+    def test_a_failing_disable_step_never_replaces_the_original_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            other_db = Path(tmp) / 'other.sqlite3'
+            module = _write_override_settings(
+                tmp,
+                f"DATABASES = {{'default': {{'ENGINE': 'django.db.backends.sqlite3', 'NAME': {str(other_db)!r}}}}}\n",
+            )
+            prelude = (
+                'def _fail_disable():\n'
+                '    raise ValueError("forced disable failure")\n'
+                'fomo_nb_utils._disable_django_databases = _fail_disable\n'
+            )
+            env = {'TMPDIR': tmp, 'PYTHONPATH': tmp, 'DJANGO_SETTINGS_MODULE': module}
+            result = _run_helper_script(_exception_safety_probe_script(prelude, ()), env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertRegex(result.stdout, r'RAISED RuntimeError .*is not the scratch database')
+            self.assertNotIn('RAISED ValueError', result.stdout)
+            self.assertIn('FOMO_DATABASE_PATH_AFTER None', result.stdout)
+            self.assertIn('forced disable failure', result.stderr)
+            self.assertFalse(other_db.exists(), 'the override database was created')
+            self.assertEqual([p.name for p in Path(tmp).glob(f'{_SCRATCH_PREFIX}*')], [])
 
 
 class TestHelperSnapshotRunsForReal(SimpleTestCase):

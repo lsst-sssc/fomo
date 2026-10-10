@@ -757,7 +757,8 @@ REFERENCE_TEARDOWN = 'teardown_scratch_django(scratch_db_dir)\n'
 
 REFERENCE_TEARDOWN_OUTPUT = (
     'Removed scratch database directory: /tmp/fomo-notebook-db-abc123\n'
-    'The developer database (src/fomo_db.sqlite3) was never opened for writing.\n'
+    "Before django.setup() ran, the helper checked that Django's only configured database was the scratch file "
+    'in that directory.\n'
 )
 
 
