@@ -5,15 +5,15 @@ titles: json
 findings:
   - id: CR-01
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "The automagic rule treats any source-level store of a name as a binding, so an alias cell after a store that binds nothing at runtime is not reported"
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "R6 follows `shutil` only through `import shutil as X`, so a plain rebinding of the module hides `copytree` and the other copy functions"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "R5 and R7 read only `str` constants, so a bytes literal naming `fomo_db.sqlite3` or `FOMO_DATABASE_PATH` is not reported"
   - id: IN-01
     severity: info
@@ -21,7 +21,7 @@ findings:
     title: "Carried forward from the third review's IN-01: the logged clean-up warning still overstates, and a non-dict alias stops the switch loop"
   - id: IN-02
     severity: info
-    disposition: open
+    disposition: fixed
     title: "The guard depends on ipykernel and on IPython internals through the `jupyter` metapackage only"
   - id: CR-02
     severity: critical
@@ -51,7 +51,7 @@ findings:
     severity: info
     disposition: deferred
     title: "Small test and code tidy-ups"
-open: 8
+open: 4
 total: 12
 recorded: 2026-10-10T20:18:35.422Z
 ---
@@ -60,11 +60,11 @@ recorded: 2026-10-10T20:18:35.422Z
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-01 | critical | open | - |
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
+| CR-01 | critical | fixed | fixed in 40-13 Task 1 (905408a) and 40-14 Task 3 (1a315e2): R0's automagic rule reports a one-line cell that starts with an IPython magic or alias name whatever an earlier cell binds (only a builtin, a keyword or a following = or comma is exempt); the four non-binding forms, a plain assignment, an import and an assignment then del are reported on a copy of import_campaign_csv_demo; the guard docstring, README and override reason say so |
+| WR-01 | warning | fixed | fixed in 40-13 Task 2 (4f02628) and 40-14 Task 3 (1a315e2): R6 reports copy2, copyfile, copytree and copyfileobj at every identifier and string part and follows shutil names across the notebook through imports and assignment-shaped bindings for copy and move; both review rebinding forms are reported on a copy of import_campaign_csv_demo; the docstring names what is not followed |
+| WR-02 | warning | fixed | fixed in 40-13 Task 2 (4f02628) and 40-14 Task 3 (1a315e2): R5 and R7 read str and bytes constants, so bytes literals naming the developer database file and its variable are reported; the docstring's R5 and R7 sentence says so |
+| IN-01 | info | open | out of scope for the gap round (developer decision 2026-10-10); recorded for Phase 41 in 40-11-SUMMARY |
+| IN-02 | info | fixed | fixed in 40-13 Task 3 (ccfc578): the dev extra lists ipykernel>=7, which the guard imports; every CI workflow installs .[dev], so none changed |
 | CR-02 | critical | fixed | fixed in 40-10 Task 3 (c6c6322): R0 now reports any cell that is not Python IPython runs unchanged once `%matplotlib inline` and a first-line `%%time` or `%%capture` are removed, and a one-line cell that starts with an IPython magic or alias the notebook does not define; the review's aliases, automagic, `%time !` and magic cells are reported on a copy of import_campaign_csv_demo (not in the current review) |
 | IN-03 | info | open | out of scope for the gap round (developer decision 2026-10-09); for Phase 41 triage (not in the current review) |
 | WR-03 | warning | open | - (not in the current review) |
