@@ -829,7 +829,7 @@ def _shutil_names(trees) -> set[str]:
     names = set(SHUTIL_MODULE_NAMES)
     for node in nodes:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            names.update(alias.asname or 'shutil' for alias in node.names if alias.name == 'shutil')
+            names.update(alias.asname or alias.name for alias in node.names if alias.name in SHUTIL_MODULE_NAMES)
     pairs = [pair for node in nodes for pair in _binding_pairs(node)]
     grew = True
     while grew:
@@ -874,7 +874,7 @@ def _byte_copy_problems(parsed) -> list[str]:
     shutil_names = _shutil_names([scanned for _number, trees in scanned_by_cell for scanned in trees])
     problems = []
     for number, scanned_trees in scanned_by_cell:
-        found: dict[str, None] = {}
+        found: dict[str | tuple[str, str], str | None] = {}
         named: set[str] = set()
         for scanned in scanned_trees:
             called = set()
@@ -913,13 +913,20 @@ def _byte_copy_problems(parsed) -> list[str]:
                     named.add(node.attr)
                 name = node.attr if isinstance(node, ast.Attribute) else getattr(node, 'id', None)
                 if isinstance(node, (ast.Attribute, ast.Name)) and name in BYTE_WRITE_NAMES:
-                    found[
+                    found.setdefault(
+                        ('write', name),
                         f'code cell {number} references {name}; '
-                        'a notebook must never byte-copy or byte-write a file over a database'
-                    ] = None
+                        'a notebook must never byte-copy or byte-write a file over a database',
+                    )
                 text = _constant_text(node)
                 for part in _string_parts(text) if text is not None else ():
-                    if part in FORBIDDEN_COPY_NAMES or part in BYTE_WRITE_NAMES:
+                    if part in BYTE_WRITE_NAMES:
+                        found.setdefault(
+                            ('write', part),
+                            f'code cell {number} names {part} in a string; '
+                            'a notebook must never look up a byte-copy or byte-write function by name',
+                        )
+                    elif part in FORBIDDEN_COPY_NAMES:
                         found[
                             f'code cell {number} names {part} in a string; '
                             'a notebook must never look up a byte-copy or byte-write function by name'
@@ -936,10 +943,11 @@ def _byte_copy_problems(parsed) -> list[str]:
             for node in ast.walk(scanned):
                 for identifier, _groups in _identifiers(node):
                     if identifier in BYTE_WRITE_NAMES:
-                        found[
+                        found.setdefault(
+                            ('write', identifier),
                             f'code cell {number} references {identifier}; '
-                            'a notebook must never byte-copy or byte-write a file over a database'
-                        ] = None
+                            'a notebook must never byte-copy or byte-write a file over a database',
+                        )
                     elif identifier in SHUTIL_MODULE_NAMES and identifier not in named:
                         found[
                             f'code cell {number} references {identifier}; '
@@ -951,7 +959,7 @@ def _byte_copy_problems(parsed) -> list[str]:
                             f'code cell {number} references {identifier}; a notebook must never byte-copy a database'
                         ] = None
                         named.add(identifier)
-        problems.extend(found)
+        problems.extend(key if text is None else text for key, text in found.items())
     return problems
 
 
@@ -2519,6 +2527,78 @@ class TestR6CopyAndWriteFunctions(SimpleTestCase):
             self.assertEqual(len(set(numbers)), 2, problems)
         with self.subTest('the start set'):
             self.assertEqual(_shutil_names([]), {'shutil', '_shutil'})
+
+    # WR-01 of the sixth review: a cell has at most one write_bytes problem, the first text found.
+    def test_a_cell_has_at_most_one_write_bytes_problem(self):
+        cases = [
+            ('method then string part', "p.write_bytes(b'')\ngetattr(p, 'write_bytes')\n", 'references write_bytes;'),
+            (
+                'string part then method',
+                "getattr(p, 'write_bytes')\np.write_bytes(b'')\n",
+                'names write_bytes in a string;',
+            ),
+            (
+                'string code then method',
+                "timeit.timeit('p.write_bytes(b\"\")')\np.write_bytes(b'')\n",
+                'references write_bytes;',
+            ),
+            (
+                'parameter and method',
+                "def put(p, write_bytes=None):\n    p.write_bytes(b'')\n",
+                'references write_bytes;',
+            ),
+        ]
+        for label, source, first in cases:
+            with self.subTest(label):
+                problems = isolation_problems(_notebook(extra_cells=[_code(source)]))
+                written = [problem for problem in problems if 'write_bytes' in problem]
+                self.assertEqual(len(written), 1, problems)
+                self.assertIn(first, written[0])
+        with self.subTest('two cells'):
+            problems = isolation_problems(
+                _notebook(extra_cells=[_code("p.write_bytes(b'')\n"), _code("getattr(p, 'write_bytes')\n")])
+            )
+            written = [problem for problem in problems if 'write_bytes' in problem]
+            self.assertEqual([problem.split()[2] for problem in written], ['3', '4'], problems)
+        with self.subTest('a real notebook'):
+            notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+            problems = isolation_problems(
+                _append_to_setup_cell(
+                    notebook,
+                    'for f in scratch_db_dir.iterdir():\n'
+                    "    (repo_root_path / 'src' / f.name).write_bytes(f.read_bytes())\n"
+                    "    getattr(f, 'write_bytes')\n",
+                )
+            )
+            self.assertEqual(sum('write_bytes' in problem for problem in problems), 1, problems)
+
+    # IN-01 of the sixth review: a name bound to tempfile's _shutil by an import is followed.
+    def test_a_name_bound_to_tempfile_shutil_by_an_import_is_followed(self):
+        cases = [
+            ('from tempfile import _shutil as sh\nsh.move(a, b)\n', ('move', '_shutil')),
+            ('import _shutil as sh\nsh.copy(a, b)\n', ('copy', '_shutil')),
+            ('from tempfile import _shutil\n_shutil.move(a, b)\n', ('move',)),
+        ]
+        for source, names in cases:
+            with self.subTest(source=source):
+                problems = isolation_problems(_notebook(extra_cells=[_code(source)]))
+                for name in names:
+                    self.assert_r6_names(problems, name)
+        with self.subTest('the names'):
+            self.assertEqual(
+                _shutil_names([ast.parse('from tempfile import _shutil as sh\n')]), {'shutil', '_shutil', 'sh'}
+            )
+        with self.subTest('a real notebook'):
+            notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+            problems = isolation_problems(
+                _append_to_setup_cell(
+                    notebook,
+                    'from tempfile import _shutil as sh\n'
+                    'for f in scratch_db_dir.iterdir():\n'
+                    "    sh.copy(f, repo_root_path / 'src')\n",
+                )
+            )
+            self.assert_r6_names(problems, 'copy')
 
 
 class TestR0AllowList(SimpleTestCase):
