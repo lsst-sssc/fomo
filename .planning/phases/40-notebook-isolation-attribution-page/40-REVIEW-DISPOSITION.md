@@ -5,19 +5,19 @@ titles: json
 findings:
   - id: CR-01
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "R6 does not follow shutil into a function parameter, a lambda, a `match` capture or a class-pattern attribute, and the stated boundary does not name these routes"
   - id: CR-02
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "\"any `write_bytes`\" is not what R6 checks, and a class-pattern attribute writes the scratch bytes over the developer database unreported"
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`is_django_backed` reads the raw source, not the Python view, so Django code under a harmless cell magic can switch off R2-R4 and R8-R11"
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "R0 does not see IPython's autocall of an `IPyAutocall` object, so \"Python that IPython runs unchanged\" overstates the check"
   - id: IN-01
     severity: info
@@ -51,7 +51,7 @@ findings:
     severity: info
     disposition: deferred
     title: "Small test and code tidy-ups"
-open: 9
+open: 5
 total: 12
 recorded: 2026-10-11T01:44:32.408Z
 ---
@@ -60,12 +60,12 @@ recorded: 2026-10-11T01:44:32.408Z
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-01 | critical | open | - |
-| CR-02 | critical | open | - |
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
+| CR-01 | critical | fixed | fixed in 40-15 Task 1 (bc99b0e) and 40-16 Task 3 (b04f09f): R6 reports shutil and tempfile's _shutil at every identifier and string part, so all six review forms (a call argument, a lambda, map, a keyword-only parameter, a match capture, a class pattern) are reported on a copy of import_campaign_csv_demo; the guard docstring, README and override reason state R6's post-fix boundary |
+| CR-02 | critical | fixed | fixed in 40-15 Task 1 (bc99b0e) and 40-16 Task 3 (b04f09f): R6 matches write_bytes at every identifier and string part; the class-pattern form and a write_bytes parameter and keyword argument are reported on a copy of import_campaign_csv_demo; the docstring, README and reason no longer claim more |
+| WR-01 | warning | fixed | fixed in 40-15 Task 2 (1c830b1: isolation_problems docstring and a pin test) and 40-16 Task 3 (b04f09f): the module docstring says R2-R4 and R8-R11 apply only when a cell that parses as written imports Django (D-13 unchanged, developer decision D-G12) |
+| WR-02 | warning | fixed | fixed in 40-15 Task 2 (1c830b1) and 40-16 Task 3 (b04f09f): IPyAutocall is an R12 name, and the docstring, README and override reason name IPython's autocall of exit and quit as the rewrite R0 does not see, pinned by a test (D-G13) |
+| IN-01 | info | open | out of scope for the gap round (developer decision 2026-10-10, D-G14); kept for Phase 41 triage |
+| IN-02 | info | open | out of scope for the gap round (developer decision 2026-10-10, D-G14); kept for Phase 41 triage |
 | IN-03 | info | open | out of scope for the gap round (developer decision 2026-10-09); for Phase 41 triage (not in the current review) |
 | WR-03 | warning | open | - (not in the current review) |
 | IN-04 | info | open | - (not in the current review) |
