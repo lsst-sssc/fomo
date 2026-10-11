@@ -63,51 +63,61 @@ overrides_applied: 0
 overrides:
   - must_have: "ROADMAP SC 2 (first half) / WARN-02: The notebook guard test fails for a notebook whose current source routes Django to the developer database even when that notebook's committed output is stale"
     reason: >-
-      Rule R12, extended in 40-08 [301bd93, f1b4bb6] and 40-10 [482606b, 3232341, c6c6322], reports in every
-      notebook any name it lists for five capabilities: Django's database settings and connection objects
-      (DATABASES, DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the helper's internals,
-      DatabaseWrapper, load_backend, connections, connection, _connections, ConnectionHandler,
-      create_connection, get_connection_params, get_new_connection, Database, sqlite3); attaching another
-      database through raw SQL (a string holding ATTACH followed by DATABASE, a quote, a placeholder or an
-      opening parenthesis); starting a process (subprocess, multiprocessing, pty, pexpect, ptyprocess, psutil,
-      jupyter_client, nbclient, nbconvert, system, popen, fork, forkpty, startfile, posix_spawn, posix_spawnp,
-      every exec* and spawn* function of os, Popen, ProcessPoolExecutor, create_subprocess_exec,
-      create_subprocess_shell, getoutput, getstatusoutput, IPython's get_ipython, system_raw, run_line_magic
-      and run_cell_magic, and the IPython.utils helpers getoutputerror, get_output_error_code and
-      process_handler); the environment (environ, environb, putenv, unsetenv); and running code from a string
-      or another file (exec, eval, compile, __import__, __builtins__, importlib, runpy, builtins, ctypes,
-      cffi, execute_from_command_line, ManagementUtility, import_string, resolve_name, locate, IPython's
-      Macro, and call_command of shell, shell_plus or runscript). Each name is matched at every identifier the
-      parser records, as the guard docstring enumerates them (attributes are never matched against the
-      builtins exec, eval, compile, __import__ and __builtins__), and against every '.'- or ':'-separated part
-      of a string or bytes constant; a string that parses and holds a statement or a call is read like the
-      cell's own code, to two levels. So a listed name imported from another module (from webbrowser import
-      subprocess), bound to another name first or looked up by a literal string
-      (import_string('subprocess.run')) is reported. R0 reports any code cell that is not Python IPython runs
-      unchanged, checked with IPython's own TransformerManager, once %matplotlib inline lines and a first-line
-      %%time or %%capture (with only its --no-stderr, --no-stdout and --no-display flags and an output name)
-      are removed, and, since 40-13 [905408a], any one-line cell whose first word is an IPython line magic or
-      alias, because IPython's automagic runs it unless the name is bound when the cell runs, whatever an
-      earlier cell assigns, imports or defines; only a word that is a builtin or a keyword, or one followed by
-      = or a comma, is exempt. R5 and R7 report a str or bytes constant that names FOMO_DATABASE_PATH or
-      fomo_db.sqlite3 (40-13 [4f02628]). R6 reports shutil's copy2, copyfile, copytree and copyfileobj at
-      every identifier the parser records and as a string part, copy and move read from an expression that
-      mentions shutil or a name the notebook binds to it in any cell through an import, an assignment, a loop,
-      a with, a comprehension or a parameter default (40-13 [4f02628]), and any write_bytes; copy and move
-      reached only through a function's return value, a call's side effect or a module that holds shutil under
-      another name are not reported. Every literal form in the third review (CR-01, CR-02, WR-01), the fourth
-      review's CR-01 and WR-01 forms, the re-review's four forms and both round-1 probes is reported on a copy
-      of a real notebook, the fourth review's WR-02 bytes literals on the reference notebook, and every real
-      pre-executed notebook passes the guard. The guard docstring makes no claim of completeness and names
-      what stays out of reach: the guard reads only the notebook's own source, so values assembled or looked
-      up at runtime (a name, module, SQL statement or file path built from pieces, or fetched with getattr,
-      globals(), vars() or sys.modules using such a string), code decoded at runtime (pickle, marshal, codecs,
-      base64), code outside the notebook (a module it imports, IPython's profile and start-up files with the
-      extensions, aliases and magics they define, or a library function that starts a process or writes a file
-      under a name these lists do not contain) and, left out on purpose, JavaScript or HTML in a cell's
-      output, which a notebook front end may run when the notebook is opened, are not seen.
+      Rule R12, extended in 40-08 [301bd93, f1b4bb6], 40-10 [482606b, 3232341, c6c6322] and 40-15 [1c830b1],
+      reports in every notebook any name it lists for five capabilities: Django's database settings and
+      connection objects (DATABASES, DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the
+      helper's internals, DatabaseWrapper, load_backend, connections, connection, _connections,
+      ConnectionHandler, create_connection, get_connection_params, get_new_connection, Database, sqlite3);
+      attaching another database through raw SQL (a string holding ATTACH followed by DATABASE, a quote, a
+      placeholder or an opening parenthesis); starting a process (subprocess, multiprocessing, pty, pexpect,
+      ptyprocess, psutil, jupyter_client, nbclient, nbconvert, system, popen, fork, forkpty, startfile,
+      posix_spawn, posix_spawnp, every exec* and spawn* function of os, Popen, ProcessPoolExecutor,
+      create_subprocess_exec, create_subprocess_shell, getoutput, getstatusoutput, IPython's get_ipython,
+      system_raw, run_line_magic and run_cell_magic, and the IPython.utils helpers getoutputerror,
+      get_output_error_code and process_handler); the environment (environ, environb, putenv, unsetenv); and
+      running code from a string or another file (exec, eval, compile, __import__, __builtins__, importlib,
+      runpy, builtins, ctypes, cffi, execute_from_command_line, ManagementUtility, import_string,
+      resolve_name, locate, IPython's Macro and IPyAutocall, and call_command of shell, shell_plus or
+      runscript). Each name is matched at every identifier the parser records, as the guard docstring
+      enumerates them (attributes are never matched against the builtins exec, eval, compile, __import__ and
+      __builtins__), and against every '.'- or ':'-separated part of a string or bytes constant; a string that
+      parses and holds a statement or a call is read like the cell's own code, to two levels. So a listed name
+      imported from another module (from webbrowser import subprocess), bound to another name first or looked
+      up by a literal string (import_string('subprocess.run')) is reported. R0 reports any code cell that is
+      not Python IPython runs unchanged, checked with IPython's own TransformerManager, once %matplotlib
+      inline lines and a first-line %%time or %%capture (with only its --no-stderr, --no-stdout and
+      --no-display flags and an output name) are removed, apart from IPython's autocall, which runs a one-line
+      cell that starts with an autocall object as a call (exit -1 runs as exit(-1)): the kernel's only
+      autocall objects, exit and quit, end the kernel, R12 reports the name IPyAutocall (40-15 [1c830b1]), and
+      an autocall object made without that name (a subclass of type(exit)) runs a call method that is notebook
+      code the rules read; and, since 40-13 [905408a], R0 reports any one-line cell whose first word is an
+      IPython line magic or alias, because IPython's automagic runs it unless the name is bound when the cell
+      runs, whatever an earlier cell assigns, imports or defines; only a word that is a builtin or a keyword,
+      or one followed by = or a comma, is exempt. R5 and R7 report a str or bytes constant that names
+      FOMO_DATABASE_PATH or fomo_db.sqlite3 (40-13 [4f02628]). R6 reports the module names shutil and _shutil,
+      shutil's copy2, copyfile, copytree and copyfileobj, and write_bytes at every identifier the parser
+      records and as a string part (40-13 [4f02628], 40-15 [bc99b0e]), so code that names shutil is reported
+      however it then hands the module on, and copy and move read from an expression that mentions shutil,
+      _shutil or a name the notebook binds to one in any cell through an import, an assignment, a loop, a
+      with, a comprehension or a parameter default; copy and move read from anything that mentions no shutil
+      name (another object's method of that name, such as a path's copy and move on Python 3.14 and later), a
+      shutil module, shutil function or write_bytes method obtained at runtime without writing its name (from
+      inspect.getmodule, a function's __module__ or a search over sys.modules or a module's vars()), and code
+      in a string nested more than two strings deep, which R6 and R12 match only by its parts, are not
+      reported. Every literal form in the third review (CR-01, CR-02, WR-01), the fourth review's CR-01 and
+      WR-01 forms, the fifth review's CR-01 and CR-02 forms, the re-review's four forms and both round-1
+      probes is reported on a copy of a real notebook, the fourth review's WR-02 bytes literals on the
+      reference notebook, and every real pre-executed notebook passes the guard. The guard docstring makes no
+      claim of completeness and names what stays out of reach: the guard reads only the notebook's own source,
+      so values assembled or looked up at runtime (a name, module, SQL statement or file path built from
+      pieces, or fetched with getattr, globals(), vars() or sys.modules using such a string), code decoded at
+      runtime (pickle, marshal, codecs, base64), code outside the notebook (a module it imports, IPython's
+      profile and start-up files with the extensions, aliases and magics they define, or a library function
+      that starts a process or writes a file under a name these lists do not contain) and, left out on
+      purpose, JavaScript or HTML in a cell's output, which a notebook front end may run when the notebook is
+      opened, are not seen.
     accepted_by: "Tim Lister"
-    accepted_at: "2026-10-10T23:20:47Z"
+    accepted_at: "2026-10-11T03:35:54Z"
 re_verification:
   previous_status: gaps_found
   previous_score: 142/146 (prohibitions 42/42)
