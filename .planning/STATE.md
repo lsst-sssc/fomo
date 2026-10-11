@@ -6,16 +6,16 @@ current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: gaps_found
 stopped_at: Completed 40-14-PLAN.md
-last_updated: "2026-10-10T23:34:44.302Z"
+last_updated: "2026-10-11T03:10:24.228Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 40 re-verification after gap round 5 — gaps_found 163/167
-state_head: f38a7b776be8e634b783007ff080945930c5fa5b
+state_head: 1dbdb6dae45d0cc38b606fd73ae561b9b9c7c678
 progress:
   total_phases: 6
   completed_phases: 42
-  total_plans: 31
+  total_plans: 33
   completed_plans: 31
-  percent: 100
+  percent: 94
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — GAPS FOUND
-Plan: 14 of 14
-Status: Gaps found after gap round 5 (40-13, 40-14) — re-verification 163/167; round-5 review CR-01/CR-02 (R6 routes through a call argument, a match capture or a class-pattern attribute; "any write_bytes") need a developer decision (A: report shutil and write_bytes at every identifier, or B: approve a wider stated boundary)
-Last activity: 2026-10-10 — Phase 40 gap round 5 executed and re-verified (gaps_found 163/167)
+Phase: 40 (Notebook Isolation & Attribution Page) — READY TO EXECUTE
+Plan: 14 of 16
+Status: Ready to execute gap round 6 (40-15 code: R6 reports shutil, _shutil and write_bytes at every identifier, IPyAutocall in R12; 40-16 docs: docstring, README and override reason re-approved at a blocking-human checkpoint) -- developer decisions D-G11 to D-G15, 2026-10-11T02:29:39Z
+Last activity: 2026-10-10 — Phase 40 gap round 6 planned (40-15, 40-16; plan checker: 0 blockers, 0 warnings)
 
-Progress: [████████████████████] 17/17 plans ([██████████] 100%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 94%)
 
 ## Performance Metrics
 
