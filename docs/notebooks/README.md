@@ -89,17 +89,17 @@ numbers they print change from one regeneration to the next because the develope
 A snapshot holds a full copy of the developer database. If a run fails before the teardown cell, delete any
 leftover `/tmp/fomo-notebook-db-*` directory yourself.
 
-`solsys_code/tests/test_pre_executed_notebooks.py` checks every notebook in `pre_executed/`. It checks that a
-notebook calls the helper first; never sets Django up, chooses a database, starts a process, changes the environment
-or runs code built from a string or loaded from another file, whether the name is written in its code, in an import
-or inside a string; never names `FOMO_DATABASE_PATH` or the developer database file in a str or bytes literal;
-never byte-copies or byte-writes a file with shutil's copy and move functions or `write_bytes` (`copy2`,
-`copyfile`, `copytree` and `copyfileobj` wherever they are named, `copy` and `move` when they are read from shutil
-or from a name the notebook binds to it); contains only Python that IPython runs unchanged, apart from
-`%matplotlib inline` and a first-line `%%time` or `%%capture`; has no one-line cell that starts with an IPython
-magic or alias name, even one an earlier cell assigns or imports, unless that name is a Python builtin or keyword or
-is followed by `=` or `,`; and shows output from one fresh run. Its module docstring says exactly what each rule
-follows and what a static check of a notebook's source cannot see. It reads each notebook's JSON
-and never executes one.
+`solsys_code/tests/test_pre_executed_notebooks.py` checks every notebook in `pre_executed/`. It checks that a notebook
+calls the helper first; never sets Django up, chooses a database, starts a process, changes the environment or runs
+code built from a string or loaded from another file, whether the name is written in its code, in an import, as a part
+of a dotted string such as `'subprocess.run'`, or in code inside a string (read to two levels); never names
+`FOMO_DATABASE_PATH` or the developer database file in a str or bytes literal; never names `shutil`, tempfile's
+`_shutil`, shutil's `copy2`, `copyfile`, `copytree` or `copyfileobj`, or `write_bytes` in any of those places;
+contains only Python that IPython runs unchanged, apart from `%matplotlib inline`, a first-line `%%time` or
+`%%capture`, and IPython's autocall, which runs `exit -1` as `exit(-1)` (the kernel's own autocall objects, `exit` and
+`quit`, only end the kernel); has no one-line cell that starts with an IPython magic or alias name, even one an
+earlier cell assigns or imports, unless that name is a Python builtin or keyword or is followed by `=` or `,`; and
+shows output from one fresh run. Its module docstring describes each rule and what a static check of a notebook's
+source cannot see, and makes no claim of completeness. It reads each notebook's JSON and never executes one.
 `solsys_code/tests/test_notebook_helper.py` runs the helper itself, and a test in the first module keeps the two
 lists above equal to each notebook's `mode`.

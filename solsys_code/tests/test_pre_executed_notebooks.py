@@ -1,8 +1,8 @@
 """Guard tests: every Django-backed pre-executed notebook runs on a scratch database through the shared helper.
 
 Why this module exists (UAT G-37.1-3, then review findings WR-13, WR-14 and WR-17 of the 37.1 review,
-WR-01 of the Phase 40 review, WR-01 of the 2026-10-10 re-review, CR-01 and CR-02 of the third review, and CR-01, WR-01
-and WR-02 of the fourth review):
+WR-01 of the Phase 40 review, WR-01 of the 2026-10-10 re-review, CR-01 and CR-02 of the third review, CR-01, WR-01 and
+WR-02 of the fourth review, and CR-01, CR-02, WR-01 and WR-02 of the fifth review):
 notebooks under ``docs/notebooks/pre_executed/`` once opened the developer database
 ``src/fomo_db.sqlite3`` and wrote demo rows into it, and a guard that only matched the setup
 cell's text was easy to get around (an own ``FOMO_DATABASE_PATH`` assignment with stale good-looking
@@ -20,64 +20,76 @@ behaviour is proven by running it in ``test_notebook_helper.py``.
 These tests read notebook JSON only and never execute a notebook. Code is inspected with ``ast`` so a
 comment that merely mentions a name cannot satisfy or trip a check.
 
-What the guard checks: R0, every code cell must be Python that IPython runs unchanged. Once ``%matplotlib inline``
-lines and a first-line ``%%time`` or ``%%capture`` (with only its ``--no-stderr``, ``--no-stdout`` and
-``--no-display`` flags and an output name) are removed, the cell must parse, and IPython's own static input
-transformer (``TransformerManager``) must leave its meaning unchanged, so an alias, an escape on any line (also
-after a line magic, as in ``%time !ls``), any other magic and a prompt prefix (``In [1]:``) are reported.
-``%config`` is not harmless, because ``%config AliasManager.user_aliases = [...]`` defines a shell alias that a
-later one-line cell runs; ``%matplotlib`` with any other argument is not harmless either, because a backend such as
-``module://name`` imports a module by name. A one-line cell whose first word, read with IPython's ``split_user_input``,
-is an IPython line magic or alias (the set comes from IPython itself, including the kernel's and storemagic's magics) is
-reported, because IPython's automagic runs it unless that name is bound when the cell runs, which a static check cannot
-tell: a bare annotation, an ``if False:`` branch, an empty loop or an ``except ... as`` name binds nothing, and ``del``
-unbinds, so the cell is reported whatever an earlier cell assigns, imports or defines. Only a first word that is a
-Python builtin or keyword, or one followed by ``=`` or ``,``, is not reported, because IPython always runs such a line
-as Python. A cell that does not parse as
-written and mentions Django, a database, a process, a shell command or the environment (an IPython shell escape, a
-process cell magic such as ``%%bash``, a process or environment line magic such as ``%system`` or ``%env``,
-``manage.py``, ``env -i``, ``env -u`` or any name R12 lists) is still reported by its own message. The code under a
-harmless magic is checked by every later rule. R2-R4 and R8-R11: the helper call comes first and once, no own
-Django setup, one fresh run with evidence and teardown output, and no ``assert`` guarding a write. R5 and R7: no str or
-bytes constant in a cell's code (a bytes constant is read as latin-1) names the database variable ``FOMO_DATABASE_PATH``
-or the developer database file ``fomo_db.sqlite3``, and no keyword argument is named ``FOMO_DATABASE_PATH``. R6, no byte
-copy or byte write, reads a cell's code and the code inside its strings. It reports shutil's ``copy2``, ``copyfile``,
-``copytree`` and ``copyfileobj`` at every identifier the parser records, as R12 matches its names; ``copy`` and
-``move``, which are also common method names (a DataFrame's ``copy``), when read as an attribute of an expression that
-mentions a shutil name, called or not, or imported with ``from shutil import``; any ``write_bytes``; and any str or
-bytes constant one of whose '.'- or ':'-separated parts is one of these names, ``copy`` or ``move`` (``getattr(shutil,
-'copytree')``). A shutil name is ``shutil`` or a name the notebook binds to it in any cell: through ``import shutil as
-X`` or ``from <any module> import shutil [as X]``, or as the target of an assignment, a loop, a ``with``, a
-comprehension or a parameter default whose value mentions a shutil name, where a mention is a name, an attribute or a
-string part, so ``zipfile.shutil`` and ``sys.modules['shutil']`` count. ``copy`` and ``move`` reached only through a
-function's return value, a call's side effect (``setattr``) or a module that holds shutil under another name (tempfile's
-``_shutil``) are not reported. R12 reports, in every notebook,
-any use of five capabilities that can route around the scratch database (WR-01, D-G1): Django's database settings
-and connection objects (DATABASES, DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the
-helper's internals, DatabaseWrapper, load_backend, ``connections``, ``connection`` and ``_connections``,
-ConnectionHandler, create_connection, get_connection_params, get_new_connection, ``Database``,
-``connections.settings`` and ``connections.databases``, and any ``sqlite3`` import); attaching another database
-through raw SQL (a string holding ATTACH followed by DATABASE, a quote or a placeholder, or by an opening
-parenthesis, ``ATTACH (``); starting a process (subprocess, multiprocessing, pty, pexpect, ptyprocess, psutil,
-Jupyter's kernel clients jupyter_client, nbclient and nbconvert, ``system``, ``popen``, ``fork``, ``forkpty``,
-``startfile``, ``posix_spawn``, ``posix_spawnp``, every ``exec*`` and ``spawn*`` function of ``os``, Popen,
-ProcessPoolExecutor, asyncio's ``create_subprocess_exec`` and ``create_subprocess_shell``, ``getoutput``,
-``getstatusoutput``, IPython's ``get_ipython``, ``system_raw``, ``run_line_magic`` and ``run_cell_magic``, and
-the IPython.utils helpers ``getoutputerror``, ``get_output_error_code`` and ``process_handler``); the environment
-(``os.environ``, ``os.environb``, ``os.putenv``, ``os.unsetenv``; ``os.getenv`` reads are allowed); and running
-code from a string or another file (exec, eval, compile, ``__import__``, ``__builtins__``, importlib, runpy,
-builtins, ctypes, cffi, execute_from_command_line, ManagementUtility, the lookup functions ``import_string``,
-``resolve_name`` and ``locate``, IPython's ``Macro``, and ``call_command`` of shell, shell_plus or runscript).
-Each R12 name is matched at every identifier the parser records -- a name, an attribute, a keyword argument, a
-parameter, a function, class or exception name, a global or nonlocal name, a match capture or class-pattern
-attribute, a type parameter, every part of an imported module's path, and every imported name and alias, with
-attributes and class-pattern attributes never matched against the builtins exec, eval, compile, ``__import__`` and
-``__builtins__`` (so ``re.compile`` stays allowed) -- and against every '.'- or ':'-separated part of a string or
-bytes constant; a string that is itself Python code (it parses and holds a statement or a call) is read like the
-cell's own code, to two levels. So importing a listed name from another module
-(``from webbrowser import subprocess``), binding it to another name first (``c = connections``,
-``run = os.system``) or looking it up by a literal string (``import_string('subprocess.run')``) is reported too.
-The guard makes no claim of completeness.
+What the guard checks: R0, every code cell must be Python that IPython runs unchanged, apart from IPython's autocall
+(below). Once ``%matplotlib inline`` lines and a first-line ``%%time`` or ``%%capture`` (with only its
+``--no-stderr``, ``--no-stdout`` and ``--no-display`` flags and an output name) are removed, the cell must parse, and
+IPython's own static input transformer (``TransformerManager``) must leave its meaning unchanged, so an alias, an
+escape on any line (also after a line magic, as in ``%time !ls``), any other magic and a prompt prefix (``In [1]:``)
+are reported. ``%config`` is not harmless, because ``%config AliasManager.user_aliases = [...]`` defines a shell alias
+that a later one-line cell runs; ``%matplotlib`` with any other argument is not harmless either, because a backend
+such as ``module://name`` imports a module by name. A one-line cell whose first word, read with IPython's
+``split_user_input``, is an IPython line magic or alias (the set comes from IPython itself, including the kernel's and
+storemagic's magics) is reported, because IPython's automagic runs it unless that name is bound when the cell runs,
+which a static check cannot tell: a bare annotation, an ``if False:`` branch, an empty loop or an ``except ... as``
+name binds nothing, and ``del`` unbinds, so the cell is reported whatever an earlier cell assigns, imports or defines.
+Only a first word that is a Python builtin or keyword, or one followed by ``=`` or ``,``, is not reported, because
+IPython always runs such a line as Python. R0 does not see one rewrite, IPython's autocall: a one-line cell that
+starts with an autocall object runs as a call (``exit -1`` runs as ``exit(-1)``). The kernel's only autocall objects,
+``exit`` and ``quit``, end the kernel; R12 reports the name ``IPyAutocall``; and an autocall object a notebook makes
+without that name (from a subclass of ``type(exit)``) runs its own call method, which is notebook code the rules read
+like any other. A cell that does not parse as written and mentions Django, a database, a process, a shell command or
+the environment (an IPython shell escape, a process cell magic such as ``%%bash``, a process or environment line magic
+such as ``%system`` or ``%env``, ``manage.py``, ``env -i``, ``env -u`` or any name R12 lists) is still reported by its
+own message. Every later rule reads each cell's Python view, so the code under a harmless magic is read like any other
+code. Whether R2-R4 and R8-R11 apply is decided by ``is_django_backed`` from the cells that parse as written, before
+any magic line is removed (D-13): a notebook whose only import of Django, the project app or a TOM plugin sits in a
+cell under a harmless magic gets only the rules every notebook gets, and every real notebook makes such an import in a
+cell that parses as written, as the not-vacuous test requires. R2-R4 and R8-R11: the helper call comes first and once,
+no own Django setup, one fresh run with evidence and teardown output, and no ``assert`` guarding a write. R5 and R7:
+no str or bytes constant in a cell's code (a bytes constant is read as latin-1) names the database variable
+``FOMO_DATABASE_PATH`` or the developer database file ``fomo_db.sqlite3``, and no keyword argument is named
+``FOMO_DATABASE_PATH``. R6, no byte copy or byte write, reads a cell's code and the code inside its strings, to two
+levels as R12 does. It reports the module names ``shutil`` and ``_shutil`` (tempfile's name for shutil), shutil's
+``copy2``, ``copyfile``, ``copytree`` and ``copyfileobj``, and ``write_bytes`` at every identifier the parser records,
+as R12 matches its names, and as a '.'- or ':'-separated part of a str or bytes constant, so code that names shutil is
+reported however it then hands the module on (to a parameter, a lambda, a ``match`` capture or a class pattern). It
+also reports ``copy`` and ``move``, which are also common method names (a DataFrame's ``copy``), when read as an
+attribute of an expression that mentions a shutil name, called or not, when imported with ``from shutil import``, and
+as a string part (``getattr(shutil, 'move')``). A shutil name is ``shutil``, ``_shutil`` or a name the notebook binds
+to one in any cell through ``import shutil as X`` or ``from <any module> import shutil [as X]``, or as the target of
+an assignment, a loop, a ``with``, a comprehension or a parameter default whose value mentions a shutil name, where a
+mention is a name, an attribute or a string part, so ``zipfile.shutil`` and ``sys.modules['shutil']`` count. Not
+reported: ``copy`` or ``move`` read from anything that mentions no shutil name, such as another object's method of
+that name (a DataFrame's ``copy``, or a path's ``copy`` and ``move`` on Python 3.14 and later, which no Python this
+project supports has); a shutil module, a shutil function or a ``write_bytes`` method that the notebook obtains at
+runtime without writing its name (from ``inspect.getmodule``, a function's ``__module__``, or a search over
+``sys.modules`` or a module's ``vars()``); and code in a string nested more than two strings deep, which R6 and R12
+match only by its '.'- and ':'-separated parts. R12 reports, in every notebook, any use of five capabilities that can
+route around the scratch database (WR-01, D-G1): Django's database settings and connection objects (DATABASES,
+DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the helper's internals, DatabaseWrapper,
+load_backend, ``connections``, ``connection`` and ``_connections``, ConnectionHandler, create_connection,
+get_connection_params, get_new_connection, ``Database``, ``connections.settings`` and ``connections.databases``, and
+any ``sqlite3`` import); attaching another database through raw SQL (a string holding ATTACH followed by DATABASE, a
+quote or a placeholder, or by an opening parenthesis, ``ATTACH (``); starting a process (subprocess, multiprocessing,
+pty, pexpect, ptyprocess, psutil, Jupyter's kernel clients jupyter_client, nbclient and nbconvert, ``system``,
+``popen``, ``fork``, ``forkpty``, ``startfile``, ``posix_spawn``, ``posix_spawnp``, every ``exec*`` and ``spawn*``
+function of ``os``, Popen, ProcessPoolExecutor, asyncio's ``create_subprocess_exec`` and ``create_subprocess_shell``,
+``getoutput``, ``getstatusoutput``, IPython's ``get_ipython``, ``system_raw``, ``run_line_magic`` and
+``run_cell_magic``, and the IPython.utils helpers ``getoutputerror``, ``get_output_error_code`` and
+``process_handler``); the environment (``os.environ``, ``os.environb``, ``os.putenv``, ``os.unsetenv``; ``os.getenv``
+reads are allowed); and running code from a string or another file (exec, eval, compile, ``__import__``,
+``__builtins__``, importlib, runpy, builtins, ctypes, cffi, execute_from_command_line, ManagementUtility, the lookup
+functions ``import_string``, ``resolve_name`` and ``locate``, IPython's ``Macro`` and ``IPyAutocall``, and
+``call_command`` of shell, shell_plus or runscript). Each R12 name is matched at every identifier the parser records
+-- a name, an attribute, a keyword argument, a parameter, a function, class or exception name, a global or nonlocal
+name, a match capture or class-pattern attribute, a type parameter, every part of an imported module's path, and every
+imported name and alias, with attributes and class-pattern attributes never matched against the builtins exec, eval,
+compile, ``__import__`` and ``__builtins__`` (so ``re.compile`` stays allowed) -- and against every '.'- or
+':'-separated part of a string or bytes constant; a string that is itself Python code (it parses and holds a statement
+or a call) is read like the cell's own code, to two levels. So importing a listed name from another module (``from
+webbrowser import subprocess``), binding it to another name first (``c = connections``, ``run = os.system``) or
+looking it up by a literal string (``import_string('subprocess.run')``) is reported too. The guard makes no claim of
+completeness.
 
 What the guard does not see: it reads only the notebook's own source, so deliberate obfuscation is out of its
 reach. (1) Values assembled or looked up at runtime: a name, module, SQL statement or file path built from pieces
