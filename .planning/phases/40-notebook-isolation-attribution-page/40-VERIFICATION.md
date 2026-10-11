@@ -1,8 +1,8 @@
 ---
 phase: 40-notebook-isolation-attribution-page
-verified: 2026-10-10T20:24:06Z
+verified: 2026-10-11T01:51:02Z
 status: gaps_found
-score: 142/146 must-haves verified (prohibitions 42/42, one superseded by D-G2)
+score: 163/167 must-haves verified (prohibitions 49/49, one superseded by D-G2)
 covered_files:
   - ".planning/phases/40-notebook-isolation-attribution-page/40-01-PLAN.md"
   - ".planning/phases/40-notebook-isolation-attribution-page/40-01-SUMMARY.md"
@@ -28,6 +28,10 @@ covered_files:
   - ".planning/phases/40-notebook-isolation-attribution-page/40-11-SUMMARY.md"
   - ".planning/phases/40-notebook-isolation-attribution-page/40-12-PLAN.md"
   - ".planning/phases/40-notebook-isolation-attribution-page/40-12-SUMMARY.md"
+  - ".planning/phases/40-notebook-isolation-attribution-page/40-13-PLAN.md"
+  - ".planning/phases/40-notebook-isolation-attribution-page/40-13-SUMMARY.md"
+  - ".planning/phases/40-notebook-isolation-attribution-page/40-14-PLAN.md"
+  - ".planning/phases/40-notebook-isolation-attribution-page/40-14-SUMMARY.md"
   - ".planning/phases/40-notebook-isolation-attribution-page/40-UI-SPEC.md"
   - "CLAUDE.md"
   - "docs/notebooks/README.md"
@@ -41,6 +45,7 @@ covered_files:
   - "docs/notebooks/pre_executed/sync_gemini_observation_calendar_demo.ipynb"
   - "docs/notebooks/pre_executed/telescope_runs_demo.ipynb"
   - "docs/runbooks/telescope_runs_calendar.rst"
+  - "pyproject.toml"
   - "solsys_code/campaign_tables.py"
   - "solsys_code/campaign_views.py"
   - "solsys_code/tests/test_attribution_template.py"
@@ -52,7 +57,7 @@ covered_files:
   - "src/fomo/settings.py"
   - "src/templates/campaigns/attribution_queue.html"
   - "src/templates/campaigns/partials/attribution_return_state.html"
-covered_digest: "v3:sha256:2b1c16ac43f2d9722914d0702205608153129d587376e64e9610d243284f979c"
+covered_digest: "v3:sha256:a46cd003db2a6ed6a21677d9339a0cfe408457ef98518d3ad09ecec17f9d83dd"
 behavior_unverified: 0
 overrides_applied: 0
 overrides:
@@ -105,73 +110,96 @@ overrides:
     accepted_at: "2026-10-10T23:20:47Z"
 re_verification:
   previous_status: gaps_found
-  previous_score: 112/115 (prohibitions 31/31)
+  previous_score: 142/146 (prohibitions 42/42)
   gaps_closed:
-    - "Round-3 CR-01 and CR-02 literal routes: re-exported subprocess, lookups by literal string, a shell escape after a line magic, IPython aliases, %alias, %rehashx and %pip are all reported now (82 guard tests green in the verifier's run)"
-    - "CLAUDE.md paired-docs rule / D-G2 (round-3 WR-02): no notebook says 'never opened', 'opened for writing' or 'never ... writes the developer'; T1 is in all eight teardown cells; only six markdown cells changed and every code cell and output is identical to 1930f31"
+    - "Round-4 CR-01 (automagic exemption): `_module_bindings` is gone and `_automagic_word(view)` exempts only a builtin, a keyword or a word followed by = or ,. The verifier's inert run on a copy of import_campaign_csv_demo: each of the seven rm bindings alone gives [], and with an `rm -r -- '../../src'` cell after the setup cell each gives one R0 automagic problem"
+    - "Round-4 WR-01 (rebound shutil): `sh = shutil` then `sh.copytree(...)` and `from zipfile import shutil as s` then `s.copytree(...)` are each reported by R6 (verifier inert run)"
+    - "40-10 must_have 10.11: superseded and met, because the exemption it narrowed no longer exists"
+    - "Round-4 advisories WR-02 (R5/R7 bytes) and IN-02 (ipykernel in the dev extra): both fixed (4f02628, ccfc578)"
   gaps_remaining:
-    - "ROADMAP SC 2 (first half) / WARN-02: narrowed to two places where the guard's code is narrower than its stated claims (round-4 review CR-01 and WR-01). The override reason makes the CR-01 claim itself, so the override does not apply"
-    - "40-08 must_have 8.14 / 40-11 must_have 11.1: the guard docstring, README and override reason still state those two claims"
+    - "ROADMAP SC 2 (first half) / WARN-02: now narrowed to the round-5 review's CR-01 and CR-02 routes. They are outside the override's residual, and the override reason itself claims 'any write_bytes', so the override does not apply"
+    - "40-08 must_have 8.14 / 40-11 must_have 11.1, joined by 40-14 must_have 14.2: the guard docstring, README and override reason still claim more than the code checks (CR-01, CR-02; WR-01 wording)"
   regressions: []
 gaps:
-  - truth: "ROADMAP SC 2 (first half) / WARN-02: The notebook guard test fails for a notebook whose current source routes Django to the developer database even when that notebook's committed output is stale (round-4 review CR-01 and WR-01)"
+  - truth: "ROADMAP SC 2 (first half) / WARN-02: The notebook guard test fails for a notebook whose current source routes Django to the developer database even when that notebook's committed output is stale (round-5 review CR-01 and CR-02)"
     status: partial
     reason: >-
-      Two literal routes in the notebook's own source fall outside the override's residual. The override can't be
-      applied because one of its own claims is false. (1) Round-4 CR-01, reproduced by the verifier: the automagic
-      rule skips a one-line cell whose first word is in `bound`. `_module_bindings` fills `bound` with every Name
-      stored anywhere outside function, class, lambda and comprehension bodies. That includes a bare annotation,
-      an `if False:` branch, the target of an empty `for` loop and an `except ... as` name. The verifier's inert
-      check found that the guard counts each of these as bound, yet none of them leaves the name in the namespace
-      at runtime (control: a plain assignment does). IPython's `is_shadowed` (prefilter.py:62-70) checks
-      `ip.user_ns` at runtime. So a later one-line cell that starts with a default alias name is run by automagic
-      and the guard reports nothing. Both cells are readable literal source, so this is not in residual 1, 2 or 3.
-      The override reason says "unless an earlier cell binds that name", which the code does not check. (2)
-      Round-4 WR-01, reproduced: `_byte_copy_problems` adds to `shutil_names` only from `import shutil as X`.
-      Placeholder source that rebinds the module with a plain assignment and then calls `copytree` gives R6 0
-      problems, R7 0 and R12 0. The reviewer rated this a warning because it said the destination must be built
-      from joined path parts. The verifier disagrees. The scratch file has the developer database's base name, as
-      R6's own docstring says, so a whole-directory copy can land on the developer database through a literal
-      directory path. Such a path is neither assembled nor named. The guard docstring says R6 follows "shutil or
-      an alias of it". The override reason says these functions are reported when "called".
+      Two families of literal notebook source escape R6, and neither is named in the override's residual. The
+      verifier reproduced both with the guard's own isolation_problems() on a deep copy of
+      import_campaign_csv_demo.ipynb with the source appended to its setup cell. (1) CR-01: shutil handed to a
+      parameter as a call argument is never added to the shutil names. Six forms give []: `def put(sh): ...
+      sh.copy(f, repo_root_path / 'src')` then `put(shutil)`; an immediately called lambda; `map(lambda sh:
+      sh.move(...), [shutil])`; a keyword-only parameter given `sh=shutil`; `match shutil: case sh:`; and `match
+      shutil: case object(copy=c): c(...)`. The control, a parameter default `def put(sh=shutil)`, is reported. (2)
+      CR-02: `match repo_root_path / 'src' / f.name: case object(write_bytes=w): w(f.read_bytes())` gives [],
+      because BYTE_WRITE_NAMES is matched only as a Name, an Attribute or a string part, never as a class-pattern
+      attribute (`_identifiers` yields kwd_attrs, but R6 uses `_identifiers` only for DISTINCTIVE_COPY_NAMES). The
+      control `.write_bytes(...)` is reported. A plain Python check with a stand-in object confirmed that a
+      parameter, a lambda argument and `case object(copy=c)` / `case object(write_bytes=w)` all bind the method at
+      runtime. The scratch file is named fomo_db.sqlite3, so each form lands on src/fomo_db.sqlite3 through a literal
+      directory path. Against the override's exact residual words: the routes are not a function's return value, a
+      call's side effect or a module holding shutil under another name (R6's stated boundary), and they are not
+      values assembled at runtime, code outside the notebook, or output JavaScript or HTML (RES). They are outside
+      the accepted residual. The reason also says R6 reports "any write_bytes", which CR-02 shows is false. So the
+      override is carried forward verbatim and not applied. Practical weight, for the developer: residual (2)
+      already accepts `Path.replace`, `rename` and `open` in a write mode, which give the same effect, so these
+      routes add no new capability. The finding is that the guard's code and its documented boundary disagree, the
+      standard this phase has applied in every round.
     artifacts:
       - path: "solsys_code/tests/test_pre_executed_notebooks.py"
-        issue: "_module_bindings (lines 416-441) counts source-level stores that bind nothing at runtime, and ignores a later `del`; the R0 loop (lines 933-964) uses it as the automagic exemption"
+        issue: "_binding_pairs / _shutil_names (lines ~722-792) follow assignment-shaped bindings and parameter defaults only; a parameter given shutil as a call argument, a match capture and a class-pattern attribute are not followed"
       - path: "solsys_code/tests/test_pre_executed_notebooks.py"
-        issue: "_byte_copy_problems (lines ~704-760): shutil_names grows only from `import shutil as X`; neither `X = shutil` nor `from <module> import shutil` is followed"
+        issue: "_byte_copy_problems (lines ~858-863) matches BYTE_WRITE_NAMES only as ast.Attribute or ast.Name, not at every identifier"
     missing:
-      - "Narrow the automagic exemption to bindings that certainly exist: unconditional top-level Assign, AnnAssign with a value, Import/ImportFrom, def and class, minus top-level `del`. Or drop the exemption entirely apart from a following `=` or `,`: no real notebook needs it (the verifier ran _automagic_word(view, set()) on every one-line cell of all eight notebooks and none needed it)"
-      - "Add the four non-binding forms (bare annotation, if False, empty for, except-as) and a `del` case to test_a_one_line_magic_or_alias_is_a_problem_unless_the_notebook_defines_the_name, on a copy of a real notebook"
-      - "R6: report the distinctive copy names (copy2, copyfile, copytree, copyfileobj) wherever they appear, as R12 does, and grow shutil_names from `X = shutil` and from any `import shutil`; add the two rebinding forms to TestR6CopyAndWriteFunctions"
+      - "R6: report the module name itself (`shutil`, and tempfile's `_shutil`) at every identifier and string part, like DISTINCTIVE_COPY_NAMES, which also closes the three exceptions R6's boundary now names. No real notebook mentions shutil (grep count 0 in all eight). Or add the parameter-argument, lambda, match-capture and class-pattern routes to the stated boundary in the docstring, README and override reason (that needs the developer's approval)"
+      - "R6: match BYTE_WRITE_NAMES through `_identifiers`, as DISTINCTIVE_COPY_NAMES is. No real notebook contains write_bytes (grep count 0 in all eight)"
+      - "Add the six CR-01 forms and the CR-02 class-pattern form to TestR6CopyAndWriteFunctions, on a copy of a real notebook"
       - "Keep all eight real notebooks green"
-  - truth: "40-08 must_have 8.14 and 40-11 must_have 11.1: the guard docstring says what the guard reports and names exactly what stays out of reach"
+  - truth: "40-08 must_have 8.14, 40-11 must_have 11.1 and 40-14 must_have 14.2: the guard docstring says what the guard reports and names exactly what stays out of reach (and the 40-14 draft names as not followed exactly the forms the code does not follow)"
     status: failed
-    reason: "The root cause is the same as the gap above. Docstring lines 31-32 say 'unless an earlier cell binds that name', and lines 39-40 say R6 follows 'shutil or an alias of it'. README lines 94-96 say the guard checks that a notebook 'never byte-copies ... with shutil's copy functions' and 'has no one-line cell that IPython would run as a magic or an alias'. The developer-approved override reason repeats the first claim. All of these are true only after the fix above."
+    reason: >-
+      Same root cause as the gap above, plus one wording point. The module docstring (lines 47-54) and README (lines
+      95-97) say R6 reports "any write_bytes" and reports copy and move "when they are read from shutil or from a name
+      the notebook binds to it". A parameter or a match capture is such a name, and the boundary does not list it.
+      README line 100 says the docstring "says exactly what each rule follows", which the CR-01/CR-02 table
+      contradicts. Docstring lines 39-40 say "The code under a harmless magic is checked by every later rule", but
+      `is_django_backed` (line ~586) parses the raw source, so `%%capture` / `x = 1; import django as dj` /
+      `dj.setup()` switches R2-R4 and R8-R11 off in isolation_problems() (verifier inert run: is_django_backed False,
+      problems []; the same code without the magic gives two problems). This is the review's WR-01. It is not a
+      route in the suite, because test_the_real_notebook_check_is_not_vacuous requires all eight notebooks to be
+      is_django_backed on raw source (verifier: the same cell inserted into a copy of a real notebook is reported).
+      But the docstring claim is false of the function it describes. The override reason, approved by the
+      developer, repeats "any write_bytes" and the R6 boundary.
     artifacts:
       - path: "solsys_code/tests/test_pre_executed_notebooks.py"
-        issue: "module docstring lines 29-41"
+        issue: "module docstring lines 39-40 (every later rule), 47 (any write_bytes), 49-54 (R6 boundary); _byte_copy_problems docstring 'any reference to a byte-write method'"
       - path: "docs/notebooks/README.md"
-        issue: "lines 91-97"
+        issue: "lines 95-97 (write_bytes, 'a name the notebook binds to it') and line 100 ('says exactly what each rule follows')"
     missing:
-      - "After the fix, make sure the docstring, the README and the override reason state what the code checks, for example 'unless an earlier cell binds that name with a top-level assignment, import, def or class'. Rewording the override reason needs the developer's approval again"
+      - "After the R6 fix, make the docstring, README and override reason state what the code checks. Rewording the override reason needs the developer's approval again"
+      - "WR-01: either gate R2-R4 and R8-R11 on the Python views (`any(tree is not None and _django_imports(tree) for _n, _c, tree in parsed)`) and add the review's probe to TestR0AllowList, or drop 'every later rule' from the docstring"
 advisory:
-  - finding: "Round-4 WR-02: R5/R7 read only str constants, so a bytes literal naming fomo_db.sqlite3 is not reported by R7"
+  - finding: "Round-5 WR-02: R0 does not see IPython's dynamic autocall of IPyAutocall objects; `exit -1` is valid Python, and IPython rewrites it to `exit(-1)` (IPyAutocallChecker, prefilter.py; InteractiveShell.transform_cell runs prefilter on one-line cells)"
     category: other
-    reason: "Not blocking: R12 still reports it, because a bytes constant is split on '.' and 'sqlite3' is a listed name (verifier inert check: R12 1 problem). The docstring's R7 wording overstates; the _constant_text fix is cheap"
-    evidence_status: "inert check run; route is caught by R12"
-  - finding: "Round-4 IN-01: the helper's logged warning says 'no database is reachable'; a non-dict DATABASES alias raises TypeError in the switch loop"
+    reason: "No database route: exit and quit only end the kernel, and the __call__ body of a user-defined autocall object is notebook code that every rule reads. The docstring's 'Python that IPython runs unchanged' overstates. Cheap to fix in the same wording pass ('apart from IPython's autocall of exit and quit', or add IPyAutocall to DYNAMIC_CODE_NAMES)"
+    evidence_status: "inert check run (guard returns [] for `exit -1`); IPython 9.10.1 source read"
+  - finding: "Round-5 IN-01: README and docstring leave out the R5 keyword check, R10, R8's error-output check and R11's setup-cell assert check"
     category: other
-    reason: "Wording only. The cached wrappers are still dropped after the log line. A non-dict alias is refused by Django at the first query. Already recorded for Phase 41 in 40-11-SUMMARY"
-    evidence_status: "code read (fomo_nb_utils.py _disable_django_databases)"
-  - finding: "Round-4 IN-02: ipykernel reaches the dev environment only through the unpinned jupyter metapackage"
+    reason: "Leaving a check out understates coverage and makes no false claim; the README points to the docstring"
+    evidence_status: "code read (isolation_problems R8, R10, R11)"
+  - finding: "Round-5 IN-02: the magic-name pin test uses a plain InteractiveShell, not ipykernel's ZMQInteractiveShell"
     category: other
-    reason: "If ipykernel is missing, the guard fails loudly with ImportError rather than passing, so it fails closed. Pinning ipykernel in the dev extra is housekeeping"
-    evidence_status: "code read (lines 402-406)"
+    reason: "The two sets match today. Verifier child process (own IPYTHONDIR): ZMQInteractiveShell with storemagic minus the guard set is empty in both directions. A future ipykernel magic would go unnoticed until the pin is switched"
+    evidence_status: "child-process check run"
+  - finding: "Round-4 IN-01 (carried): the helper's logged warning wording; a non-dict DATABASES alias"
+    category: other
+    reason: "Out of scope by developer decision 2026-10-10; recorded for Phase 41"
+    evidence_status: "code read; unchanged since the previous report"
 human_verification:
-  - test: "Decide on the guard fix and the override wording"
-    expected: "Either fix CR-01 and WR-01 as described in gaps[0].missing and approve the override reason again (reworded if needed), or accept these two routes on purpose with a reason that names them. Accepting them would change what SC 2 means, so the wording has to be the developer's"
-    why_human: "Accepting residual risk is the developer's decision. The verifier cannot widen an override"
-  - test: "Read docs/notebooks/README.md lines 91-99 and the guard module docstring after the fix"
+  - test: "Decide how to close the round-5 R6 routes and approve the override wording again"
+    expected: "Either (A) report `shutil` and match write_bytes at every identifier, then reword the docstring, README and override reason to the simpler claim and approve it, or (B) keep the code and approve a reason and docstring whose R6 boundary names a parameter given shutil as a call argument, a match capture and a class-pattern attribute, and that drops 'any write_bytes'"
+    why_human: "Accepting residual risk and wording the override are the developer's decisions. The verifier cannot widen an override"
+  - test: "Read docs/notebooks/README.md lines 91-104 and the guard module docstring after the fix"
     expected: "Clear and honest about what the guard reports and what it cannot see"
     why_human: "Documentation wording (40-11 D1/D2 human_judgment: true)"
   - test: "Read both snapshot notebooks' prose against this regeneration's output (reconcile cells 8b703ea8, ce1fd748, e1edbaa7, d2adacf8, 3616c012, the NF-14 labels, projector cell 35debc54)"
@@ -185,36 +213,35 @@ human_verification:
 # Phase 40: Notebook Isolation & Attribution Page Verification Report
 
 **Phase Goal:** Every pre-executed demo notebook builds and uses its own scratch database, guarded by a check that catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3, closing the remaining six Phase 37.1 review warnings (WR-13 to WR-18).
-**Verified:** 2026-10-10T20:24:06Z (HEAD 4b56819; last code change c6c6322 / 7af64d0 docstrings / 17168ff notebook markdown)
+**Verified:** 2026-10-11T01:51:02Z (HEAD cb81344; last source change 1a315e2 docstring/README, last code change 4f02628, ccfc578 pyproject)
 **Status:** gaps_found
-**Re-verification:** Yes, after gap-closure plans 40-10, 40-11 and 40-12
+**Re-verification:** Yes, after gap-closure plans 40-13 and 40-14 (gap round 5)
 
 ## Summary
 
-Gap round 4 closed most of what it set out to close. Every round-3 literal route is now reported: 82 guard
-tests, plus the helper and projector modules, ran 117 tests OK in the verifier's run. The six stale notebook
-sentences were fixed with markdown-only edits, and the verifier confirmed by a cell diff that no code cell or
-output changed. 40-11 changed only docstrings in the guard and helper modules (`ast.dump` is identical with
-docstrings removed). The attribution half is unchanged and still passes (111 tests OK).
+Gap round 5 closed both round-4 gaps in code. The automagic exemption is gone. A rebound `shutil` is followed through
+every assignment-shaped binding, and the four distinctive copy names are reported wherever they are named. R5 and R7
+read bytes, and ipykernel is declared. The developer-approved texts (decision `approve`, 2026-10-10T23:20:47Z) are
+exactly what was committed: the docstring, the README paragraph and the override reason each match their saved
+approved file. The guard's code is identical to 40-13's (ast check with docstrings removed). Guard, helper and
+projector modules: 121 tests OK in the verifier's run. The orchestrator ran the full configured suite at 51da348
+(2344 + 40 functional tests OK), and no source has changed since.
 
-SC 2's first half is still open, in two narrow places. In both, the code checks less than the guard's own
-docstring, the README and the developer-approved override reason say it does:
+SC 2's first half is still open, in one narrow place. R6 only follows shutil through assignment-shaped bindings
+and parameter defaults. So shutil handed to a function or lambda as an argument, a `match` capture, or a class-pattern
+attribute reaches `copy`/`move` unreported (review CR-01). `write_bytes` read as a class-pattern attribute is not
+reported either (CR-02). The verifier reproduced all seven forms on a copy of a real notebook. None is named in R6's
+stated boundary or in RES, and the override reason claims "any write_bytes". So the override is **carried forward
+verbatim and not applied**.
 
-1. **Automagic exemption (review CR-01, reproduced).** The guard treats a name as defined if any earlier cell
-   stores to it anywhere in its source, including statements that bind nothing at runtime. IPython decides from
-   the runtime namespace. The override reason's clause "unless an earlier cell binds that name" is therefore
-   false of the code. The verifier's rule is that an override applies only when every claim in it is true, so
-   it is **not applied**.
-2. **R6 shutil rebinding (review WR-01, reproduced; the verifier rates it higher than the review).** A plain
-   rebinding of the `shutil` module is not followed. The scratch file has the developer database's base name, so
-   copying the whole directory does not need the database to be named or a path to be assembled.
+The practical risk is small, and the developer has already accepted the same effect through other routes:
+residual (2) accepts `Path.replace`, `rename` and `open` in a write mode. Both fixes are a few lines: report the
+`shutil` module name and `write_bytes` at every identifier. No real notebook contains either name.
 
-Neither form appears in any real notebook. The fix is small, and the review has already sketched it. No real
-notebook relies on the automagic exemption.
-
-To stay safe, the verifier used inert static checks (the guard's own helper functions on placeholder source) and
-read IPython's source. It ran no notebook, ran no shell alias, and never opened `src/fomo_db.sqlite3`
-(`git status --short src/` is clean).
+To stay safe, the verifier made only inert calls of the guard's own functions on placeholder source or on deep
+copies of a real notebook. It used one child process with its own `IPYTHONDIR` to list ipykernel's magics. It ran no
+notebook, never called `django.setup()` in-process, never set `FOMO_DATABASE_PATH`, and never opened
+`src/fomo_db.sqlite3` (`git status --short src/` is clean).
 
 ## Goal Achievement
 
@@ -222,155 +249,136 @@ read IPython's source. It ran no notebook, ran no shell alias, and never opened 
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| SC1 | No notebook byte-copies or writes the dev DB; snapshot via read-only backup, others fresh; README rule and lists | ✓ VERIFIED | All eight real notebooks: `isolation_problems()` = [] (verifier script); code cells and outputs identical to 1930f31; `test_every_real_pre_executed_notebook_is_isolated` green |
-| SC2a | The guard fails a notebook whose current source routes Django to the dev DB, even with stale output | ✗ FAILED (partial). Override checked and **not applicable** | Round-3 routes closed; round-4 CR-01 and WR-01 remain (gap 1) |
-| SC2b | DB-path check raises an ordinary exception under `python -O` | ✓ VERIFIED | Helper code unchanged since 1930f31 (ast-equal without docstrings); `TestHelperFailClosedIsExceptionSafe` in the 117 OK |
-| SC3 | telescope_runs_demo reports the dip in one unit | ✓ VERIFIED | Dip pin test green; code cells and outputs unchanged |
-| SC4 | High-band marker, template test, BS 5.3 only | ✓ VERIFIED | No attribution file changed since 93aedf79; 111 OK |
-| SC5 | Undo on a Dismissed row keeps the section open on the same page | ✓ VERIFIED | Unchanged files; the orchestrator's full gate at d688504 ran 40 functional tests OK |
+| SC1 | No notebook byte-copies or writes the dev DB; snapshot via read-only backup, others fresh; README rule and lists | ✓ VERIFIED | No notebook or helper changed since the previous report (`git diff e08f8eb HEAD` empty for pre_executed/ and fomo_nb_utils.py); all eight real notebooks: `isolation_problems()` = [] (verifier script); `grep -c shutil` and `grep -c write_bytes` are 0 in all eight |
+| SC2a | The guard fails a notebook whose current source routes Django to the dev DB, even with stale output | ✗ FAILED (partial). Override checked and **not applicable** | Round-4 routes closed; round-5 CR-01 and CR-02 reproduced (gap 1) |
+| SC2b | DB-path check raises an ordinary exception under `python -O` | ✓ VERIFIED | Helper unchanged; `TestHelperFailClosedIsExceptionSafe` among the 121 OK |
+| SC3 | telescope_runs_demo reports the dip in one unit | ✓ VERIFIED | Notebook unchanged; dip pin test green |
+| SC4 | High-band marker, template test, BS 5.3 only | ✓ VERIFIED | No attribution file changed since the previous report (`git diff 4b56819 HEAD` touches only README, pyproject and the guard module); full suite OK at 51da348 |
+| SC5 | Undo on a Dismissed row keeps the section open on the same page | ✓ VERIFIED | Unchanged files; 40 functional tests OK in the orchestrator's full run |
 
 ### Override decision (ROADMAP SC 2 first half / WARN-02)
 
-The approved override (Tim Lister, accepted_at 2026-10-10T19:14:57Z) is carried forward verbatim. The verifier
-checked each claim in it against the code:
+The override (Tim Lister, accepted_at 2026-10-10T23:20:47Z, re-recorded in 8408731) is carried forward verbatim.
+The verifier tested each review route against the reason's and the docstring's exact residual words.
 
-| Claim in the reason | True of the code? | Evidence |
-|---------------------|-------------------|----------|
-| R12 lists, positions, string parts and string code | Yes | 40-10 tests green; inert checks |
-| "a listed name imported from another module, bound to another name first or looked up by a literal string is reported" | Yes | `TestThirdReviewFormsOnARealNotebook` green |
-| R0 allow-list over TransformerManager, harmless magics | Yes | `TestR0AllowList` green |
-| Automagic "unless an earlier cell binds that name" | **No** | `_module_bindings` counts a bare annotation, an `if False:` store, an empty `for` target and an `except ... as` name as bound. In the inert check, none of the four is bound at runtime, while the control (a plain assignment) is. IPython's `is_shadowed` reads `ip.user_ns` |
-| R6 reports the copy functions when "called" | **Not in every literal spelling** | Placeholder source that rebinds `shutil` with an assignment and then calls `copytree`: R6 0, R7 0, R12 0 |
-| Every review form and every real notebook pass | Yes | Tests green; 8/8 notebooks clean |
-| Residual (runtime values, decoded code, code outside the notebook, output JS/HTML) | Accurate as far as it goes | The two routes above are literal notebook source and fall outside all three residual parts |
+| Route | Named by R6's boundary ("a function's return value, a call's side effect, a module that holds shutil under another name")? | Named by RES (runtime-assembled values, decoded code, code outside the notebook, output JS/HTML)? | Verdict |
+|-------|------|------|---------|
+| CR-01 `def put(sh)` + `put(shutil)` | No: shutil is a call argument, not a return value or a side effect | No: literal source | Outside residual |
+| CR-01 immediately called lambda; `map(lambda sh: ..., [shutil])`; `put(sh=shutil)` | No | No | Outside residual |
+| CR-01 `match shutil: case sh:` | No: a capture | No | Outside residual |
+| CR-01 `case object(copy=c)` | No: a class-pattern attribute | No | Outside residual |
+| CR-02 `case object(write_bytes=w)` | No boundary is stated for write_bytes; the reason says "any write_bytes" | No | Outside residual, and it falsifies a claim in the reason |
+| WR-01 Django under `%%capture` switching off R2-R4/R8-R11 | n/a | n/a | Not a route in the suite (vacuity test); a docstring claim, which the reason does not make |
+| WR-02 `exit -1` autocall | n/a | n/a | No database capability; the reason's R0 clause is qualified by "checked with IPython's own TransformerManager" |
+| Accepted, for comparison: `f.replace(...)`, `rename`, `open(..., 'wb')` | n/a | Yes, residual (2) names them | Inside residual |
 
-One claim is false, and one route falls outside the residual, so the override is not applied (`overrides_applied: 0`).
+Five route families are outside the residual, and the reason contains one false claim ("any write_bytes"). So the
+override does not apply (`overrides_applied: 0`).
 
-### Observable Truths: 40-10 must_haves
-
-| # | Truth (abridged) | Status | Evidence |
-|---|------------------|--------|----------|
-| 10.1 | `from webbrowser/autoreload import subprocess` reported on a real notebook | ✓ VERIFIED | Test green |
-| 10.2 | Every R12 table at every identifier position | ✓ VERIFIED | Test green |
-| 10.3 | Literal-string lookups, string parts, string code | ✓ VERIFIED | Tests green |
-| 10.4 | New names; lists disjoint; IPython helpers on a real notebook | ✓ VERIFIED | Tests green; constants read |
-| 10.5 | connection proxy, Database, `ATTACH (` | ✓ VERIFIED | Tests green; ATTACH_SQL line 213 |
-| 10.6 | R6 copytree/copyfileobj/move/write_bytes; WR-01 (round 3) forms | ✓ VERIFIED (listed forms) | Tests green. A rebound `shutil` is not followed (gap 1, round-4 WR-01) |
-| 10.7 | Look-alikes allowed | ✓ VERIFIED | Test green |
-| 10.8 | R0 allow-list via TransformerManager; code under harmless magic checked | ✓ VERIFIED | Tests green; isolation_problems lines 929-967 |
-| 10.9 | CR-02 forms reported on a real notebook | ✓ VERIFIED | Tests green |
-| 10.10 | Valid-Python automagic forms and prompt prefix reported | ✓ VERIFIED | Test green |
-| 10.11 | Automagic rule: exempt only names "the notebook has bound at module level in an earlier cell" | ✗ FAILED (partial) | The exemption covers stores that bind nothing (gap 1, CR-01) |
-| 10.12 | Harmless magic lines clean; %config, other %matplotlib reported | ✓ VERIFIED | Test green |
-| 10.13 | Empty and ordering edges | ✓ VERIFIED | Code read (one R0 problem per cell, in cell order) |
-| 10.14 | No weakening | ✓ VERIFIED | No `def test_` removed from either module since 1930f31; no skip, expectedFailure or tag added |
-| 10.15 | Ledger CR-02 and WR-01 fixed | ✓ VERIFIED (historical) | f4f2cd1. The round-4 ledger later reused the ids, and the provenance is kept in fed292c |
-| 10.16 | Gate | ✓ VERIFIED | Commit file sets per 40-10-SUMMARY; `git log` order checked |
-
-### Observable Truths: 40-11 must_haves
+### Observable Truths: 40-13 must_haves
 
 | # | Truth (abridged) | Status | Evidence |
 |---|------------------|--------|----------|
-| 11.1 | Docstring "What the guard checks" describes what 40-10 made the guard report | ✗ FAILED (partial) | Accurate except two clauses: "unless an earlier cell binds that name" and "shutil or an alias of it" (gap 2) |
-| 11.2 | "What the guard does not see" is exactly RES | ✓ VERIFIED | Lines 69-77 |
-| 11.3 | 40-08 phrases kept; guard code identical to 40-10 | ✓ VERIFIED | ast-equal to c6c6322 with docstrings removed |
-| 11.4 | README guard paragraph is README_GUARD | ✓ VERIFIED (text) | Lines 91-97. The content overstates the same two points (gap 2) |
-| 11.5 | IN-01 helper docstring; helper code unchanged | ✓ VERIFIED | Docstring read; ast-equal to 1930f31 |
-| 11.6 | Docstring only, no re-execution | ✓ VERIFIED | Code cells and outputs identical to 1930f31 in all eight notebooks |
-| 11.7 | T1 in 46602df0, 234805b6, 31ff3edb; F7/F49 in setup cells | ✓ VERIFIED | Changed cells are exactly those plus 23326d63; T1 present 8/8 |
-| 11.8 | Widened style check clean | ✓ VERIFIED | `never opened`, `never .*writes the developer`, `opened for writing`: 0 hits in 8/8 |
-| 11.9 | Markdown only | ✓ VERIFIED | Cell diff (verifier script) |
-| 11.10 | Ledger rows | ✓ VERIFIED (historical) | 7a43251; later superseded by the round-4 ledger with provenance |
-| 11.11 | Gate | ✓ VERIFIED | Commit file sets per summary; no runbook change |
+| 13.1 | Seven rm bindings alone clean; with an alias cell, only R0 automagic problems | ✓ VERIFIED | Verifier inert run (7/7); test green |
+| 13.2 | No `_module_bindings`; `_automagic_word(view)`; `import time` then `time` reported; exemptions only builtin/keyword/=/, | ✓ VERIFIED | `grep -c _module_bindings` = 0; code lines 432-464; tests green |
+| 13.3 | Problem text and docstrings say "whatever an earlier cell binds" | ✓ VERIFIED | Problem text at the R0 loop; `_automagic_word` docstring |
+| 13.4 | DISTINCTIVE_COPY_NAMES at every identifier; both rebinding forms and copy/move variants reported | ✓ VERIFIED | Line 259; second pass over `_identifiers`; verifier inert run |
+| 13.5 | copy/move tied to shutil names through imports and assignment-shaped bindings; listed forms reported | ✓ VERIFIED (listed forms) | Tests green. Call-argument and match-capture routes are not in this truth's list; they are gap 1 |
+| 13.6 | Look-alikes allowed | ✓ VERIFIED | Test green |
+| 13.7 | R5/R7 read str and bytes | ✓ VERIFIED | `_constant_text(node)` in `_database_routing_problems`; test green |
+| 13.8 | `ipykernel>=7` the only pyproject change | ✓ VERIFIED | pyproject line 39; ccfc578 is 1 line |
+| 13.9 | Empty edge | ✓ VERIFIED | Code read; tests green |
+| 13.10 | Ordering edge: shutil names collected once before any cell | ✓ VERIFIED | `_byte_copy_problems` computes `shutil_names` before its cell loop |
+| 13.11 | No weakening | ✓ VERIFIED | No skip, expectedFailure or tag decorator in the module; 86 guard tests (82 before); EXPECTED_NOTEBOOKS unchanged |
+| 13.12 | Gate | ✓ VERIFIED | 905408a and 4f02628 hold only the guard module, ccfc578 only pyproject.toml |
 
-### Observable Truths: 40-12 must_haves
+### Observable Truths: 40-14 must_haves
 
 | # | Truth (abridged) | Status | Evidence |
 |---|------------------|--------|----------|
-| 12.1 | Draft with Reason and Evidence table | ✓ VERIFIED | 40-12-SUMMARY evidence table (40 rows) |
-| 12.2 | Every sentence backed; no banned phrase | ✓ VERIFIED (literal) | No "wherever it appears" and no "IPython's shell helpers" in the reason. Being backed by a test does not make the automagic clause true of the code (see Override decision) |
-| 12.3 | Blocking-human approval | ✓ VERIFIED | Approved 2026-10-10T19:14:57Z |
-| 12.4 | Only reason and accepted_at changed; commit holds only the report | ✓ VERIFIED | `git show --stat 44c33c6`: only 40-VERIFICATION.md; the diff outside the reason block is accepted_at only |
+| 14.1 | Draft with five sections before any change | ✓ VERIFIED | `$HOME/tmp/phase40-14-draft.md` (15:28 local), approved files 16:21, commit 1a315e2 16:23 |
+| 14.2 | Drafted "What the guard checks" says exactly what 40-13 checks and names exactly the forms not followed | ✗ FAILED (partial) | R6's boundary omits the CR-01 routes; "any write_bytes" is false (CR-02); "checked by every later rule" is false of `isolation_problems` (WR-01). Gap 2 |
+| 14.3 | README paragraph content and phrases | ✓ VERIFIED (text) | Required phrases present; the same overstatements as 14.2 (gap 2) |
+| 14.4 | Override reason structure, hashes, evidence rows, no banned phrase | ✓ VERIFIED (literal) | Reason equals the approved text; being approved does not make "any write_bytes" true (see Override decision) |
+| 14.5 | Blocking-human checkpoint; reply saved | ✓ VERIFIED | `phase40-14-decision.txt`: `approve`, `approved_at: 2026-10-10T23:20:47Z` |
+| 14.6 | Docstring and README equal the approved texts; guard code identical to 40-13 | ✓ VERIFIED | Verifier script: docstring == approved, README contains approved paragraph, ast (docstrings stripped) equal to 4f02628 |
+| 14.7 | Ledger | ✓ VERIFIED (historical) | 45199cc changed 10 lines; superseded by the round-5 ledger (83be929, 03d9b0b), with provenance kept |
+| 14.8 | Override record: only reason and accepted_at | ✓ VERIFIED | `git show 8408731`: only the reason block and accepted_at change |
+| 14.9 | Paired docs | ✓ VERIFIED | README changed; no helper or notebook change, so no re-execution needed |
 
-The decline branch (12.5) does not apply.
+### Carried truths (40-01 to 40-12)
 
-### Carried truths (40-01 to 40-09)
+Nothing they depend on changed: the helper, all eight notebooks and every attribution file are unchanged since the
+previous report. 10.11 now passes, because the exemption it narrowed is gone. SC2a, 8.14 and 11.1 stay failed, now
+for the round-5 reasons.
 
-The previous report's 115 truths were checked for regressions. Nothing they depend on changed in code: the
-helper code is ast-identical, notebook code cells and outputs are identical, and the attribution files are
-unchanged. PD.1 (paired prose) is now ✓ VERIFIED. SC2a and 8.14 stay failed, now for the round-4 reasons.
-
-**Score:** 142/146 truths verified, 0 present but behavior-unverified. The 146 are 115 carried (113 verified;
-SC2a and 8.14 failed), 16 from 40-10 (10.11 failed), 11 from 40-11 (11.1 failed) and 4 from 40-12. All four
-failures have one root cause.
+**Score:** 163/167 truths verified, 0 present but behavior-unverified. The 167 are 146 carried (143 verified now;
+SC2a, 8.14 and 11.1 failed), 12 from 40-13 and 9 from 40-14 (14.2 failed). All four failures have one root cause.
 
 ### Prohibitions
 
 | Plan | Prohibition | Status | Evidence |
 |------|-------------|--------|----------|
-| 40-01..40-09 | 31 carried | ✓ VERIFIED (one superseded by D-G2) | No regression |
-| 40-10 | Guard not weakened | ✓ VERIFIED | No test removed; no skip or tag added; EXPECTED_NOTEBOOKS unchanged |
-| 40-10 | No dev DB, no FOMO_DATABASE_PATH, no IPython shell in the test process | ✓ VERIFIED | `git status --short src/` clean |
-| 40-10 | No notebook, README, helper or VERIFICATION edit | ✓ VERIFIED | 40-10 commit file sets |
-| 40-10 | Out-of-scope items untouched | ✓ VERIFIED | No attribution, runbook or campaign_views change |
-| 40-11 | No code change in guard or helper; no re-execution | ✓ VERIFIED | ast-equal checks; outputs identical |
-| 40-11 | No overclaiming wording | ✓ VERIFIED (literal) | Banned phrases absent. The two remaining overstatements are recorded as gap 2 |
-| 40-11 | No VERIFICATION, review or runbook edit | ✓ VERIFIED | Commit file sets |
-| 40-11 | No dev DB access | ✓ VERIFIED | |
-| 40-12 | Nothing written before approval; only approved text | ✓ VERIFIED | Summary timeline; single commit 44c33c6 |
-| 40-12 | Other front-matter keys and body unchanged | ✓ VERIFIED | Diff checked |
-| 40-12 | No code, test, notebook, README or ledger edit; no push | ✓ VERIFIED | Commit file set |
+| 40-01..40-12 | 42 carried | ✓ VERIFIED (one superseded by D-G2) | No regression |
+| 40-13 | Guard not weakened | ✓ VERIFIED | No test removed; no skip or tag; lists unchanged |
+| 40-13 | No dev DB, no FOMO_DATABASE_PATH, no in-process shell, no installer | ✓ VERIFIED | `git status --short src/` clean |
+| 40-13 | No notebook, README, helper, docstring, CLAUDE.md, .github or ledger edit | ✓ VERIFIED | Commit file sets |
+| 40-13 | Out-of-scope items untouched | ✓ VERIFIED | No attribution, template or runbook change |
+| 40-14 | Nothing written before the reply; only approved text | ✓ VERIFIED | File timestamps; approved texts match the committed ones |
+| 40-14 | No code change; only reason and accepted_at in VERIFICATION; no push | ✓ VERIFIED | ast check; 8408731 diff |
+| 40-14 | No dev DB access | ✓ VERIFIED | Inert checks only |
 
-### Round-4 review findings (40-REVIEW.md): explicit classification
+### Round-5 review findings (40-REVIEW.md): explicit classification
 
 | Finding | Reproduced? | Classification | Reasoning |
 |---------|-------------|----------------|-----------|
-| CR-01 automagic exemption wider than runtime binding | **Yes** (inert `_module_bindings` check against plain Python namespaces; IPython `is_shadowed` source read) | **Gap** (gap 1 and gap 2) | Literal notebook source outside every residual part, and it falsifies a claim the override itself makes |
-| WR-01 R6 follows `shutil` only through `import shutil as X` | **Yes** (inert `_byte_copy_problems` check: 0 problems) | **Gap** (part of gap 1; rated higher than the review) | The scratch file has the dev DB's base name, so a whole-directory copy to a literal directory needs neither a joined path nor the DB name. The review's reason for rating it a warning does not hold |
-| WR-02 R5/R7 read only str constants | **Partly.** R7 misses a bytes literal, but R12 reports it through the `sqlite3` part | **Not a gap** (advisory) | The route is still reported; only the R7 docstring wording overstates |
-| IN-01 log wording; non-dict alias TypeError | Code read | **Not a gap** (advisory) | Fail-closed behavior holds; wording only. Phase 41 |
-| IN-02 ipykernel through the jupyter metapackage | Code read | **Not a gap** (advisory) | A missing ipykernel makes the guard error out, which fails closed |
+| CR-01 shutil through a call argument, lambda, map, keyword, match capture, class-pattern attribute | **Yes**, all six forms give [] on a copy of import_campaign_csv_demo; control (parameter default) reported; runtime binding confirmed with a stand-in | **Gap** (gap 1, gap 2) | Literal source outside R6's stated boundary and RES; contradicts the README's "a name the notebook binds to it" |
+| CR-02 `case object(write_bytes=w)` | **Yes**, [] (control reported) | **Gap** (gap 1, gap 2) | Outside residual; falsifies "any write_bytes" in the reason, docstring and README |
+| WR-01 `is_django_backed` reads raw source | **Yes** in isolation (is_django_backed False, []); **refuted** as a suite route: inserted into a real notebook copy it is reported, and the vacuity test requires raw Django imports in all eight | **Gap in wording only** (part of gap 2); not a route | The docstring sentence "checked by every later rule" is false of the function; the suite holds |
+| WR-02 autocall `exit -1` | **Yes** (guard []; IPython source confirms the dynamic rewrite) | **Not a gap** (advisory) | No database capability; wording fix suggested |
+| IN-01 README/docstring omit checks | Code read | **Not a gap** (advisory) | Understatement, not a false claim |
+| IN-02 pin against a plain shell | Child-process check: sets identical today | **Not a gap** (advisory) | Housekeeping |
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `solsys_code/tests/test_pre_executed_notebooks.py` | R12, R6, R0 allow-list and automagic rule, real-notebook tests, accurate docstring | ⚠️ VERIFIED with coverage gap | 82 tests green; CR-01 and WR-01 (gap 1); docstring clauses (gap 2) |
-| `docs/notebooks/README.md` | Guard paragraph and IN-01 clause | ⚠️ VERIFIED (text) | Overstates the same two points (gap 2) |
-| `docs/notebooks/fomo_nb_utils.py` | IN-01 docstring only | ✓ VERIFIED | Code ast-identical to 1930f31 |
-| 4 edited notebooks | Six markdown sentences | ✓ VERIFIED | Cell diff; style check clean |
-| 40-VERIFICATION.md override | Approved reason recorded | ✓ VERIFIED (recorded, not applicable) | Carried verbatim |
-| Attribution artifacts | Unchanged | ✓ VERIFIED | 111 OK |
+| `solsys_code/tests/test_pre_executed_notebooks.py` | R0 without exemption, R6 distinctive names and notebook-wide shutil names, R5/R7 bytes, accurate docstring | ⚠️ VERIFIED with coverage gap | 86 tests green; CR-01/CR-02 (gap 1); docstring (gap 2) |
+| `pyproject.toml` | `ipykernel>=7` | ✓ VERIFIED | Line 39 |
+| `docs/notebooks/README.md` | Approved guard paragraph | ⚠️ VERIFIED (text) | Overstates R6 and "exactly" (gap 2) |
+| `40-REVIEW-DISPOSITION.md` | Round-4 rows recorded | ✓ VERIFIED | Round-5 rows open, round-4 decisions kept with provenance |
+| `40-VERIFICATION.md` override | Approved reason recorded | ✓ VERIFIED (recorded, not applicable) | Carried verbatim |
+| Helper, notebooks, attribution artifacts | Unchanged | ✓ VERIFIED | git diff empty |
 
 ### Key Link Verification
 
 | From | To | Via | Status |
 |------|----|-----|--------|
-| R0 loop | `_python_view`, `_ipython_rewrites`, `_automagic_word` | lines 936-962 | ✓ WIRED (exemption too wide: gap 1) |
-| R0 loop | later rules | `parsed = views` (line 967) before `problems.extend(...)` | ✓ WIRED |
-| `_automagic_word` | IPython magic registry | `_ipython_line_magic_names()` with `default_aliases` | ✓ WIRED |
-| `TestThirdReviewFormsOnARealNotebook` | import_campaign_csv_demo.ipynb | deep copies | ✓ WIRED |
-| Teardown markdown | teardown output line 2 | T1 | ✓ WIRED (8/8) |
-| Override reason | docstring RES | same residual text | ✓ WIRED (one false claim: see Override decision) |
+| isolation_problems R0 loop | `_automagic_word` | `_automagic_word(view)`, no bound set | ✓ WIRED |
+| `_byte_copy_problems` | `_shutil_names`, `_mentions_shutil` | collected once over every cell and string code | ✓ WIRED (does not follow call arguments or match patterns: gap 1) |
+| `_byte_copy_problems` | `_identifiers` | DISTINCTIVE_COPY_NAMES only; BYTE_WRITE_NAMES not routed through it | ⚠️ PARTIAL (gap 1, CR-02) |
+| `_database_routing_problems` | `_constant_text` | `_constant_text(node)` | ✓ WIRED |
+| `_ipython_line_magic_names` | pyproject dev extra | `ipykernel>=7` | ✓ WIRED |
+| Gating of R2-R4/R8-R11 | Python views | `is_django_backed(notebook)` reads raw source | ⚠️ PARTIAL (WR-01; the suite is covered by the vacuity test) |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data | Source | Real data | Status |
 |----------|------|--------|-----------|--------|
 | Notebook Resolved line | resolved NAME | lazy settings, checked before setup | Yes | ✓ FLOWING (unchanged) |
-| Teardown second line | what setup checked | `check_database_settings` before `django.setup()` | Yes | ✓ FLOWING |
-| Attribution page state | return state | unchanged | Yes | ✓ FLOWING |
+| Teardown second line | what setup checked | `check_database_settings` before `django.setup()` | Yes | ✓ FLOWING (unchanged) |
+| Attribution page state | return state | unchanged | Yes | ✓ FLOWING (unchanged) |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Guard, helper, projector | `python manage.py test --noinput --parallel auto ...test_notebook_helper ...test_pre_executed_notebooks ...test_projector_demo_notebook` | Ran 117 tests, OK | ✓ PASS |
-| Attribution regression | `... test_attribution_template test_campaign_attribution_views test_bootstrap5_rendering --exclude-tag functional` | Ran 111 tests, OK | ✓ PASS |
-| CR-01 binding helper vs runtime | `$HOME/tmp/verify40r4/inert.py` (placeholder name, no alias run) | 4 non-binding forms: guard bound True, runtime False; control True/True | ✗ FAIL (gap 1) |
-| WR-01/WR-02 inert | `$HOME/tmp/verify40r4/inert2.py` (placeholder arguments) | rebound shutil: R6 0; bytes DB literal: R12 1 | ✗ FAIL (WR-01) / ✓ (WR-02 caught) |
-| Real notebooks | same script | 8/8 `isolation_problems` = []; no one-line cell needs the exemption | ✓ PASS |
-| Notebook prose and code | `$HOME/tmp/verify40r4/prose.py` | stale 0 in 8/8; code and outputs same; changed cells as planned; helper and guard code ast-identical | ✓ PASS |
+| Guard, helper, projector | `python manage.py test --noinput --parallel auto solsys_code.tests.test_pre_executed_notebooks ...test_notebook_helper ...test_projector_demo_notebook` | Ran 121 tests, OK | ✓ PASS |
+| Round-4 gap closure | `$HOME/tmp/verify40r5/r4.py` | 7/7 bindings clean alone, alias cell reported; both rebinding forms reported | ✓ PASS |
+| CR-01 / CR-02 | `$HOME/tmp/verify40r5/cr.py` | 6 CR-01 forms []; CR-02 class pattern []; controls reported | ✗ FAIL (gap 1) |
+| WR-01 / WR-02 | `$HOME/tmp/verify40r5/wr.py` | magic synthetic [] vs 2 problems without the magic; real-copy reported; `exit -1` [] | ✗ (wording) / advisory |
+| IN-02 | `$HOME/tmp/verify40r5/zmq_child.py` (child, own IPYTHONDIR) | no difference either way | ✓ PASS |
+| Real notebooks and approvals | `real.py`, `appr.py` | 8/8 []; guard code equals 4f02628; texts equal the approved ones | ✓ PASS |
 | Dev DB untouched | `git status --short src/` | clean | ✓ PASS |
 
 ### Probe Execution
@@ -381,53 +389,53 @@ Step 7c: SKIPPED. No `scripts/*/tests/probe-*.sh` exists, and no plan declares o
 
 | Requirement | Source Plans | Description | Status | Evidence |
 |-------------|--------------|-------------|--------|----------|
-| WARN-02 | 40-02, 40-06..40-12 | Guard fails a notebook whose current source routes Django to the dev DB | ✗ BLOCKED (partial) | Gap 1; override not applicable |
-| WARN-03 | 40-01, 40-02, 40-05, 40-07, 40-08, 40-09, 40-11 | Ordinary exception under `-O` | ✓ SATISFIED | SC2b |
+| WARN-02 | 40-02, 40-06..40-14 | Guard fails a notebook whose current source routes Django to the dev DB | ✗ BLOCKED (partial) | Gap 1; override not applicable |
+| WARN-03 | 40-01, 40-02, 40-05, 40-07..40-09, 40-11 | Ordinary exception under `-O` | ✓ SATISFIED | SC2b |
 | WARN-04 | 40-03, 40-04 | BS 5.3 only; High-band marker; template test | ✓ SATISFIED | SC4 |
-| WARN-05 | 40-01, 40-02, 40-05, 40-07..40-11 | Audit, shared helper, no byte copy or write, README rule and lists | ✓ SATISFIED | SC1; paired prose now fixed |
+| WARN-05 | 40-01, 40-02, 40-05, 40-07..40-11, 40-13 | Audit, shared helper, no byte copy or write, README rule and lists | ✓ SATISFIED | SC1. The real notebooks are clean; the guard's R6 coverage gap is counted under WARN-02 |
 | WARN-06 | 40-02 | Dip in one unit | ✓ SATISFIED | SC3 |
 | WARN-07 | 40-04 | Undo keeps Dismissed open on the same page | ✓ SATISFIED | SC5 |
 
-All six IDs appear in plan frontmatter and in REQUIREMENTS.md (rows 102-107, Phase 40). No requirement is orphaned.
+All six IDs appear in plan front matter and in REQUIREMENTS.md (Phase 40). No requirement is orphaned.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| solsys_code/tests/test_pre_executed_notebooks.py | 416-441 | Exemption built from source-level stores, not runtime bindings | 🛑 Blocker | Gap 1 (carried-forward gap, and the file changed since the prior verification) |
-| solsys_code/tests/test_pre_executed_notebooks.py | ~704-760 | `shutil` followed only through `import shutil as X` | 🛑 Blocker | Gap 1 (same evidence basis) |
-| solsys_code/tests/test_pre_executed_notebooks.py, docs/notebooks/README.md | 29-41; 91-97 | Wording claims more than the code does | ⚠️ Warning | Gap 2 |
-| solsys_code/tests/test_pre_executed_notebooks.py | ~694 | R7 str-only | ℹ️ Info | Advisory (caught by R12) |
-| docs/notebooks/fomo_nb_utils.py | 208-210 | Log wording | ℹ️ Info | Advisory (IN-01) |
+| solsys_code/tests/test_pre_executed_notebooks.py | ~722-792 | shutil names grow only from assignment-shaped bindings and parameter defaults | 🛑 Blocker | Gap 1 (carried-forward gap; the file changed since the prior verification) |
+| solsys_code/tests/test_pre_executed_notebooks.py | ~858-863 | write_bytes matched only as Name/Attribute | 🛑 Blocker | Gap 1 |
+| solsys_code/tests/test_pre_executed_notebooks.py, docs/notebooks/README.md | 39-54; 95-100 | Wording claims more than the code checks | ⚠️ Warning | Gap 2 |
+| solsys_code/tests/test_pre_executed_notebooks.py | ~586, ~1093 | Django-backed gate on raw source | ℹ️ Info | WR-01; covered at suite level |
 
-No TBD, FIXME, XXX, TODO or HACK in lines added since 1930f31.
+No TBD, FIXME, XXX, TODO or HACK in the lines 40-13 and 40-14 added.
 
 ### Human Verification Required
 
 These items do not change the gaps_found status.
 
-1. **Guard fix and override wording.** Fix CR-01 and WR-01, and approve the override reason again (reworded
-   if needed), or accept the two routes on purpose with a reason that names them. Why human: accepting
-   residual risk is the developer's decision.
+1. **Close the R6 routes and approve the override wording again.** Option (A): report `shutil` and match
+   `write_bytes` at every identifier, then simplify the wording. Option (B): keep the code and name the
+   call-argument, match-capture and class-pattern routes in the boundary, and drop "any write_bytes". Why human:
+   accepting residual risk is the developer's decision.
 2. **README guard paragraph and guard docstring** after the fix. Why human: wording.
 3. **Snapshot notebook prose** (carried). Why human: prose accuracy.
 4. **Runbook attribution-pass wording** (round-1 IN-03, kept for Phase 41). Why human: wording.
 
 ### Gaps Summary
 
-There is one root cause, which shows up as two gaps: **the guard's code is narrower than what its docstring,
-the README and the approved override reason say it checks.**
+There is one root cause again: **R6's code is narrower than what the docstring, the README and the approved override
+reason say it checks.** R6 follows shutil only through assignment-shaped bindings and parameter defaults. It matches
+`write_bytes` only as a name or an attribute, so a call argument, a `match` capture and a class-pattern attribute go
+unreported. The cheapest complete fix is the review's: R6 reports the `shutil` module name and `write_bytes` at
+every identifier, the way it already reports `copytree`. No real notebook uses either name, so all eight stay
+green. The boundary text then shrinks to nothing. While the docstring is open, fix the WR-01 sentence ("checked by
+every later rule"), and optionally the WR-02 one. Rewording the override reason needs the developer's approval.
 
-- The automagic exemption trusts any store of the name in the source. It should trust only statements that
-  certainly bind the name: top-level assignment, import, def and class, minus `del`. No real notebook relies on
-  the exemption, so dropping it is also safe.
-- R6 should follow a rebound `shutil`, or report the distinctive copy names wherever they appear, as R12 does.
-
-Both fixes change only the guard test module, which has no paired notebook. Once they are in, the override
-reason's clauses become true of the code. Rewording the reason needs the developer's approval again. Nothing
-here is deferred: Phases 41 and 42 do not cover the notebook guard.
+These routes add no capability the developer has not already accepted through `Path.replace` and `open` in a write
+mode. If the developer prefers, option (B) closes the gap with wording alone. Nothing here is deferred: Phases 41 and
+42 do not cover the notebook guard.
 
 ---
 
-_Verified: 2026-10-10T20:24:06Z_
+_Verified: 2026-10-11T01:51:02Z_
 _Verifier: Claude (gsd-verifier)_
