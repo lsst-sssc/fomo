@@ -4,7 +4,7 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: executing
+status: gaps_found
 stopped_at: Completed 40-16-PLAN.md
 last_updated: "2026-10-11T03:41:02.678Z"
 last_activity: 2026-10-10
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
 Plan: 16 of 16
-Status: Plan 40-16 complete (docs, ledger and override reason recorded, developer-approved); Phase 40 awaiting re-verification
+Status: Gap round 6 executed (40-15, 40-16); re-verification gaps_found 185/190 -- round-6 review CR-01 (InteractiveShell.instance() alias/run_cell/autocall) and CR-02 (Django setup in string code before the helper) reproduced; override carried, not applied
 Last activity: 2026-10-11 — Completed 40-16 (guard docstring, README, ledger, WARN-02 override reason)
 
 Progress: [████████████████████] 17/17 plans ([██████████] 100%)
