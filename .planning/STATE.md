@@ -6,16 +6,16 @@ current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: gaps_found
 stopped_at: Completed 40-16-PLAN.md
-last_updated: "2026-10-11T03:41:02.678Z"
-last_activity: 2026-10-10
+last_updated: "2026-10-11T05:08:45.776Z"
+last_activity: 2026-10-11
 last_activity_desc: Phase 40 execution started
-state_head: 88fc09edb0ac6fed59c7cd5da18060598a8e0150
+state_head: cd883a6018eaad43fe9fb2d17a887a2e18f9daf6
 progress:
   total_phases: 6
   completed_phases: 42
-  total_plans: 33
+  total_plans: 35
   completed_plans: 33
-  percent: 100
+  percent: 94
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
-Plan: 16 of 16
-Status: Gap round 6 executed (40-15, 40-16); re-verification gaps_found 185/190 -- round-6 review CR-01 (InteractiveShell.instance() alias/run_cell/autocall) and CR-02 (Django setup in string code before the helper) reproduced; override carried, not applied
+Phase: 40 (Notebook Isolation & Attribution Page) — READY TO EXECUTE
+Plan: 16 of 18
+Status: Gap round 7 planned (40-17 guard code, 40-18 docs approval checkpoint) from re-verification gaps_found 185/190 (round-6 review CR-01, CR-02, WR-01, IN-01..IN-03); developer decisions D-G16 report both, D-G17 broad residual class, D-G18 IN-03 folded in
 Last activity: 2026-10-11 — Completed 40-16 (guard docstring, README, ledger, WARN-02 override reason)
 
-Progress: [████████████████████] 17/17 plans ([██████████] 100%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 94%)
 
 ## Performance Metrics
 
