@@ -89,17 +89,22 @@ numbers they print change from one regeneration to the next because the develope
 A snapshot holds a full copy of the developer database. If a run fails before the teardown cell, delete any
 leftover `/tmp/fomo-notebook-db-*` directory yourself.
 
-`solsys_code/tests/test_pre_executed_notebooks.py` checks every notebook in `pre_executed/`. It checks that a notebook
-calls the helper first; never sets Django up, chooses a database, starts a process, changes the environment or runs
-code built from a string or loaded from another file, whether the name is written in its code, in an import, as a part
-of a dotted string such as `'subprocess.run'`, or in code inside a string (read to two levels); never names
-`FOMO_DATABASE_PATH` or the developer database file in a str or bytes literal; never names `shutil`, tempfile's
-`_shutil`, shutil's `copy2`, `copyfile`, `copytree` or `copyfileobj`, or `write_bytes` in any of those places;
-contains only Python that IPython runs unchanged, apart from `%matplotlib inline`, a first-line `%%time` or
-`%%capture`, and IPython's autocall, which runs `exit -1` as `exit(-1)` (the kernel's own autocall objects, `exit` and
-`quit`, only end the kernel); has no one-line cell that starts with an IPython magic or alias name, even one an
-earlier cell assigns or imports, unless that name is a Python builtin or keyword or is followed by `=` or `,`; and
-shows output from one fresh run. Its module docstring describes each rule and what a static check of a notebook's
-source cannot see, and makes no claim of completeness. It reads each notebook's JSON and never executes one.
+`solsys_code/tests/test_pre_executed_notebooks.py` checks every notebook in `pre_executed/`. It reports only the names
+and patterns on its lists, found in a notebook's literal source: its code and imports, the '.'- or ':'-separated parts
+of its str and bytes literals, and code inside its strings (read to two levels). It reports a notebook that does not
+call the helper first and once, with a constant mode; imports Django before that call or calls `django.setup()` itself,
+also in code inside a string; names `FOMO_DATABASE_PATH` or the developer database file in a str or bytes literal, or
+passes a `FOMO_DATABASE_PATH` keyword argument; names `shutil`, tempfile's `_shutil`, shutil's `copy2`, `copyfile`,
+`copytree` or `copyfileobj`, or `write_bytes`, or reads `copy` or `move` from a shutil name; names one of the listed
+ways to choose or reach a database, start a process, reach IPython's shell (`get_ipython`, `InteractiveShell`, the
+IPython, ipykernel and traitlets modules, and the shell's alias, `run_cell` and `autocall` entry points), change the
+environment, or run code built from a string or loaded from another file; has a cell that is not Python IPython runs
+unchanged, apart from `%matplotlib inline` and a first-line `%%time` or `%%capture`, or a one-line cell that starts with
+one of IPython's default magic or alias names, unless that name is a Python builtin or keyword or is followed by `=` or
+`,`; has execution counts other than 1..N or an error output; has no `Resolved database:` line in the setup cell's
+output; has an `assert` in the setup cell or one wrapping a write; or does not end with the teardown call and its
+output. A route to a process, IPython's shell, Django's settings or the database through a name or form the lists do not
+contain is not reported. Its module docstring lists every name, says what a static check of a notebook's source cannot
+see, and makes no claim of completeness. It reads each notebook's JSON and never executes one.
 `solsys_code/tests/test_notebook_helper.py` runs the helper itself, and a test in the first module keeps the two
 lists above equal to each notebook's `mode`.
