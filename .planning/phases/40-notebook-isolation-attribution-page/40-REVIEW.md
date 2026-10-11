@@ -1,242 +1,245 @@
 ---
 phase: 40-notebook-isolation-attribution-page
-reviewed: 2026-10-10T19:30:37Z
+reviewed: 2026-10-10T23:44:46Z
 depth: deep
-files_reviewed: 7
+files_reviewed: 3
 files_reviewed_list:
-  - docs/notebooks/fomo_nb_utils.py
-  - docs/notebooks/pre_executed/backfill_lco_observations_demo.ipynb
-  - docs/notebooks/pre_executed/campaign_lifecycle_demo.ipynb
-  - docs/notebooks/pre_executed/load_telescope_runs_demo.ipynb
-  - docs/notebooks/pre_executed/telescope_runs_demo.ipynb
   - docs/notebooks/README.md
+  - pyproject.toml
   - solsys_code/tests/test_pre_executed_notebooks.py
 findings:
-  critical: 1
+  critical: 2
   warning: 2
   info: 2
-  total: 5
+  total: 6
 status: issues_found
 ---
 
-# Phase 40: Code Review Report (fourth round: gap plans 40-10, 40-11 and 40-12)
+# Phase 40: Code Review Report (fifth round: gap plans 40-13 and 40-14)
 
-**Reviewed:** 2026-10-10T19:30:37Z
+**Reviewed:** 2026-10-10T23:44:46Z
 **Depth:** deep
-**Files Reviewed:** 7
+**Files Reviewed:** 3
 **Status:** issues_found
 
 ## Summary
 
-Scope: the 7 listed files, compared with `93aedf79` (HEAD `399e426`). That covers the R12 and R6 work in 40-10
-(identifier, string and string-code matching, new names, an R0 allow-list over IPython's own input transformer, and
-an automagic rule), the docstring, README and notebook prose in 40-11, and the corrected override reason in
-40-12 (`40-VERIFICATION.md` front matter, read for the claims it makes).
+Scope: the 3 listed files, compared with `42dc508` (HEAD `51da348`). That covers 40-13 (`905408a`: the automagic
+rule no longer exempts names; `4f02628`: R6 distinctive names, notebook-wide shutil names, R5/R7 bytes constants;
+`ccfc578`: `ipykernel>=7`) and 40-14 (`1a315e2`: the guard docstring and the README guard paragraph). I also read
+the override reason in `40-VERIFICATION.md` (`overrides[0].reason`) for the claims it makes.
 
 What I ran:
-- `python manage.py test --noinput solsys_code.tests.test_pre_executed_notebooks`: 82 tests, OK.
-- A cell-by-cell comparison of the four edited notebooks with `93aedf79`. Code, outputs and execution counts are
-  identical; only markdown changed (1, 2, 2 and 1 cells). So no re-execution was needed, and none of the helper's
-  code changed (40-11 changed only its docstring).
-- Inert unit checks of the guard's own helpers (`_module_bindings`, `_byte_copy_problems`,
-  `_database_routing_problems`) on placeholder source, next to plain Python runs that show what those sources bind
-  at runtime. All were run under `$HOME/tmp/rv40r4`. No notebook was executed, no repo file was modified, and
-  `src/fomo_db.sqlite3` was never opened.
-- The installed IPython 9.10.1 source for `is_shadowed`, `AutoMagicChecker.check` and
-  `InteractiveShell.transform_cell`.
-- `ruff check --no-fix` on the two Python files: clean.
-
-Method limit, stated up front: this round does not run complete bypass notebooks end to end. Each finding rests on
-the guard's code, an inert check of the guard function concerned, and the documented Python or IPython behaviour.
-Where a route depends on a step I did not run, the finding says so.
+- `python manage.py test --noinput solsys_code.tests.test_pre_executed_notebooks`: 86 tests, OK.
+- `pre-commit run ruff` and `ruff-format` on the guard module: both pass.
+- Static calls of the guard's own functions (`isolation_problems`, `is_django_backed`, `_automagic_word`,
+  `_ipython_line_magic_names`). Each ran on placeholder source or on a deep copy of
+  `import_campaign_csv_demo.ipynb` with source appended to its setup cell (`_append_to_setup_cell`). The module was
+  loaded by file path from `$HOME/tmp/rv40r5`.
+- Three child processes, each with its own `IPYTHONDIR`. One listed the line magics of ipykernel's
+  `ZMQInteractiveShell`. Two called `InteractiveShell.transform_cell` on one-line sources, which rewrites text and
+  runs none of it.
+- Plain Python checks with stand-in objects to show what `match` class patterns and call arguments bind at runtime.
+  Nothing was written to any file.
+- No notebook was executed, `django.setup()` was not called, `src/fomo_db.sqlite3` was not opened and
+  `FOMO_DATABASE_PATH` was not set.
 
 **Previous round, as of HEAD:**
 
 | ID | Closed? |
 |----|---------|
-| CR-01 (R12 literal routes) | **Yes.** Every listed form is reported: a module re-exported from another module, `import_string`/`resolve_name` by literal string, the `connection` proxy with `_connections`/`Database`, `ATTACH (` and the IPython process helpers. `TestThirdReviewFormsOnARealNotebook` and `TestR12MatchesEveryIdentifierAndString` pass. The README guard paragraph (lines 92-99) is now scoped to names. |
-| CR-02 (R0 aliases, automagic, escapes after a line magic) | **Yes for the listed forms.** R0 is now an allow-list checked with IPython's own `TransformerManager`, and it has an automagic rule. All seven review cells are reported. The automagic rule's exemption for a name the notebook binds is wider than what Python actually binds; see CR-01 below. |
-| WR-01 (R6 `copytree` / `write_bytes`) | **Yes for the listed forms.** `copytree`, `copyfileobj`, `move` and `write_bytes` are reported as calls, references, imports and string lookups. R6 still follows `shutil` only through `import shutil as X`; see WR-01 below. |
-| WR-02 (unmeasured "never opened" prose) | **Yes.** Teardown markdown `46602df0`, `234805b6` and `31ff3edb` now give the T1 statement, which matches word for word the second line of the teardown output right below it. Setup markdown `7dfef438` and `49ff72df`, and `telescope_runs_demo`'s `23326d63`, say "is not needed, and the helper never opens it in fresh mode". None of the four notebooks still contains "never opened" or "opened for writing". |
-| IN-01 (`_disable_django_databases` docstring) | **Docstring: yes.** It now says the in-place switch only affects wrappers built afterwards, and that dropping the cached wrappers is what removes an open connection. The second half of IN-01 (a non-dict alias) and the matching logged warning text were not addressed; see IN-01 below. |
+| CR-01 (automagic exemption trusted source-level bindings) | **Yes.** `_module_bindings` is gone, and `_automagic_word(view)` exempts only a builtin, a keyword, or a word followed by `=` or `,`. A child-shell `transform_cell` check shows IPython keeps `rm = 3`, `rm=3`, `rm, cp = 1, 2` and `rm == 3` as Python, and rewrites `rm += 3`, `cp(a, b)` and `rm -r -- 'x'` to `run_line_magic`. The guard reports exactly the rewritten three. No magic name is also a builtin in the test process. |
+| WR-01 (R6 followed shutil only through `import shutil as X`) | **Yes for both review forms**, plus the assignment-shaped bindings 40-13 lists. The stated boundary does not cover every binding the code skips. See CR-01 and CR-02. |
+| WR-02 (R5/R7 ignored bytes constants) | **Yes.** `_database_routing_problems` reads constants through `_constant_text`. |
+| IN-01 (helper clean-up warning) | Out of this round's file scope (developer decision, Phase 41). |
+| IN-02 (ipykernel only through `jupyter`) | **Yes.** `"ipykernel>=7"` is in the dev extra. Installed 7.3.0 declares `Requires-Python >=3.10`, so CI's 3.10 leg can resolve it. The child-process test checks that `cp`, `rm`, `mv` and the rest are present. |
 
-The override reason recorded by 40-12 now lists names, matching rules and the residual accurately for R12, except
-for one claim: "any one-line cell whose first word is an IPython line magic or alias ... unless an earlier cell
-binds that name". The code does not check that a name is bound. It checks that a store of the name appears in the
-source (CR-01). R6's "an alias of it" and R7's "naming the developer database file" are also narrower in the code
-than in the text (WR-01, WR-02).
+The docstring and README now match the code for R0's automagic rule, for R5/R7 and for the review forms of R6.
+They overstate R6 in two places (CR-01, CR-02). The docstring also overstates which rules apply under a harmless
+magic (WR-01) and what "IPython runs unchanged" covers (WR-02).
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01: The automagic rule treats any source-level store of a name as a binding, so an alias cell after a store that binds nothing at runtime is not reported
+### CR-01: R6 does not follow shutil into a function parameter, a lambda, a `match` capture or a class-pattern attribute, and the stated boundary does not name these routes
 
-**File:** `solsys_code/tests/test_pre_executed_notebooks.py:416-441` (`_module_bindings`), `:470` (`word in bound`), `:963-964` (R0 loop accumulating `bound`); module docstring `:30-32`; `docs/notebooks/README.md:97`; override reason in `40-VERIFICATION.md` front matter
+**File:** `solsys_code/tests/test_pre_executed_notebooks.py:722-743` (`_binding_pairs`), `:760-792` (`_shutil_names`), `:826-857` (the `copy`/`move` checks in `_byte_copy_problems`). Claims: module docstring `:49-54`, `_shutil_names` docstring `:770-771`, `_byte_copy_problems` docstring `:811-813`, `docs/notebooks/README.md:97-98`, and the same boundary in the override reason.
 
-**Issue:** `_automagic_word` lets a one-line cell pass when its first word is in `bound`. `bound` is filled by
-`_module_bindings`, which collects every `Name` in `Store` context, import name, def/class name and except-handler
-name anywhere outside function, class, lambda and comprehension bodies. That includes branches that never run. IPython
-decides at runtime: `AutoMagicChecker.check` calls `is_shadowed(head, shell)`, which tests
-`identifier in ip.user_ns` (IPython 9.10.1 source). Checked in a plain interpreter, each of these makes the guard
-count `name` as bound while it is **not** in the namespace afterwards:
+**Issue:** `copy` and `move` are reported only when they appear as an `ast.Attribute` whose value mentions a shutil
+name. Shutil names grow only from imports and from `_binding_pairs`: assignments, loop, comprehension and `with`
+targets, and parameter **defaults**. A parameter that receives shutil as a call **argument** is never added. Neither
+is a `match` capture, and `copy` read through a class-pattern attribute is not an `ast.Attribute` at all. Every row
+below was appended to the setup cell of a copy of `import_campaign_csv_demo.ipynb`, and `isolation_problems()`
+returned `[]` for each (control: the parameter-default form returns `calls sh.move()`):
 
-| Earlier cell | `_module_bindings` says bound | Bound at runtime |
-|---|---|---|
-| `name: int` (bare annotation, no value) | True | False |
-| `if False:` / `name = 1` | True | False |
-| `for name in []: pass` | True | False |
-| `except OSError as name: pass` (Python deletes the name after the handler) | True | False |
+| Form (literal source) | Reported |
+|---|---|
+| `import shutil` / `def put(sh):` / `    for f in scratch_db_dir.iterdir():` / `        sh.copy(f, repo_root_path / 'src')` / `put(shutil)` | No |
+| `(lambda sh: [sh.copy(f, repo_root_path / 'src') for f in scratch_db_dir.iterdir()])(shutil)` | No |
+| `list(map(lambda sh: sh.move(...), [shutil]))` | No |
+| `def put(*, sh): sh.move(...)` / `put(sh=shutil)` | No |
+| `match shutil:` / `    case sh:` / `        ... sh.copy(f, repo_root_path / 'src')` | No |
+| `match shutil:` / `    case object(copy=c):` / `        ... c(f, repo_root_path / 'src')` | No |
 
-A later `del name` is not taken into account either. So a notebook can put one of these statements on a default
-IPython alias name (`cp`, `mv`, `rm`, `mkdir`, ...) in one cell and an alias command line in a later one-line cell.
-IPython's automagic then runs the alias as a shell command, and R0 reports nothing. The third review showed that
-the bare `cp` alias can copy the scratch file over `src/fomo_db.sqlite3`. I did not run this combination end to end
-(see the method note). Each step was checked on its own, as above.
+A plain Python check confirms that the parameter and `case object(copy=c)` both bind `shutil.copy`. The scratch
+file is named `fomo_db.sqlite3`, so the first form copies it over `src/fomo_db.sqlite3` through a literal directory
+path. That is the same landing the verifier used against round 4's WR-01.
 
-**Inside or outside the stated residual: outside.** Both cells are readable, literal notebook source. Nothing is
-assembled or looked up at runtime (residual 1), the alias is one of IPython's default aliases, not one defined in a
-profile or start-up file outside the notebook (residual 2), and no output HTML or JavaScript is involved
-(residual 3). The guard docstring (lines 30-32), the README (line 97, "has no one-line cell that IPython would run
-as a magic or an alias") and the override reason ("unless an earlier cell binds that name") all claim the
-exemption is limited to names a cell binds. The code does not keep that claim. By the standard the previous rounds
-used (a readable, literal route that the override says is reported), this keeps SC 2's first half open.
+**Inside or outside the stated residual: outside.** R6's boundary, in the docstring (`:52-54`) and in the override
+reason, lists three exceptions: a function's return value, a call's side effect (`setattr`), and a module that
+holds shutil under another name. A call argument bound to a parameter, a `match` capture and a class-pattern
+attribute are none of these. Nothing here is assembled at runtime (residual 1). `copy` and `move` are on R6's own
+list (residual 2). The README is broader still. It says `copy` and `move` are reported "when they are read from
+shutil or from a name the notebook binds to it", and a parameter or capture is such a name. It also says the
+docstring "says exactly what each rule follows", which this table contradicts.
 
-No real notebook needs the exemption: none of the eight has a one-line cell whose first word is an IPython magic or
-alias name (checked with `_automagic_word(src, set())` on every one-line cell).
+**Practical weight, for the developer's decision:** residual (2) already accepts `Path.replace`, `rename` and
+`open` in a write mode. So `f.replace(repo_root_path / 'src' / f.name)` gives the same effect today without
+naming anything. This finding adds no new capability. It is a false claim in the guard's documentation, which is
+the standard rounds 3-5 have applied.
 
-**Fix:** count only bindings that certainly exist when the later cell runs, and let everything else err towards
-reporting, as the docstring already intends ("so the check errs towards reporting"):
+**Fix:** no real notebook mentions `shutil` (`grep -c shutil` gives 0 in all eight). The simplest complete fix is to
+report the module itself wherever it is named, as R12 does for `subprocess`. That also closes the three accepted
+exceptions:
 
 ```python
-def _module_bindings(tree: ast.Module) -> set[str]:
-    """Names that unconditional top-level statements bind, minus names a top-level ``del`` removes."""
-    bound = set()
-    for statement in tree.body:  # top level only: no if/for/while/try/with/match bodies
-        if isinstance(statement, ast.Assign):
-            bound.update(t.id for t in statement.targets if isinstance(t, ast.Name))
-        elif isinstance(statement, ast.AnnAssign) and statement.value is not None and isinstance(statement.target, ast.Name):
-            bound.add(statement.target.id)
-        elif isinstance(statement, (ast.Import, ast.ImportFrom)):
-            bound.update(a.asname or a.name.split('.')[0] for a in statement.names if a.name != '*')
-        elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bound.add(statement.name)
-        elif isinstance(statement, ast.Delete):
-            bound.difference_update(t.id for t in statement.targets if isinstance(t, ast.Name))
-    return bound
+# R6: a notebook never needs shutil (the helper does every copy), so the module itself is reported
+# at every identifier and string part, like the distinctive copy names.
+DISTINCTIVE_COPY_NAMES = ('copy2', 'copyfile', 'copytree', 'copyfileobj', 'shutil', '_shutil')
 ```
 
-The R0 loop must also apply a later cell's `del` (as above, per cell, in order). Because no real notebook relies on
-the exemption, the simpler alternative is to drop it entirely, except for an `=`/`,` right after the word. Add the
-four non-binding forms from the table to `test_a_one_line_magic_or_alias_is_a_problem_unless_the_notebook_defines_the_name`.
-Then reword the docstring, README line 97 and the override reason to "unless an earlier cell binds that name with a
-top-level assignment, import, def or class".
+After that, `_shutil_names`, `_binding_pairs`, `_target_names` and `_mentions_shutil` are needed only to word the
+`copy`/`move` message. Add the six forms above as cases in `TestR6CopyAndWriteFunctions`. Then shorten the
+docstring, the README (`:96-98`) and the override reason to "any reference to shutil". The alternative is to keep
+the code and add "a parameter given shutil as a call argument, a `match` capture, or a class-pattern attribute"
+to the boundary in all three places. Either way, remove "exactly" from README line 101 or make it true.
+
+### CR-02: "any `write_bytes`" is not what R6 checks, and a class-pattern attribute writes the scratch bytes over the developer database unreported
+
+**File:** `solsys_code/tests/test_pre_executed_notebooks.py:858-863` (only `ast.Attribute`/`ast.Name` are matched) and `:864-870` (string parts). Claims: module docstring `:47` ("any ``write_bytes``"), `_byte_copy_problems` docstring `:808` ("any reference to a byte-write method"), `docs/notebooks/README.md:96` ("never byte-copies or byte-writes a file with ... `write_bytes`").
+
+**Issue:** the distinctive copy names are matched at every identifier `_identifiers` yields, and that includes
+`ast.MatchClass.kwd_attrs`. `write_bytes` is matched only as a `Name`, an `Attribute` or a string part. A class
+pattern looks up an attribute by an identifier that is none of these. Appended to the setup cell of a copy of
+`import_campaign_csv_demo.ipynb`, this gives `[]`:
+
+```python
+for f in scratch_db_dir.iterdir():
+    match repo_root_path / 'src' / f.name:
+        case object(write_bytes=w):
+            w(f.read_bytes())
+```
+
+Control: the same loop with `(repo_root_path / 'src' / f.name).write_bytes(f.read_bytes())` returns `references
+write_bytes`. A Python check with a stand-in object confirms that `case object(write_bytes=w)` binds the method.
+Since `f.name` is `fomo_db.sqlite3`, the loop overwrites `src/fomo_db.sqlite3` byte for byte. No boundary is stated
+for `write_bytes` anywhere: not in the docstring, the README or the override reason.
+
+**Inside or outside the stated residual: outside**, for the same reasons as CR-01: literal source and a name on
+R6's own list. The same practical weight applies, because `open` in a write mode is already accepted under residual (2).
+
+**Fix:** match `BYTE_WRITE_NAMES` through `_identifiers`, the same way as `DISTINCTIVE_COPY_NAMES`. No real notebook
+uses the name anywhere:
+
+```python
+for scanned in scanned_trees:
+    for node in ast.walk(scanned):
+        for identifier, _groups in _identifiers(node):
+            if identifier in (*DISTINCTIVE_COPY_NAMES, *BYTE_WRITE_NAMES) and identifier not in named:
+                ...
+```
+
+Add the class-pattern form, `def f(write_bytes=...)` and `f(write_bytes=...)` to
+`test_every_copy_and_write_function_in_any_spelling_is_a_problem`.
 
 ## Warnings
 
-### WR-01: R6 follows `shutil` only through `import shutil as X`, so a plain rebinding of the module hides `copytree` and the other copy functions
+### WR-01: `is_django_backed` reads the raw source, not the Python view, so Django code under a harmless cell magic can switch off R2-R4 and R8-R11
 
-**File:** `solsys_code/tests/test_pre_executed_notebooks.py:719-722` (`shutil_names`), `:727` (call check), `:739-743` (reference check); module docstring `:38-41`; `docs/notebooks/README.md:95`
+**File:** `solsys_code/tests/test_pre_executed_notebooks.py:586-588` (`is_django_backed` parses `_cell_source`), `:1093` (`if not is_django_backed(notebook): return problems`). Claims: module docstring `:39-40` ("The code under a harmless magic is checked by every later rule"), `isolation_problems` docstring `:1037-1044`.
 
-**Issue:** `shutil_names` starts as `{'shutil'}` and only grows from `import shutil as <alias>`. Calls and
-references are reported only when the base name is in that set. The inert check
-`_byte_copy_problems` on placeholder source gave:
+**Issue:** `isolation_problems` builds the Python views and passes them to every rule. The gate that decides
+whether R2-R4 and R8-R11 run, though, calls `is_django_backed(notebook)`, which parses each raw cell. A `%%capture`
+or `%%time` cell does not parse raw, so its Django imports are not seen. The unparseable-cell deny-list misses an
+import that is not at the start of a line or not the first module named (`UNPARSEABLE_DJANGO_IMPORT` is
+`^\s*(from|import)\s+(django|...)`). Probe on placeholder source:
 
 ```
-'import shutil as sh\nsh.copytree(a, b)\n'           -> ['code cell 1 calls sh.copytree(); ...']
-'import shutil\nsh = shutil\nsh.copytree(a, b)\n'     -> []
+nb('%%capture\nx = 1; import django as dj\ndj.setup()\n')
+  is_django_backed -> False ; isolation_problems -> []
+nb('x = 1; import django as dj\ndj.setup()\n')            # same code, no magic
+  -> ['... imports django under an alias ...', 'no top-level `scratch_db_dir = setup_scratch_django(...)` ...']
 ```
 
-`from <module> import shutil as s` (a module that re-exports shutil) is not followed either. The docstring says R6
-reports these functions "called, referenced or imported, through ``shutil`` or an alias of it". The same docstring
-says R12 reports a listed name "binding it to another name first", and the override reason sets R6 beside R12, so a
-reader will expect the same coverage. The README (line 95) says the guard checks a notebook "never byte-copies or
-byte-writes a file with shutil's copy functions, `move` or `write_bytes`".
+So the function the docstring describes does not check the code under a harmless magic with every later rule.
+R4 (own `django.setup`), R2 (helper call) and R3 (Django import before setup) are all skipped.
 
-**Inside or outside the stated residual:** the copy call itself is literal, and `copytree` is on R6's own list, so
-residual 2 ("a name these lists do not contain") does not apply. As in the third review's WR-01, landing on the
-developer database still needs a destination built from joined path parts (residual 1), which is why this is a
-WARNING and not a BLOCKER.
+**Why WARNING:** in this repository, `test_the_real_notebook_check_is_not_vacuous` requires the eight notebooks to
+be exactly `EXPECTED_NOTEBOOKS`, and each must be `is_django_backed` and have a raw `setup_call`. A real notebook
+therefore always passes the gate, and the views-based rules then catch the code under the magic (R4 reports
+`import django as dj`). The suite as a whole holds. The guard function and its docstring do not, and a future
+caller of `isolation_problems` (or a change to the vacuity test) would lose these rules without any sign.
 
-**Fix:** match the distinctive names everywhere, the way R12 does, and keep only the ambiguous ones tied to shutil:
+**Fix:** decide whether the notebook is Django-backed from the views that every other rule reads:
 
 ```python
-DISTINCTIVE_COPY_NAMES = ('copy2', 'copyfile', 'copytree', 'copyfileobj')  # no real notebook uses any of them
-# report any Name/Attribute/alias/keyword equal to one of these (as _identifiers does for R12);
-# keep 'copy' and 'move' limited to shutil names, and grow shutil_names from
-#   - `X = shutil` / `X = <shutil name>` assignments, and
-#   - `from <anything> import shutil [as X]`
+    parsed = views
+    ...
+    if not any(tree is not None and _django_imports(tree) for _number, _cell, tree in parsed):
+        return problems
 ```
 
-Add the two rebinding forms as cases in `TestR6CopyAndWriteFunctions`.
+Add the probe above to `TestR0AllowList.test_code_under_a_harmless_magic_is_checked_by_every_rule`, expecting the
+alias and no-helper-call problems.
 
-### WR-02: R5 and R7 read only `str` constants, so a bytes literal naming `fomo_db.sqlite3` or `FOMO_DATABASE_PATH` is not reported
+### WR-02: R0 does not see IPython's autocall of an `IPyAutocall` object, so "Python that IPython runs unchanged" overstates the check
 
-**File:** `solsys_code/tests/test_pre_executed_notebooks.py:694` (`isinstance(node.value, str)` in `_database_routing_problems`); module docstring `:37-38`
+**File:** `solsys_code/tests/test_pre_executed_notebooks.py:432-464` (`_automagic_word` handles only automagic). Claims: module docstring `:23-24`, `isolation_problems` docstring `:1041-1042`, `docs/notebooks/README.md:98`.
 
-**Issue:** R12 and R6 read str and bytes constants through `_constant_text`, which 40-10 added. R5/R7 still test
-`isinstance(node.value, str)`. Inert check:
+**Issue:** IPython's prefilter has more dynamic rewrites than automagic. `IPyAutocallChecker` turns a one-line cell
+that starts with an `IPyAutocall` instance into a call. In a child shell, `transform_cell('exit -1\n')` returned
+`exit(-1)\n` (the same for `quit`). The guard returns `[]` for `nb('exit -1\n')`, and the same holds for a
+user-defined `IPyAutocall` subclass instance. `IPyAutocall` is not on any R12 list.
 
-```
-_database_routing_problems on "x = b'fomo_db.sqlite3'"  -> []
-_database_routing_problems on "x = 'fomo_db.sqlite3'"   -> ['code cell 1 names fomo_db.sqlite3 in code; only the helper may']
-```
+**Impact:** no database route that I could find. `exit` and `quit` only end the kernel, and a user-defined autocall
+object's `__call__` body is ordinary notebook code that every rule reads. The finding is about the claim. The
+guard does not establish that every cell is "Python that IPython runs unchanged".
 
-Python's file APIs take a bytes path, so the developer database's full path can be written literally without R7
-seeing it. The docstring says R5-R7 report "code naming the database variable or the developer database file".
-
-**Inside or outside the stated residual:** the naming claim fails outside the residual, because the path is a
-literal, not assembled. Residual 2 already lists `open` in a write mode as a writer the guard does not name, though,
-and R7 is what stops such a writer at a literal path. So this is a WARNING: the docstring overstates R7, and the
-same `_constant_text` fix as 40-10 closes it.
-
-**Fix:**
-
-```python
-for node in ast.walk(tree):
-    text = _constant_text(node)          # str, or bytes decoded as latin-1
-    if text is not None:
-        if DB_ENV_VAR in text: ...
-        if DEVELOPER_DB_NAME in text: ...
-```
-
-Add a bytes case next to `test_developer_database_literal_in_code_is_a_problem`.
+**Fix:** add `'IPyAutocall'` to `DYNAMIC_CODE_NAMES`, so a notebook cannot define new autocall objects. Then either
+report a one-line cell whose first word is `exit` or `quit` and that has more after it, or name the exception in the
+docstring and README ("apart from IPython's autocall of `exit` and `quit`").
 
 ## Info
 
-### IN-01: Carried forward from the third review's IN-01: the logged clean-up warning still overstates, and a non-dict alias stops the switch loop
+### IN-01: The README and the docstring leave out checks the code makes
 
-**File:** `docs/notebooks/fomo_nb_utils.py:208-210`, `:214-217`
+**File:** `docs/notebooks/README.md:92-103`; module docstring `:40-42`
 
-**Issue:** (a) When `close_all()` fails, the warning logged says "every alias is already on the dummy backend, so no
-database is reachable". As the corrected docstring now says, the switch does not stop a cached wrapper that already
-holds an open connection. What removes it is the `del connections[alias]` loop that runs after the log line. 40-11
-recorded this under Known Stubs and left it for Phase 41. (b) The second half of the third review's IN-01 was not
-addressed. An alias whose value is not a dict raises `TypeError` at line 209. The caller logs and swallows it, so
-later aliases are not switched and the close and drop steps never run. Django's own `configure_settings` would
-refuse such settings at the first query, so nothing becomes reachable.
+**Issue:** the README guard paragraph does not mention the R5 keyword-argument check (`FOMO_DATABASE_PATH=`), R10
+(the last cell must be the teardown of the same directory, with its output), R8's error-output check, or R11 (no
+`assert` in the setup cell or wrapping a write). The docstring sums up R11 as "no ``assert`` guarding a write", but
+the code (`:1181-1183`) also reports any `assert` in the setup cell. The README points readers to the docstring, so
+this is a completeness note rather than a defect.
 
-**Fix:** (a) change the message to "...; every alias is on the dummy backend and the cached wrappers are dropped
-next, so no query made through Django reaches a database". (b) skip a non-dict alias:
-`if isinstance(django_settings.DATABASES[alias], dict): ...`, or wrap each alias's switch on its own.
+**Fix:** add "ends with the teardown and has no error output or `assert` in the setup cell" to the README sentence,
+and "and no ``assert`` in the setup cell" to the docstring's R11 summary.
 
-### IN-02: The guard depends on ipykernel and on IPython internals through the `jupyter` metapackage only
+### IN-02: The automagic name set is pinned against a plain `InteractiveShell`, not the ipykernel shell that nbconvert runs
 
-**File:** `solsys_code/tests/test_pre_executed_notebooks.py:371-375`, `:402-406`; `pyproject.toml` `[project.optional-dependencies] dev`
+**File:** `solsys_code/tests/test_pre_executed_notebooks.py:2410-2437`
 
-**Issue:** R0 imports `ipykernel.zmqshell.KernelMagics`, `IPython.core.inputtransformer2.TransformerManager`,
-`IPython.core.splitinput.split_user_input` and `IPython.extensions.storemagic`. `ipython` is a declared dev extra,
-but `ipykernel` arrives only through the unpinned `jupyter` metapackage. If an install has no ipykernel, every
-`isolation_problems()` call raises `ImportError`, so the whole module fails with errors rather than with a clear
-message. The automagic name set also follows whatever IPython version is installed. The child-process test pins it
-to a plain `InteractiveShell`, not to the ipykernel shell an nbconvert run uses.
+**Issue:** the child-process test compares `_ipython_line_magic_names()` with a plain `InteractiveShell` plus
+storemagic. Notebooks are regenerated under ipykernel's `ZMQInteractiveShell`. Today the two match: in a child
+process, `ZMQInteractiveShell.instance()` with storemagic loaded has exactly the guard's set (no difference in
+either direction; IPython 9.10.1, ipykernel 7.3.0), and it builds without a kernel. A future ipykernel that
+registers another line magic would go unnoticed.
 
-**Fix:** add `ipykernel` to the `dev` extras with a comment naming this guard, and consider a one-line assertion in
-`_ipython_line_magic_names()` that the set is non-empty and contains `cp`, `rm` and `mv`, so an IPython refactor
-that empties a registry fails loudly.
+**Fix:** in the child script, import `ipykernel.zmqshell.ZMQInteractiveShell` and use it instead of
+`InteractiveShell`, keeping the subset assertion.
 
 ---
 
-_Reviewed: 2026-10-10T19:30:37Z_
+_Reviewed: 2026-10-10T23:44:46Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
