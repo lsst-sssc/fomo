@@ -328,7 +328,7 @@ Plans:
   4. On the attribution page, High-band rows show their marker again, a template test asserts the marker is present in the rendered HTML, and the page's templates use Bootstrap 5.3 class names only
   5. A staff member working down the Dismissed list can press Undo on a row and land back on the same page with the Dismissed section still open, with no re-open or re-page between rows
 
-**Plans**: 15/16 plans executed (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07; 40-08 and 40-09 close the 2026-10-10 re-review's WR-01, WR-02, IN-01 and IN-02 and record the developer's override for the residual WARN-02 risk; 40-10 to 40-12 close the third review's CR-01, CR-02, WR-01, WR-02 and IN-01 and put a corrected override reason to the developer; 40-13 and 40-14 close the fourth review's CR-01, WR-01, WR-02 and IN-02 and put the reworded docstring, README and override reason to the developer; 40-15 and 40-16, planned, close the fifth review's CR-01, CR-02, WR-01 and WR-02 and put the reworded docstring, README and override reason to the developer again)
+**Plans**: 16/16 plans executed (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07; 40-08 and 40-09 close the 2026-10-10 re-review's WR-01, WR-02, IN-01 and IN-02 and record the developer's override for the residual WARN-02 risk; 40-10 to 40-12 close the third review's CR-01, CR-02, WR-01, WR-02 and IN-01 and put a corrected override reason to the developer; 40-13 and 40-14 close the fourth review's CR-01, WR-01, WR-02 and IN-02 and put the reworded docstring, README and override reason to the developer; 40-15 and 40-16, planned, close the fifth review's CR-01, CR-02, WR-01 and WR-02 and put the reworded docstring, README and override reason to the developer again)
 
 Plans:
 **Wave 1**
@@ -375,7 +375,7 @@ Plans:
 - [x] 40-15-PLAN.md — Gap closure (tracer: the fifth review's six shutil forms -- a call argument, a lambda, `map`, a keyword-only parameter, a `match` capture, a class pattern -- and its class-pattern `write_bytes` form are reported on a real notebook): R6 reports `shutil`, tempfile's `_shutil` and `write_bytes` at every identifier and string part (the `shutil.which` look-alike superseded on purpose); R12 lists IPyAutocall; tests pin IPython's autocall of exit and quit and the raw-source Django-backed gate, with no gate or R0 code change (CR-01, CR-02, WR-01, WR-02; WARN-02, WARN-05)
 
 **Wave 15** *(gap closure, blocked on Wave 14 completion; developer checkpoint)*
-- [ ] 40-16-PLAN.md — Gap closure, the round's last step: draft the guard docstring, README paragraph (no completeness claim) and reworded override reason with every claim and every named R6 boundary checked against 40-15's guard in both directions, put them to the developer at a blocking checkpoint, then record the approved texts, the ledger rows (CR-01, CR-02, WR-01, WR-02 fixed; IN-01, IN-02 out of scope) and, last, the approved override with the orchestrator-supplied approval time (or no override, on decline) (CR-01, CR-02, WR-01, WR-02; WARN-02, WARN-05)
+- [x] 40-16-PLAN.md — Gap closure, the round's last step: draft the guard docstring, README paragraph (no completeness claim) and reworded override reason with every claim and every named R6 boundary checked against 40-15's guard in both directions, put them to the developer at a blocking checkpoint, then record the approved texts, the ledger rows (CR-01, CR-02, WR-01, WR-02 fixed; IN-01, IN-02 out of scope) and, last, the approved override with the orchestrator-supplied approval time (or no override, on decline) (CR-01, CR-02, WR-01, WR-02; WARN-02, WARN-05)
 
 **UI hint**: yes
 
@@ -468,7 +468,7 @@ Plans:
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
 | 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 4/4 | Complete    | 2026-10-09 |
-| 40. Notebook Isolation & Attribution Page | v2.5 | 15/16 | In Progress | - |
+| 40. Notebook Isolation & Attribution Page | v2.5 | 16/16 | In Progress | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
 

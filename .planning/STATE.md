@@ -5,17 +5,17 @@ milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: executing
-stopped_at: Completed 40-15-PLAN.md
-last_updated: "2026-10-11T03:24:46.692Z"
+stopped_at: Completed 40-16-PLAN.md
+last_updated: "2026-10-11T03:41:02.678Z"
 last_activity: 2026-10-10
 last_activity_desc: Phase 40 execution started
-state_head: 1c830b13f38310a7b8a156caed5f551bad1acb06
+state_head: 88fc09edb0ac6fed59c7cd5da18060598a8e0150
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 33
-  completed_plans: 32
-  percent: 97
+  completed_plans: 33
+  percent: 100
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 ## Current Position
 
 Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
-Plan: 15 of 16
-Status: Plan 40-15 complete; ready to execute 40-16
-Last activity: 2026-10-10 — Completed 40-15 (R6 shutil/write_bytes everywhere, IPyAutocall)
+Plan: 16 of 16
+Status: Plan 40-16 complete (docs, ledger and override reason recorded, developer-approved); Phase 40 awaiting re-verification
+Last activity: 2026-10-11 — Completed 40-16 (guard docstring, README, ledger, WARN-02 override reason)
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 97%)
+Progress: [████████████████████] 17/17 plans ([██████████] 100%)
 
 ## Performance Metrics
 
@@ -73,6 +73,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P13 | 11 min | 3 tasks | 2 files |
 | Phase 40 P14 | 12 min | 3 tasks | 4 files |
 | Phase 40 P15 | 8 min | 2 tasks | 1 files |
+| Phase 40 P16 | 35min | 3 tasks | 4 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -134,6 +135,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: 40-14: developer (Tim Lister) approved the guard docstring, README paragraph and reworded override reason as drafted (accepted_at 2026-10-10T23:20:47Z); IN-01 stays open and out of scope, recorded for Phase 41
 - [Phase 40]: 40-15 D-G11: R6 reports shutil, _shutil and write_bytes at every identifier and string part; shutil.which look-alike superseded on purpose
 - [Phase 40]: 40-15 D-G13: IPyAutocall added to R12 DYNAMIC_CODE_NAMES; exit/quit autocall exception pinned, not closed; D-G12 gate unchanged and pinned
+- [Phase 40]: 40-16: guard docstring, README and WARN-02 override reason recorded as developer-approved (approve, 2026-10-11T03:35:54Z); WARN-02/WARN-05 left for the verifier
 
 ### Pending Todos
 
@@ -205,8 +207,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-11T03:24:46.493Z
-**Stopped at:** Completed 40-15-PLAN.md
+**Last session:** 2026-10-11T03:41:02.522Z
+**Stopped at:** Completed 40-16-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
