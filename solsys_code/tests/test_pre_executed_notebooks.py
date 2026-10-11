@@ -170,6 +170,11 @@ PROCESS_MODULES = frozenset(
         'jupyter_client',
         'nbclient',
         'nbconvert',
+        # IPython's shell object and the modules that hold it; get_ipython() is only one way to reach it (CR-01 of the
+        # sixth review, D-G16).
+        'IPython',
+        'ipykernel',
+        'traitlets',
     }
 )
 # R12 (D-G1 a): names that start a process, matched as a name, an attribute, an imported name or a string.
@@ -199,6 +204,20 @@ PROCESS_NAMES = frozenset(
         'getoutputerror',
         'get_output_error_code',
         'process_handler',
+        # IPython's shell classes and app, and the shell entry points that define aliases or macros, register magics,
+        # run cells or switch autocall (CR-01 of the sixth review, D-G16).
+        'InteractiveShell',
+        'ZMQInteractiveShell',
+        'IPKernelApp',
+        'alias_manager',
+        'define_alias',
+        'soft_define_alias',
+        'run_cell',
+        'run_cell_async',
+        'autocall',
+        'define_macro',
+        'magics_manager',
+        'register_magic_function',
     }
 )
 # R12 (D-G1 c): names that read or change the environment the helper set (``os.getenv`` stays allowed).
@@ -2533,7 +2552,7 @@ class TestR0AllowList(SimpleTestCase):
                 problems = isolation_problems(_append_to_setup_cell(notebook, source))
                 self.assertTrue(problems, 'the guard missed an IPyAutocall name')
                 self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
-                self.assertEqual(_rerouting_names(problems), {'IPyAutocall'}, problems)
+                self.assertEqual(_rerouting_names(problems), {'IPython', 'autocall', 'IPyAutocall'}, problems)
 
     def test_the_django_backed_gate_reads_each_cell_as_written(self):
         # Pins the documented fact behind D-G12: whether R2-R4 and R8-R11 apply is decided from each cell as written
@@ -2645,6 +2664,86 @@ class TestR0AllowList(SimpleTestCase):
         expected = {'cp', 'rm', 'mv', 'rehashx', 'pip', 'alias', 'sx', 'system', 'store', 'reset', 'run', 'time'}
         expected |= {'env', 'ed', 'hist', 'rep', 'man', 'less'}
         self.assertTrue(expected <= known, expected - known)
+
+
+class TestSixthReviewFormsOnARealNotebook(SimpleTestCase):
+    """CR-01 and CR-02 of the sixth review (2026-10-11), verification gap 1 and developer decision D-G16.
+
+    Each form is literal notebook source added to a copy of import_campaign_csv_demo.ipynb with its committed output
+    kept, beside a control the guard already reported; one case is a bare one-cell notebook.
+    """
+
+    COMMAND = 'cd ../.. && env -i PATH=/usr/bin python manage.py flush --noinput'
+    SHELL_IMPORT = 'from IPython.core.interactiveshell import InteractiveShell\n'
+
+    def setUp(self):
+        self.notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+
+    def assert_r12_names(self, notebook, expected):
+        problems = isolation_problems(notebook)
+        self.assertTrue(problems, 'the guard reported nothing')
+        self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+        self.assertTrue(set(expected) <= _rerouting_names(problems), (expected, problems))
+
+    # CR-01 of the sixth review, D-G16: IPython's shell reached without get_ipython().
+    def test_ipython_shell_reached_without_get_ipython_is_reported_on_a_real_notebook(self):
+        command = self.COMMAND
+        alias = self.SHELL_IMPORT + f"InteractiveShell.instance().alias_manager.define_alias('wipe', '{command}')\n"
+        cases = {
+            'alias then a one-line cell': (
+                _insert_code_cell_after_setup(_append_to_setup_cell(self.notebook, alias), 'wipe\n'),
+                {'IPython', 'InteractiveShell', 'alias_manager', 'define_alias'},
+            ),
+            'run_cell': (
+                _append_to_setup_cell(
+                    self.notebook, self.SHELL_IMPORT + f"InteractiveShell.instance().run_cell('!{command}')\n"
+                ),
+                {'IPython', 'InteractiveShell', 'run_cell'},
+            ),
+            'autocall mode': (
+                _append_to_setup_cell(
+                    self.notebook, 'from IPython import InteractiveShell\nInteractiveShell.instance().autocall = 2\n'
+                ),
+                {'IPython', 'InteractiveShell', 'autocall'},
+            ),
+            'ex': (
+                _append_to_setup_cell(
+                    self.notebook,
+                    "from IPython import InteractiveShell\nInteractiveShell.instance().ex('print(1)')\n",
+                ),
+                {'IPython', 'InteractiveShell'},
+            ),
+            'control: get_ipython': (
+                _append_to_setup_cell(
+                    self.notebook, f"get_ipython().alias_manager.define_alias('wipe', '{command}')\n"
+                ),
+                {'get_ipython', 'alias_manager', 'define_alias'},
+            ),
+            'IPython.display': (
+                _append_to_setup_cell(self.notebook, 'from IPython.display import display\n'),
+                {'IPython'},
+            ),
+        }
+        for label, (notebook, expected) in cases.items():
+            with self.subTest(label):
+                self.assert_r12_names(notebook, expected)
+        with self.subTest('control: %config'):
+            config = _insert_code_cell_after_setup(
+                self.notebook, f"%config AliasManager.user_aliases = [('wipe', '{command}')]\n"
+            )
+            _first_problem_mentions(self, isolation_problems(config), 'not parseable')
+        with self.subTest('the one-line wipe cell alone'):
+            self.assertEqual(isolation_problems(_insert_code_cell_after_setup(self.notebook, 'wipe\n')), [])
+        for source in (
+            'run_cells = 1\n',
+            'x = autocall_mode\n',
+            "print('IPython-free')\n",
+            'x = ipython\n',
+            'alias_managers = []\n',
+            'x = my_InteractiveShell\n',
+        ):
+            with self.subTest('look-alike', source=source):
+                self.assertEqual(isolation_problems(_notebook(extra_cells=[_code(source)])), [])
 
 
 class TestPreExecutedNotebooksUseTheHelper(SimpleTestCase):
