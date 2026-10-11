@@ -67,61 +67,64 @@ overrides_applied: 0
 overrides:
   - must_have: "ROADMAP SC 2 (first half) / WARN-02: The notebook guard test fails for a notebook whose current source routes Django to the developer database even when that notebook's committed output is stale"
     reason: >-
-      Rule R12, extended in 40-08 [301bd93, f1b4bb6], 40-10 [482606b, 3232341, c6c6322] and 40-15 [1c830b1],
-      reports in every notebook any name it lists for five capabilities: Django's database settings and
-      connection objects (DATABASES, DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the
-      helper's internals, DatabaseWrapper, load_backend, connections, connection, _connections,
-      ConnectionHandler, create_connection, get_connection_params, get_new_connection, Database, sqlite3);
-      attaching another database through raw SQL (a string holding ATTACH followed by DATABASE, a quote, a
-      placeholder or an opening parenthesis); starting a process (subprocess, multiprocessing, pty, pexpect,
-      ptyprocess, psutil, jupyter_client, nbclient, nbconvert, system, popen, fork, forkpty, startfile,
-      posix_spawn, posix_spawnp, every exec* and spawn* function of os, Popen, ProcessPoolExecutor,
-      create_subprocess_exec, create_subprocess_shell, getoutput, getstatusoutput, IPython's get_ipython,
-      system_raw, run_line_magic and run_cell_magic, and the IPython.utils helpers getoutputerror,
-      get_output_error_code and process_handler); the environment (environ, environb, putenv, unsetenv); and
-      running code from a string or another file (exec, eval, compile, __import__, __builtins__, importlib,
-      runpy, builtins, ctypes, cffi, execute_from_command_line, ManagementUtility, import_string,
-      resolve_name, locate, IPython's Macro and IPyAutocall, and call_command of shell, shell_plus or
-      runscript). Each name is matched at every identifier the parser records, as the guard docstring
-      enumerates them (attributes are never matched against the builtins exec, eval, compile, __import__ and
-      __builtins__), and against every '.'- or ':'-separated part of a string or bytes constant; a string that
-      parses and holds a statement or a call is read like the cell's own code, to two levels. So a listed name
-      imported from another module (from webbrowser import subprocess), bound to another name first or looked
-      up by a literal string (import_string('subprocess.run')) is reported. R0 reports any code cell that is
-      not Python IPython runs unchanged, checked with IPython's own TransformerManager, once %matplotlib
-      inline lines and a first-line %%time or %%capture (with only its --no-stderr, --no-stdout and
-      --no-display flags and an output name) are removed, apart from IPython's autocall, which runs a one-line
-      cell that starts with an autocall object as a call (exit -1 runs as exit(-1)): the kernel's only
-      autocall objects, exit and quit, end the kernel, R12 reports the name IPyAutocall (40-15 [1c830b1]), and
-      an autocall object made without that name (a subclass of type(exit)) runs a call method that is notebook
-      code the rules read; and, since 40-13 [905408a], R0 reports any one-line cell whose first word is an
-      IPython line magic or alias, because IPython's automagic runs it unless the name is bound when the cell
-      runs, whatever an earlier cell assigns, imports or defines; only a word that is a builtin or a keyword,
-      or one followed by = or a comma, is exempt. R5 and R7 report a str or bytes constant that names
-      FOMO_DATABASE_PATH or fomo_db.sqlite3 (40-13 [4f02628]). R6 reports the module names shutil and _shutil,
-      shutil's copy2, copyfile, copytree and copyfileobj, and write_bytes at every identifier the parser
-      records and as a string part (40-13 [4f02628], 40-15 [bc99b0e]), so code that names shutil is reported
-      however it then hands the module on, and copy and move read from an expression that mentions shutil,
-      _shutil or a name the notebook binds to one in any cell through an import, an assignment, a loop, a
-      with, a comprehension or a parameter default; copy and move read from anything that mentions no shutil
-      name (another object's method of that name, such as a path's copy and move on Python 3.14 and later), a
-      shutil module, shutil function or write_bytes method obtained at runtime without writing its name (from
-      inspect.getmodule, a function's __module__ or a search over sys.modules or a module's vars()), and code
-      in a string nested more than two strings deep, which R6 and R12 match only by its parts, are not
-      reported. Every literal form in the third review (CR-01, CR-02, WR-01), the fourth review's CR-01 and
-      WR-01 forms, the fifth review's CR-01 and CR-02 forms, the re-review's four forms and both round-1
-      probes is reported on a copy of a real notebook, the fourth review's WR-02 bytes literals on the
-      reference notebook, and every real pre-executed notebook passes the guard. The guard docstring makes no
-      claim of completeness and names what stays out of reach: the guard reads only the notebook's own source,
-      so values assembled or looked up at runtime (a name, module, SQL statement or file path built from
-      pieces, or fetched with getattr, globals(), vars() or sys.modules using such a string), code decoded at
-      runtime (pickle, marshal, codecs, base64), code outside the notebook (a module it imports, IPython's
-      profile and start-up files with the extensions, aliases and magics they define, or a library function
-      that starts a process or writes a file under a name these lists do not contain) and, left out on
-      purpose, JavaScript or HTML in a cell's output, which a notebook front end may run when the notebook is
-      opened, are not seen.
+      The guard reports only the names and patterns on its lists, found in a notebook's literal source, and
+      makes no claim of completeness; the guard docstring lists every name. Rule R12, extended in 40-08
+      [301bd93, f1b4bb6], 40-10 [482606b, 3232341, c6c6322], 40-15 [1c830b1] and 40-17 [c78e517], reports in
+      every notebook the names on its five lists: Django's database settings and connection objects
+      (DATABASES, DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the helper's internals
+      developer_database_path, prepare_scratch_database and snapshot_database, DatabaseWrapper, load_backend,
+      connections, connection, _connections, ConnectionHandler, create_connection, get_connection_params,
+      get_new_connection, Database and sqlite3, the connections.settings and connections.databases attribute
+      chains and any sqlite3 import); attaching another database through raw SQL (a string holding ATTACH
+      followed by DATABASE, a quote, a placeholder or an opening parenthesis); starting a process or reaching
+      IPython's shell (subprocess, multiprocessing, pty, pexpect, ptyprocess, psutil, jupyter_client,
+      nbclient, nbconvert, IPython, ipykernel, traitlets, system, popen, fork, forkpty, startfile,
+      posix_spawn, posix_spawnp, os's exec* and spawn* functions, Popen, ProcessPoolExecutor,
+      create_subprocess_exec, create_subprocess_shell, getoutput, getstatusoutput, get_ipython, system_raw,
+      run_line_magic, run_cell_magic, getoutputerror, get_output_error_code, process_handler,
+      InteractiveShell, ZMQInteractiveShell, IPKernelApp, alias_manager, define_alias, soft_define_alias,
+      run_cell, run_cell_async, autocall, define_macro, magics_manager and register_magic_function); the
+      environment (environ, environb, putenv, unsetenv); and running code from a string or another file (exec,
+      eval, compile, __import__, __builtins__, importlib, runpy, builtins, ctypes, cffi,
+      execute_from_command_line, ManagementUtility, import_string, resolve_name, locate, Macro, IPyAutocall,
+      and call_command of shell, shell_plus or runscript). Each name is matched at the identifiers the guard
+      docstring lists (attributes never against the builtins exec, eval, compile, __import__ and __builtins__)
+      and against every '.'- or ':'-separated part of a str or bytes constant, and a string that parses and
+      holds a statement or a call is read like the cell's own code, to two levels, so reaching IPython's shell
+      as InteractiveShell.instance() or a process by a literal dotted string (import_string('subprocess.run'))
+      is reported. R3 and R4 (40-17 [fdd8b3e]) report a Django import before the helper call and a call
+      written django.setup(), an import of setup from django or django imported under an alias, in a cell's
+      code and in code inside its strings to two levels, and the Django-backed gate reads string code the same
+      way. R0 reports a cell that does not parse once %matplotlib inline lines and a first-line %%time or
+      %%capture (with only its --no-stderr, --no-stdout and --no-display flags and an output name) are
+      removed, a cell whose meaning IPython's static TransformerManager changes, and, since 40-13 [905408a], a
+      one-line cell whose first word is in IPython's default line-magic and alias set, whatever an earlier
+      cell assigns, imports or defines, unless the word is a builtin or keyword or is followed by = or a
+      comma. R5 and R7 report a str or bytes constant that contains FOMO_DATABASE_PATH or fomo_db.sqlite3 and
+      a keyword argument named FOMO_DATABASE_PATH (40-13 [4f02628]). R6 reports shutil, _shutil, copy2,
+      copyfile, copytree, copyfileobj and write_bytes at the identifiers the docstring lists and as string
+      parts (40-13 [4f02628], 40-15 [bc99b0e]), and copy and move read from an expression that mentions
+      shutil, _shutil or a name the notebook binds to one through an import, an assignment, a loop, a with, a
+      comprehension or a parameter default (40-17 [ca1cb7d]); a cell has at most one write_bytes problem
+      (40-17 [ca1cb7d]). Every literal form in the third review (CR-01, CR-02, WR-01), the fourth review's
+      CR-01 and WR-01 forms, the fifth review's CR-01 and CR-02 forms, the sixth review's CR-01 and CR-02
+      forms, the re-review's four forms and both round-1 probes is reported on a copy of a real notebook, the
+      fourth review's WR-02 bytes literals on the reference notebook, and every real pre-executed notebook
+      passes the guard and is Django-backed. Any route to a process, IPython's shell, Django's settings or the
+      database through a name or form the lists do not contain is not seen, including values assembled or
+      looked up at runtime (a name, module, SQL statement or file path built from pieces, or fetched with
+      getattr, globals(), vars() or sys.modules using such a string, and a module, function or method found at
+      runtime without its name, through inspect.getmodule, a function's __module__ or a search over
+      sys.modules or a module's vars()), code decoded at runtime (pickle, marshal, codecs, base64), code
+      nested more than two strings deep, rewrites IPython decides at run time (autocall, so exit -1 runs as
+      exit(-1), and a one-line cell that runs an alias or magic the notebook defined while it ran), code
+      outside the notebook (a module it imports, IPython's profile and start-up files with the extensions,
+      aliases and magics they define, or a library function that starts a process, sets Django up or writes a
+      file under a name these lists do not contain, such as a path's copy and move on Python 3.14 and later)
+      and, left out on purpose, JavaScript or HTML in a cell's output, which a notebook front end may run when
+      the notebook is opened.
     accepted_by: "Tim Lister"
-    accepted_at: "2026-10-11T03:35:54Z"
+    accepted_at: "2026-10-11T13:37:50Z"
 re_verification:
   previous_status: gaps_found
   previous_score: 163/167 (prohibitions 49/49)
