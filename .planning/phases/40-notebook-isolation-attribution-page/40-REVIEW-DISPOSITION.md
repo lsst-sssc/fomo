@@ -5,27 +5,27 @@ titles: json
 findings:
   - id: CR-01
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "IPython's shell is reachable as `InteractiveShell.instance()`, so a notebook can define a shell alias that a later one-line cell runs, with no name R0 or R12 reports"
   - id: CR-02
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "R3 and R4 do not read code inside strings, so Django set up in a string before the helper call writes the developer database unreported, against the README's explicit claim"
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "\"a cell has at most one write_bytes problem\" is false"
   - id: IN-01
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`from tempfile import _shutil as sh` then `sh.move(a, b)` reports `_shutil` but not the `move`, though the `_byte_copy_problems` docstring says a name bound to `_shutil` by an import counts"
   - id: IN-02
     severity: info
-    disposition: open
+    disposition: fixed
     title: "`exit -1` does not end the kernel, though the docstring and README say the kernel's autocall objects \"end the kernel\" and give `exit -1` as the example"
   - id: IN-03
     severity: info
-    disposition: open
+    disposition: fixed
     title: "The README and docstring still leave out checks the code makes (round-5 IN-01, unchanged)"
   - id: WR-02
     severity: warning
@@ -51,7 +51,7 @@ findings:
     severity: info
     disposition: deferred
     title: "Small test and code tidy-ups"
-open: 8
+open: 2
 total: 12
 recorded: 2026-10-11T03:50:27.714Z
 ---
@@ -60,12 +60,12 @@ recorded: 2026-10-11T03:50:27.714Z
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-01 | critical | open | - |
-| CR-02 | critical | open | - |
-| WR-01 | warning | open | - |
-| IN-01 | info | open | - |
-| IN-02 | info | open | - |
-| IN-03 | info | open | - |
+| CR-01 | critical | fixed | fixed in 40-17 Task 1 (c78e517) and 40-18 Task 3 (aff2547): R12 lists IPython, ipykernel, traitlets and IPython's shell classes and entry points, so the review's four shell forms are reported on a copy of import_campaign_csv_demo; the docstrings, README and override reason describe each rule by its lists and name unlisted routes as one residual class (D-G16, D-G17) |
+| CR-02 | critical | fixed | fixed in 40-17 Task 2 (fdd8b3e) and 40-18 Task 3 (aff2547): R3, R4 and the Django-backed gate read code inside strings to two levels, so the review's timeit probe and the verifier's settings.configure variant are reported on a copy of import_campaign_csv_demo (D-G16) |
+| WR-01 | warning | fixed | fixed in 40-17 Task 3 (ca1cb7d) and 40-18 Task 3 (aff2547): R6 keeps the first write_bytes text of a cell, so a cell has at most one write_bytes problem, pinned by a method-plus-string-part test |
+| IN-01 | info | fixed | fixed in 40-17 Task 3 (ca1cb7d) and 40-18 Task 3 (aff2547): _shutil_names follows an import of shutil or _shutil, so from tempfile import _shutil as sh then sh.move is reported |
+| IN-02 | info | fixed | fixed in 40-18 Task 3 (aff2547): no docstring, README or override reason says exit and quit end the kernel; autocall is named as a run-time rewrite R0 does not read (D-G17) |
+| IN-03 | info | fixed | fixed in 40-18 Task 3 (aff2547): the README guard paragraph and module docstring list every rule, including the FOMO_DATABASE_PATH keyword check, R8's error output, R10's teardown, R11's setup-cell assert and copy and move read from a shutil name (D-G18) |
 | WR-02 | warning | fixed | fixed in 40-15 Task 2 (1c830b1) and 40-16 Task 3 (b04f09f): IPyAutocall is an R12 name, and the docstring, README and override reason name IPython's autocall of exit and quit as the rewrite R0 does not see, pinned by a test (D-G13) (not in the current review) |
 | WR-03 | warning | open | - (not in the current review) |
 | IN-04 | info | open | - (not in the current review) |
