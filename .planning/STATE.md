@@ -4,18 +4,18 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: gaps_found
-stopped_at: Completed 40-16-PLAN.md
-last_updated: "2026-10-11T05:08:45.776Z"
+status: executing
+stopped_at: Completed 40-17-PLAN.md
+last_updated: "2026-10-11T09:33:19.671Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 40 execution started
-state_head: cd883a6018eaad43fe9fb2d17a887a2e18f9daf6
+state_head: ca1cb7d83dc810ff6ab6bb980d071877809f7115
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 35
-  completed_plans: 33
-  percent: 94
+  completed_plans: 34
+  percent: 97
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — READY TO EXECUTE
-Plan: 16 of 18
-Status: Gap round 7 planned (40-17 guard code, 40-18 docs approval checkpoint) from re-verification gaps_found 185/190 (round-6 review CR-01, CR-02, WR-01, IN-01..IN-03); developer decisions D-G16 report both, D-G17 broad residual class, D-G18 IN-03 folded in
-Last activity: 2026-10-11 — Completed 40-16 (guard docstring, README, ledger, WARN-02 override reason)
+Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
+Plan: 17 of 18
+Status: Ready to execute
+Last activity: 2026-10-11 — Phase 40 execution started
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 94%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 97%)
 
 ## Performance Metrics
 
@@ -74,6 +74,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P14 | 12 min | 3 tasks | 4 files |
 | Phase 40 P15 | 8 min | 2 tasks | 1 files |
 | Phase 40 P16 | 35min | 3 tasks | 4 files |
+| Phase 40 P17 | 12 min | 3 tasks | 1 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -136,6 +137,7 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: 40-15 D-G11: R6 reports shutil, _shutil and write_bytes at every identifier and string part; shutil.which look-alike superseded on purpose
 - [Phase 40]: 40-15 D-G13: IPyAutocall added to R12 DYNAMIC_CODE_NAMES; exit/quit autocall exception pinned, not closed; D-G12 gate unchanged and pinned
 - [Phase 40]: 40-16: guard docstring, README and WARN-02 override reason recorded as developer-approved (approve, 2026-10-11T03:35:54Z); WARN-02/WARN-05 left for the verifier
+- [Phase 40]: 40-17: IPython shell names join R12; is_django_backed, R3 and R4 read code inside strings; write_bytes keyed per cell (first text kept); every SHUTIL_MODULE_NAMES import followed (D-G16, WR-01, IN-01)
 
 ### Pending Todos
 
@@ -207,8 +209,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-11T03:41:02.522Z
-**Stopped at:** Completed 40-16-PLAN.md
+**Last session:** 2026-10-11T09:33:19.500Z
+**Stopped at:** Completed 40-17-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
