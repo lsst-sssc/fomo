@@ -26,10 +26,10 @@ Requirements for this milestone. Each maps to a roadmap phase.
 ### Review warnings (WARN) — Phase 37.1 ledger, all still `open`
 
 - [x] **WARN-01** (WR-05): The header comment on `src/templates/tom_calendar/partials/event_form.html` states accurately which blocks differ from the upstream `tom_calendar` template, instead of claiming it is an exact copy apart from one block.
-- [x] **WARN-02** (WR-13): The pre-executed-notebook guard fails a notebook whose *current source* routes Django to the developer database, regardless of whether its committed output is stale.
+- [ ] **WARN-02** (WR-13): The pre-executed-notebook guard fails a notebook whose *current source* routes Django to the developer database, regardless of whether its committed output is stale.
 - [ ] **WARN-03** (WR-14): No pre-executed notebook relies on `assert` to protect the resolved database path before running `migrate`; the check raises an ordinary exception that survives `python -O`.
 - [ ] **WARN-04** (WR-15): The attribution page (`src/templates/campaigns/attribution_queue.html` and partials) uses Bootstrap 5.3 class names only; the High-band row marker renders again, and a template test asserts it is present in the rendered HTML.
-- [x] **WARN-05** (WR-16): Every notebook under `docs/notebooks/pre_executed/` is audited for live developer-database access and the three that byte-copy it are rebuilt on one shared helper. No pre-executed notebook byte-copies or writes the developer database (`src/fomo_db.sqlite3`); a notebook that needs real rows reads it only through a read-only online-backup snapshot, and every other notebook starts from a fresh migrated database. `docs/notebooks/README.md` states that rule in the same words and lists which notebooks snapshot and which start fresh. (Also closes pending todo 2026-10-02 "Run pre-executed demo notebooks against a scratch DB copy".)
+- [ ] **WARN-05** (WR-16): Every notebook under `docs/notebooks/pre_executed/` is audited for live developer-database access and the three that byte-copy it are rebuilt on one shared helper. No pre-executed notebook byte-copies or writes the developer database (`src/fomo_db.sqlite3`); a notebook that needs real rows reads it only through a read-only online-backup snapshot, and every other notebook starts from a fresh migrated database. `docs/notebooks/README.md` states that rule in the same words and lists which notebooks snapshot and which start fresh. (Also closes pending todo 2026-10-02 "Run pre-executed demo notebooks against a scratch DB copy".)
 - [ ] **WARN-06** (WR-17): `telescope_runs_demo.ipynb`'s committed output reports the horizon dip in a single unit (degrees or arcminutes), not "arcmin deg"; the notebook is re-executed and committed.
 - [ ] **WARN-07** (WR-18): Pressing Undo on a Dismissed row in the attribution queue leaves the Dismissed section open and on the same page, so working down the list needs no re-open or re-page per row.
 
@@ -99,10 +99,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ACCESS-01 | Phase 39 | Complete |
 | ACCESS-02 | Phase 39 | Complete |
 | WARN-01 | Phase 39 | Complete |
-| WARN-02 | Phase 40 | Complete |
+| WARN-02 | Phase 40 | Gaps Found |
 | WARN-03 | Phase 40 | Gaps Found |
 | WARN-04 | Phase 40 | Gaps Found |
-| WARN-05 | Phase 40 | Complete |
+| WARN-05 | Phase 40 | Gaps Found |
 | WARN-06 | Phase 40 | Gaps Found |
 | WARN-07 | Phase 40 | Gaps Found |
 | SPEED-01 | Phase 39.1 | Complete |
