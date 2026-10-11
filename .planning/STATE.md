@@ -4,11 +4,11 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: executing
+status: gaps_found
 stopped_at: Completed 40-18-PLAN.md
 last_updated: "2026-10-11T13:43:00.594Z"
 last_activity: 2026-10-11
-last_activity_desc: Phase 40 execution started
+last_activity_desc: Phase 40 re-verification after gap round 7 (gaps_found 210/214)
 state_head: 0f5b540f676ae73ae9e71ea0d6f47fc3be3f69c3
 progress:
   total_phases: 6
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
+Phase: 40 (Notebook Isolation & Attribution Page) — GAPS FOUND
 Plan: 18 of 18
-Status: Ready to execute
-Last activity: 2026-10-11 — Phase 40 execution started
+Status: Gap round 7 executed (40-17 guard code, 40-18 docs + approved override 2026-10-11T13:37:50Z); re-verification gaps_found 210/214 on round-7 review CR-01 (Django set up in string code inside the setup_scratch_django call argument, contradicts the override reason, override not applied) and wording gaps WR-01..WR-04, IN-01, IN-02; next /gsd-plan-phase 40 --gaps
+Last activity: 2026-10-11 — Phase 40 re-verified after gap plans 40-17..40-18 (gaps_found 210/214)
 
 Progress: [████████████████████] 17/17 plans ([██████████] 100%)
 
