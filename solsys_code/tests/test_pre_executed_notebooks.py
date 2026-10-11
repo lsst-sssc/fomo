@@ -564,6 +564,11 @@ def _string_code_trees(tree: ast.AST, depth: int = STRING_CODE_DEPTH):
             yield from _string_code_trees(inner, depth - 1)
 
 
+def _with_string_code(tree: ast.AST) -> tuple[ast.AST, ...]:
+    """Return ``tree`` followed by the tree of every string in it that is itself Python code, two levels deep."""
+    return (tree, *_string_code_trees(tree))
+
+
 def _dotted_name(node: ast.expr) -> str:
     """Return ``a.b.c`` for a chain of attribute accesses on a name, or an empty string."""
     parts = []
@@ -623,7 +628,10 @@ def _django_imports(node: ast.AST) -> list[ast.AST]:
 
 def is_django_backed(notebook: dict) -> bool:
     """Return True when any code cell imports Django, the project app or a TOM plugin (D-13)."""
-    return any(tree is not None and _django_imports(tree) for _number, _cell, tree in _parsed_code_cells(notebook))
+    return any(
+        tree is not None and any(_django_imports(scanned) for scanned in _with_string_code(tree))
+        for _number, _cell, tree in _parsed_code_cells(notebook)
+    )
 
 
 def _helper_bindings(parsed) -> tuple[dict[str, tuple[int, int]], list[str]]:
@@ -701,7 +709,7 @@ def _django_setup_problems(parsed) -> list[str]:
     for number, _cell, tree in parsed:
         if tree is None:
             continue
-        for node in ast.walk(tree):
+        for node in itertools.chain.from_iterable(ast.walk(scanned) for scanned in _with_string_code(tree)):
             if isinstance(node, ast.Call) and _dotted_name(node.func) == 'django.setup':
                 problems.append(f'code cell {number} calls django.setup(); only {SETUP_FUNCTION} may set Django up')
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == 'django':
@@ -1210,7 +1218,7 @@ def isolation_problems(notebook: dict) -> list[str]:
     for number, index, statement in _statements(parsed):
         if (number, index) >= (setup_number, setup_index):
             break
-        if _django_imports(statement):
+        if any(_django_imports(scanned) for scanned in _with_string_code(statement)):
             problems.append(f'code cell {number} imports Django before the {SETUP_FUNCTION} call')
 
     # R9: the setup cell's committed output shows a scratch database.
@@ -1582,6 +1590,57 @@ def _insert_code_cell_after_setup(notebook: dict, source: str) -> dict:
     modified['cells'].insert(modified['cells'].index(setup_cell) + 1, new_cell)
     for position, cell in enumerate(_code_cells(modified), start=1):
         cell['execution_count'] = position
+    return modified
+
+
+def _insert_code_cell_before_setup(notebook: dict, source: str) -> dict:
+    """Return a copy of ``notebook`` with ``source`` as a new code cell right before the setup cell.
+
+    The new cell has no outputs, and every code cell's execution count is renumbered 1..N in order.
+
+    Args:
+        notebook: A parsed ``.ipynb`` file with one valid helper call.
+        source: Python source for the new cell, each line ending in a newline.
+
+    Returns:
+        A deep copy of ``notebook``; the argument is not modified.
+    """
+    modified = copy.deepcopy(notebook)
+    setup_number = setup_call(modified)[0]
+    setup_cell = _code_cells(modified)[setup_number - 1]
+    new_cell = {
+        'cell_type': 'code',
+        'execution_count': None,
+        'id': 'inserted-before-setup',
+        'metadata': {},
+        'outputs': [],
+        'source': source.splitlines(keepends=True),
+    }
+    modified['cells'].insert(modified['cells'].index(setup_cell), new_cell)
+    for position, cell in enumerate(_code_cells(modified), start=1):
+        cell['execution_count'] = position
+    return modified
+
+
+def _insert_before_setup_call(notebook: dict, source: str) -> dict:
+    """Return a copy of ``notebook`` whose setup cell has ``source`` just before the line of the helper call.
+
+    The source lands after the setup cell's earlier lines (its ``sys.path`` lines and the helper import) and before
+    the call, so it runs before the helper does. No cell is added or renumbered.
+
+    Args:
+        notebook: A parsed ``.ipynb`` file with one valid helper call.
+        source: Python source to insert as whole lines, each ending in a newline.
+
+    Returns:
+        A deep copy of ``notebook``; the argument is not modified.
+    """
+    modified = copy.deepcopy(notebook)
+    setup_number, _index, statement = setup_call(modified)
+    cell = _code_cells(modified)[setup_number - 1]
+    lines = _cell_source(cell).splitlines(keepends=True)
+    lines[statement.lineno - 1 : statement.lineno - 1] = source.splitlines(keepends=True)
+    cell['source'] = ''.join(lines)
     return modified
 
 
@@ -2744,6 +2803,40 @@ class TestSixthReviewFormsOnARealNotebook(SimpleTestCase):
         ):
             with self.subTest('look-alike', source=source):
                 self.assertEqual(isolation_problems(_notebook(extra_cells=[_code(source)])), [])
+
+    # CR-02 of the sixth review, D-G16: Django set up inside a string before the helper call.
+    def test_django_set_up_in_string_code_before_the_helper_is_reported_on_a_real_notebook(self):
+        flush = "from django.core.management import call_command; call_command('flush', interactive=False)"
+        review = f'import timeit\ntimeit.timeit("import django; django.setup(); {flush}", number=1)\n'
+        variant = (
+            'import timeit\n'
+            'timeit.timeit("from django.conf import settings; import src.fomo.settings as s; settings.configure(s); '
+            f'import django; django.setup(); {flush}", number=1)\n'
+        )
+        plain = 'import django\ndjango.setup()\n'
+        cases = {
+            'review: a cell before the setup cell': _insert_code_cell_before_setup(self.notebook, review),
+            'control: plain code before the setup cell': _insert_code_cell_before_setup(self.notebook, plain),
+            'verifier: in the setup cell before the helper call': _insert_before_setup_call(self.notebook, variant),
+            'control: plain code before the helper call': _insert_before_setup_call(self.notebook, plain),
+        }
+        for label, notebook in cases.items():
+            with self.subTest(label):
+                self.assertIsNotNone(setup_call(notebook))
+                problems = isolation_problems(notebook)
+                _first_problem_mentions(self, problems, 'calls django.setup()')
+                _first_problem_mentions(self, problems, 'imports Django before the setup_scratch_django call')
+
+    # CR-02 of the sixth review, D-G16: the Django-backed gate reads code inside strings.
+    def test_a_notebook_whose_only_django_import_is_in_string_code_is_django_backed(self):
+        bare = {'cells': [_code('import timeit\ntimeit.timeit("import django; django.setup()", number=1)\n')]}
+        self.assertTrue(is_django_backed(bare))
+        problems = isolation_problems(bare)
+        _first_problem_mentions(self, problems, 'calls django.setup()')
+        _first_problem_mentions(self, problems, 'no top-level')
+        prose = {'cells': [_code("print('django.setup is called by the helper')\n")]}
+        self.assertFalse(is_django_backed(prose))
+        self.assertEqual(isolation_problems(prose), [])
 
 
 class TestPreExecutedNotebooksUseTheHelper(SimpleTestCase):
