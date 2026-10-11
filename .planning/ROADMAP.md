@@ -328,7 +328,7 @@ Plans:
   4. On the attribution page, High-band rows show their marker again, a template test asserts the marker is present in the rendered HTML, and the page's templates use Bootstrap 5.3 class names only
   5. A staff member working down the Dismissed list can press Undo on a row and land back on the same page with the Dismissed section still open, with no re-open or re-page between rows
 
-**Plans**: 17/18 plans executed (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07; 40-08 and 40-09 close the 2026-10-10 re-review's WR-01, WR-02, IN-01 and IN-02 and record the developer's override for the residual WARN-02 risk; 40-10 to 40-12 close the third review's CR-01, CR-02, WR-01, WR-02 and IN-01 and put a corrected override reason to the developer; 40-13 and 40-14 close the fourth review's CR-01, WR-01, WR-02 and IN-02 and put the reworded docstring, README and override reason to the developer; 40-15 and 40-16 close the fifth review's CR-01, CR-02, WR-01 and WR-02 and put the reworded docstring, README and override reason to the developer again; 40-17 and 40-18, planned, close the sixth review's CR-01, CR-02, WR-01 and IN-01 to IN-03 and put docstrings, comments, README and an override reason that describe each rule by its lists and name one residual class to the developer)
+**Plans**: 18/18 plans executed (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07; 40-08 and 40-09 close the 2026-10-10 re-review's WR-01, WR-02, IN-01 and IN-02 and record the developer's override for the residual WARN-02 risk; 40-10 to 40-12 close the third review's CR-01, CR-02, WR-01, WR-02 and IN-01 and put a corrected override reason to the developer; 40-13 and 40-14 close the fourth review's CR-01, WR-01, WR-02 and IN-02 and put the reworded docstring, README and override reason to the developer; 40-15 and 40-16 close the fifth review's CR-01, CR-02, WR-01 and WR-02 and put the reworded docstring, README and override reason to the developer again; 40-17 and 40-18, planned, close the sixth review's CR-01, CR-02, WR-01 and IN-01 to IN-03 and put docstrings, comments, README and an override reason that describe each rule by its lists and name one residual class to the developer)
 
 Plans:
 **Wave 1**
@@ -381,7 +381,7 @@ Plans:
 - [x] 40-17-PLAN.md — Gap closure (tracer: the sixth review's four IPython-shell forms -- an alias defined through `InteractiveShell.instance()` then a one-line cell, `run_cell` of a shell escape, `autocall = 2`, `ex` -- are reported on a real notebook): R12 lists IPython, ipykernel, traitlets and twelve shell classes and entry points; R3, R4 and the Django-backed gate read code inside strings, so Django set up in a `timeit` string before the helper call is reported; a cell has at most one write_bytes problem; an import of tempfile's `_shutil` is followed; one superseded expected set recorded, no docstring or comment changed (CR-01, CR-02, WR-01, IN-01; WARN-02, WARN-05)
 
 **Wave 17** *(gap closure, blocked on Wave 16 completion; developer checkpoint)*
-- [ ] 40-18-PLAN.md — Gap closure, the round's last step: draft every guard docstring and comment, the README paragraph and the reworded override reason so they describe each rule by what its lists contain, list every rule and name one residual class (any route through a name or form the lists do not contain), with every list entry, claim and named not-seen form checked against 40-17's guard, put them to the developer at a blocking checkpoint, then record the approved texts, the ledger rows (CR-01, CR-02, WR-01, IN-01, IN-02, IN-03 fixed) and, last, the approved override with the orchestrator-supplied approval time (or no override, on decline) (CR-01, CR-02, WR-01, IN-01, IN-02, IN-03; WARN-02, WARN-05)
+- [x] 40-18-PLAN.md — Gap closure, the round's last step: draft every guard docstring and comment, the README paragraph and the reworded override reason so they describe each rule by what its lists contain, list every rule and name one residual class (any route through a name or form the lists do not contain), with every list entry, claim and named not-seen form checked against 40-17's guard, put them to the developer at a blocking checkpoint, then record the approved texts, the ledger rows (CR-01, CR-02, WR-01, IN-01, IN-02, IN-03 fixed) and, last, the approved override with the orchestrator-supplied approval time (or no override, on decline) (CR-01, CR-02, WR-01, IN-01, IN-02, IN-03; WARN-02, WARN-05)
 
 **UI hint**: yes
 
@@ -474,7 +474,7 @@ Plans:
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
 | 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 4/4 | Complete    | 2026-10-09 |
-| 40. Notebook Isolation & Attribution Page | v2.5 | 17/18 | In Progress | - |
+| 40. Notebook Isolation & Attribution Page | v2.5 | 18/18 | In Progress | - |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
 
