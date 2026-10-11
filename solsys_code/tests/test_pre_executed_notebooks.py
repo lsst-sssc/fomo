@@ -207,6 +207,9 @@ DYNAMIC_CODE_NAMES = frozenset(
         'locate',
         # IPython runs a Macro's text when a one-line cell names it.
         'Macro',
+        # IPython calls an IPyAutocall object named first on a one-line cell (``exit -1`` runs as ``exit(-1)``), a
+        # rewrite R0 cannot see (WR-02 of the fifth review, D-G13).
+        'IPyAutocall',
     }
 )
 # R12: management commands that run code (``shell`` runs a string with ``exec``); ``call_command`` of one is reported.
@@ -1067,21 +1070,24 @@ def isolation_problems(notebook: dict) -> list[str]:
 
     Returns:
         A list of problems, in statement order where it matters; empty when the notebook is clean. A notebook
-        that imports nothing from Django, the project app or a TOM plugin is only checked for the rules that
-        apply to every notebook (no own database routing, no byte copy, no developer database file name, and
-        none of the names R12 lists for re-routing the database after setup). R0 also applies to every notebook:
-        each code cell must be Python that IPython runs unchanged once ``%matplotlib inline`` and a first-line
-        ``%%time`` or ``%%capture`` are removed, and a one-line cell may not start with an IPython line magic or
-        alias name, whatever an earlier cell binds (only a builtin, a keyword or a word followed by ``=`` or ``,``
-        is exempt); every later rule reads each cell's Python view.
+        in which no code cell that parses as written (before any magic line is removed) imports Django, the
+        project app or a TOM plugin (``is_django_backed``, D-13) is only checked for the rules that apply to every
+        notebook (no own database routing, no byte copy, no developer database file name, and none of the names
+        R12 lists for re-routing the database after setup); R2-R4 and R8-R11 apply only to a Django-backed
+        notebook. R0 also applies to every notebook: each code cell must be Python that IPython runs unchanged once
+        ``%matplotlib inline`` and a first-line ``%%time`` or ``%%capture`` are removed, and a one-line cell may not
+        start with an IPython line magic or alias name, whatever an earlier cell binds (only a builtin, a keyword or
+        a word followed by ``=`` or ``,`` is exempt). R0 does not see IPython's autocall of an object such as
+        ``exit`` or ``quit`` (``exit -1`` runs as ``exit(-1)``), a rewrite IPython makes from the namespace at run
+        time; R12 reports the IPyAutocall name. Every later rule reads each cell's Python view.
     """
     problems = []
     code_cells = _code_cells(notebook)
     parsed = _parsed_code_cells(notebook)
 
-    # R0: a cell must be Python that IPython runs unchanged (D-G5 2). A cell that is not plain Python is reduced to
-    # its Python view (harmless magic lines removed); the deny-list message comes first, then the allow-list. At most
-    # one R0 problem per cell, in cell order.
+    # R0: a cell must be Python that IPython runs unchanged (D-G5 2), apart from IPython's autocall, which R0 cannot
+    # see (D-G13). A cell that is not plain Python is reduced to its Python view (harmless magic lines removed); the
+    # deny-list message comes first, then the allow-list. At most one R0 problem per cell, in cell order.
     views = []
     for number, cell, tree in parsed:
         source = _cell_source(cell)
@@ -1114,7 +1120,8 @@ def isolation_problems(notebook: dict) -> list[str]:
                 f'cell runs, so the guard reports it {R0_AUTOMAGIC_MARKER})'
             )
         views.append((number, cell, view_tree))
-    # Every later rule reads the Python views, so the code under a harmless magic is checked like any other cell.
+    # Every later rule reads the Python views, so the code under a harmless magic is read like any other cell's;
+    # whether R2-R4 and R8-R11 apply is still decided from each cell as written (is_django_backed, D-13, D-G12).
     parsed = views
 
     # R5, R6, R7, R12 apply to every notebook.
@@ -2425,13 +2432,17 @@ class TestR6CopyAndWriteFunctions(SimpleTestCase):
 
 
 class TestR0AllowList(SimpleTestCase):
-    """CR-02 of the third review with developer decision D-G5 (2), and CR-01 of the fourth review with D-G7 (1).
+    """CR-02 of the third review (D-G5 2) and CR-01 of the fourth (D-G7 1); WR-01, WR-02 of the fifth review.
+
+    The fifth review's findings are settled by developer decisions D-G12 (WR-01) and D-G13 (WR-02).
 
     IPython runs more than the escapes R0 listed -- aliases, automagic, escapes after a line magic, prompt prefixes
-    -- so every cell must be Python that IPython runs unchanged, apart from a few harmless magic lines, and a
-    one-line cell may not start with an IPython magic or alias name whatever an earlier cell binds (only a builtin,
-    a keyword or a word followed by ``=`` or ``,`` is exempt), because IPython decides from the names bound when
-    the cell runs. Every case is the reference notebook plus the extra cells shown, or a copy of a real notebook.
+    -- so every cell must be Python that IPython runs unchanged, apart from a few harmless magic lines and IPython's
+    autocall, which R0 cannot see (the IPyAutocall name is reported by R12, and the kernel's only autocall objects
+    are exit and quit). A one-line cell may not start with an IPython magic or alias name whatever an earlier cell
+    binds (only a builtin, a keyword or a word followed by ``=`` or ``,`` is exempt), because IPython decides from
+    the names bound when the cell runs. Whether R2-R4 and R8-R11 apply is decided from each cell as written (D-G12).
+    Every case is the reference notebook plus the extra cells shown, or a copy of a real notebook.
     """
 
     def problems_with(self, *sources):
@@ -2478,6 +2489,61 @@ class TestR0AllowList(SimpleTestCase):
         for source, text in cases:
             with self.subTest(source=source):
                 _first_problem_mentions(self, self.problems_with(source), text)
+
+    def test_autocall_is_not_seen_by_r0_and_the_ipyautocall_name_is_reported(self):
+        # IPython's IPyAutocallChecker runs a one-line cell that starts with an autocall object as a call (``exit -1``
+        # as ``exit(-1)``), a rewrite IPython makes from the namespace at run time that R0 cannot see. The kernel's
+        # only autocall objects are exit and quit; the name IPyAutocall is an R12 name (D-G13, WR-02 of the fifth
+        # review).
+        for source in ('exit -1\n', 'quit -1\n'):
+            with self.subTest(source=source):
+                self.assertEqual(self.problems_with(source), [])
+        bye = 'class Bye(type(exit)):\n    def __call__(self, *args):\n        {body}\nbye = Bye()\n'
+        with self.subTest('an autocall object made without the name'):
+            self.assertEqual(self.problems_with(bye.format(body='pass'), 'bye -1\n'), [])
+        with self.subTest('its call method is notebook code'):
+            problems = self.problems_with(bye.format(body='shutil.copy(a, b)'), 'bye -1\n')
+            self.assertTrue(
+                any(p.split(';')[0].endswith('calls shutil.copy()') and 'byte-copy' in p for p in problems), problems
+            )
+            self.assertFalse(any(R0_REWRITE_MARKER in p or R0_AUTOMAGIC_MARKER in p for p in problems), problems)
+        forms = {
+            'import': 'from IPython.core.autocall import IPyAutocall\n',
+            'subclass': (
+                'import IPython.core.autocall as autocall\n'
+                'class Bye(autocall.IPyAutocall):\n    def __call__(self):\n        pass\n'
+            ),
+            'string': "name = 'IPython.core.autocall.IPyAutocall'\n",
+        }
+        notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+        for label, source in forms.items():
+            with self.subTest(label):
+                problems = isolation_problems(_append_to_setup_cell(notebook, source))
+                self.assertTrue(problems, 'the guard missed an IPyAutocall name')
+                self.assertTrue(all(REROUTE_MARKER in problem for problem in problems), problems)
+                self.assertEqual(_rerouting_names(problems), {'IPyAutocall'}, problems)
+
+    def test_the_django_backed_gate_reads_each_cell_as_written(self):
+        # Pins the documented fact behind D-G12: whether R2-R4 and R8-R11 apply is decided from each cell as written
+        # (D-13, unchanged); every real notebook passes the gate (test_the_real_notebook_check_is_not_vacuous).
+        magic_cell = '%%capture\nx = 1; import django as dj\ndj.setup()\n'
+        with self.subTest('under a magic the gate does not see the import'):
+            bare = {'cells': [_code(magic_cell)]}
+            problems = isolation_problems(bare)
+            self.assertFalse(is_django_backed(bare))
+            self.assertFalse(
+                any('imports django under an alias' in p or 'no top-level' in p for p in problems), problems
+            )
+        with self.subTest('without the magic the same code is Django-backed'):
+            plain = {'cells': [_code(magic_cell.split('\n', 1)[1])]}
+            problems = isolation_problems(plain)
+            self.assertTrue(is_django_backed(plain))
+            _first_problem_mentions(self, problems, 'imports django under an alias')
+            _first_problem_mentions(self, problems, 'no top-level')
+        with self.subTest('on a copy of a real notebook'):
+            notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+            inserted = _insert_code_cell_after_setup(notebook, magic_cell)
+            _first_problem_mentions(self, isolation_problems(inserted), 'imports django under an alias')
 
     def test_a_one_line_magic_or_alias_is_a_problem_even_when_an_earlier_cell_binds_the_name(self):
         # IPython decides from the names bound when the cell runs (is_shadowed), and a bare annotation, an
