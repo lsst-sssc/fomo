@@ -4,18 +4,18 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: gaps_found
-stopped_at: Completed 40-14-PLAN.md
-last_updated: "2026-10-11T03:10:24.228Z"
+status: executing
+stopped_at: Completed 40-15-PLAN.md
+last_updated: "2026-10-11T03:24:46.692Z"
 last_activity: 2026-10-10
-last_activity_desc: Phase 40 re-verification after gap round 5 — gaps_found 163/167
-state_head: 1dbdb6dae45d0cc38b606fd73ae561b9b9c7c678
+last_activity_desc: Phase 40 execution started
+state_head: 1c830b13f38310a7b8a156caed5f551bad1acb06
 progress:
   total_phases: 6
   completed_phases: 42
   total_plans: 33
-  completed_plans: 31
-  percent: 94
+  completed_plans: 32
+  percent: 97
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — READY TO EXECUTE
-Plan: 14 of 16
-Status: Ready to execute gap round 6 (40-15 code: R6 reports shutil, _shutil and write_bytes at every identifier, IPyAutocall in R12; 40-16 docs: docstring, README and override reason re-approved at a blocking-human checkpoint) -- developer decisions D-G11 to D-G15, 2026-10-11T02:29:39Z
-Last activity: 2026-10-10 — Phase 40 gap round 6 planned (40-15, 40-16; plan checker: 0 blockers, 0 warnings)
+Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
+Plan: 15 of 16
+Status: Plan 40-15 complete; ready to execute 40-16
+Last activity: 2026-10-10 — Completed 40-15 (R6 shutil/write_bytes everywhere, IPyAutocall)
 
-Progress: [████████████████████] 17/17 plans ([█████████░] 94%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 97%)
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Progress: [████████████████████] 17/17 p
 | Phase 40 P12 | 2 min | 3 tasks | 1 files |
 | Phase 40 P13 | 11 min | 3 tasks | 2 files |
 | Phase 40 P14 | 12 min | 3 tasks | 4 files |
+| Phase 40 P15 | 8 min | 2 tasks | 1 files |
 
 *v2.4 per-plan timings are in the v2.4 phase summaries under `.planning/milestones/v2.4-phases/`.*
 
@@ -131,6 +132,8 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: D-G5 (5): Tim Lister approved the corrected WARN-02 override reason verbatim (2026-10-10T19:14:57Z); it names only what 40-10's tests and 40-11's guard docstring support, and the accepted residual is exactly the docstring's 'What the guard does not see' paragraph — Recorded in 40-VERIFICATION.md's one overrides: entry (44c33c6); the verifier applies or rejects it at re-verification
 - [Phase 40]: 40-13: R0 automagic rule no longer exempts a name an earlier cell binds (IPython decides from the namespace at run time); R6 follows shutil names notebook-wide and reports distinctive copy names everywhere; R5/R7 read bytes; ipykernel>=7 in dev extra
 - [Phase 40]: 40-14: developer (Tim Lister) approved the guard docstring, README paragraph and reworded override reason as drafted (accepted_at 2026-10-10T23:20:47Z); IN-01 stays open and out of scope, recorded for Phase 41
+- [Phase 40]: 40-15 D-G11: R6 reports shutil, _shutil and write_bytes at every identifier and string part; shutil.which look-alike superseded on purpose
+- [Phase 40]: 40-15 D-G13: IPyAutocall added to R12 DYNAMIC_CODE_NAMES; exit/quit autocall exception pinned, not closed; D-G12 gate unchanged and pinned
 
 ### Pending Todos
 
@@ -202,8 +205,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-10T23:34:44.085Z
-**Stopped at:** Completed 40-14-PLAN.md
+**Last session:** 2026-10-11T03:24:46.493Z
+**Stopped at:** Completed 40-15-PLAN.md
 **Resume file:** None
 
 ## Operator Next Steps
