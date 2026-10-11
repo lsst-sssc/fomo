@@ -4,11 +4,11 @@ milestone: v2.5
 milestone_name: Main Sync & Consolidation
 current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
-status: executing
+status: gaps_found
 stopped_at: Completed 40-14-PLAN.md
 last_updated: "2026-10-10T23:34:44.302Z"
 last_activity: 2026-10-10
-last_activity_desc: Phase 40 execution started
+last_activity_desc: Phase 40 re-verification after gap round 5 — gaps_found 163/167
 state_head: f38a7b776be8e634b783007ff080945930c5fa5b
 progress:
   total_phases: 6
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — EXECUTING
+Phase: 40 (Notebook Isolation & Attribution Page) — GAPS FOUND
 Plan: 14 of 14
-Status: Ready to execute
-Last activity: 2026-10-10 — Phase 40 execution started
+Status: Gaps found after gap round 5 (40-13, 40-14) — re-verification 163/167; round-5 review CR-01/CR-02 (R6 routes through a call argument, a match capture or a class-pattern attribute; "any write_bytes") need a developer decision (A: report shutil and write_bytes at every identifier, or B: approve a wider stated boundary)
+Last activity: 2026-10-10 — Phase 40 gap round 5 executed and re-verified (gaps_found 163/167)
 
 Progress: [████████████████████] 17/17 plans ([██████████] 100%)
 
