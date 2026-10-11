@@ -259,6 +259,10 @@ FORBIDDEN_COPY_CALLS = tuple(f'shutil.{name}' for name in FORBIDDEN_COPY_NAMES)
 DISTINCTIVE_COPY_NAMES = ('copy2', 'copyfile', 'copytree', 'copyfileobj')
 # R6: methods that write a file's bytes, so a scratch file's bytes can land on the developer database (D-G6 b).
 BYTE_WRITE_NAMES = ('write_bytes',)
+# R6: the shutil module's name and tempfile's name for it. A notebook never needs shutil (the helper does every
+# copy), so R6 reports either wherever it is written, which also covers shutil handed on to a parameter, a lambda or
+# a match pattern (CR-01 of the fifth review, D-G11).
+SHUTIL_MODULE_NAMES = ('shutil', '_shutil')
 # How many levels of code inside a string (a string holding code that holds a string of code) the rules read.
 STRING_CODE_DEPTH = 2
 # Call names that write: an ``assert`` wrapping one would vanish under ``python -O`` (WARN-03).
@@ -758,26 +762,29 @@ def _target_names(target: ast.AST) -> set[str]:
 
 
 def _shutil_names(trees) -> set[str]:
-    """Return the names that stand for the shutil module anywhere in a notebook's code (WR-01, D-G7 2).
+    """Return the names that stand for the shutil module anywhere in a notebook's code (WR-01, D-G7 2, D-G11).
 
-    Starts from ``shutil`` and adds, over every tree given (every cell and the code inside its strings), the alias
+    Starts from ``shutil`` and ``_shutil`` (tempfile's name for it, SHUTIL_MODULE_NAMES) and adds, over every tree
+    given (every cell and the code inside its strings), the alias
     of every ``import shutil as X`` and of every ``from <any module> import shutil [as X]``, and every name or
     string in the target of an assignment (plain, chained, tuple, annotated with a value, augmented or ``:=``), a
     ``for`` loop, a comprehension, a ``with ... as`` or a parameter default whose value mentions a shutil name
     (``_mentions_shutil``). Repeats until the set stops growing, so ``a = shutil`` then ``b = a`` is followed, and
     a binding in any cell counts for every cell (it errs towards reporting).
 
-    Not followed: a shutil module reached only through a function's return value, a call's side effect
-    (``setattr``, a container's ``append``) or a module that holds it under another name (tempfile's ``_shutil``).
+    Not followed for ``copy`` and ``move``: shutil handed on as a call argument, to a lambda, through a match
+    capture or class pattern, as a function's return value or through a call's side effect (``setattr``, a
+    container's ``append``). Each of those names ``shutil`` or ``_shutil``, which R6 reports wherever it is written
+    (SHUTIL_MODULE_NAMES).
 
     Args:
         trees: Every parsed cell tree and every tree parsed from code inside a string.
 
     Returns:
-        The set of names, always including ``shutil``.
+        The set of names, always including ``shutil`` and ``_shutil``.
     """
     nodes = [node for tree in trees for node in ast.walk(tree)]
-    names = {'shutil'}
+    names = set(SHUTIL_MODULE_NAMES)
     for node in nodes:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             names.update(alias.asname or 'shutil' for alias in node.names if alias.name == 'shutil')
@@ -797,20 +804,27 @@ def _byte_copy_problems(parsed) -> list[str]:
 
     A byte copy can catch a database mid-write, and the scratch file has the developer database's base name, so a
     copy or write of a whole directory or file can land on it without naming it. Reported in the cell's code and in
-    code inside its strings:
+    code inside its strings (read to STRING_CODE_DEPTH levels):
 
-    - the distinctive copy functions (DISTINCTIVE_COPY_NAMES) at every identifier the parser records, as R12
-      matches its names, and as a part of a string;
+    - SHUTIL_MODULE_NAMES, the distinctive copy functions (DISTINCTIVE_COPY_NAMES) and BYTE_WRITE_NAMES at
+      every identifier the parser records (names, attributes, import paths and aliases, keyword arguments,
+      parameters, def and class names, match captures and class-pattern attributes), as R12 matches its names,
+      and as a '.'/':' part of a str or bytes constant, so shutil handed to a parameter, a lambda or a match
+      pattern is reported by its name, and a write_bytes method is reported however it is reached;
     - ``copy`` and ``move`` (and the distinctive names too) read as an attribute of an expression that mentions a
-      shutil name, called or not: ``shutil`` itself, a name bound to it by an import or any assignment-shaped
-      binding in any cell (``_shutil_names``), ``zipfile.shutil``, ``sys.modules['shutil']``;
+      shutil name, called or not: ``shutil`` itself, ``_shutil``, a name bound to either by an import or any
+      assignment-shaped binding in any cell (``_shutil_names``), ``zipfile.shutil``, ``sys.modules['shutil']``;
     - a ``from shutil import`` of a copy function;
-    - any reference to a byte-write method (BYTE_WRITE_NAMES), and any string whose dotted parts name a copy or
-      write function (``getattr(shutil, 'copytree')``).
+    - any string whose dotted parts name a copy or write function (``getattr(shutil, 'copytree')``).
 
-    One problem per finding per cell, in cell order. Not followed: ``copy`` or ``move`` reached only through a
-    function's return value, a call's side effect or a module that holds shutil under another name; the
-    distinctive names are reported there all the same.
+    One problem per finding per cell, in cell order; a function a call, reference or import problem already names
+    in a cell is not named again by the identifier pass, and a cell has at most one write_bytes problem.
+
+    Not reported: ``copy`` or ``move`` read from anything that mentions no shutil name (another object's method of
+    that name, such as a DataFrame's copy, or Python 3.14's Path.copy and Path.move); a shutil module, shutil
+    function or write_bytes method the notebook obtains at runtime without writing its name (through
+    inspect.getmodule, a function's ``__module__``, or a search over sys.modules or a module's vars()); and code
+    nested deeper than STRING_CODE_DEPTH strings, which is matched only by its '.'/':' parts.
     """
     scanned_by_cell = [
         (number, (tree, *_string_code_trees(tree))) for number, _cell, tree in parsed if tree is not None
@@ -868,11 +882,29 @@ def _byte_copy_problems(parsed) -> list[str]:
                             f'code cell {number} names {part} in a string; '
                             'a notebook must never look up a byte-copy or byte-write function by name'
                         ] = None
-        # The distinctive names are reported at every identifier, unless a problem above already names the function.
+                    elif part in SHUTIL_MODULE_NAMES:
+                        found[
+                            f'code cell {number} names {part} in a string; '
+                            'a notebook never uses shutil, whose functions byte-copy a database'
+                        ] = None
+        # The shutil module names, the distinctive copy names and the write names are reported at every identifier,
+        # unless a problem above already names the function. A write name gets exactly the first pass's text, so a
+        # cell never has two write_bytes problems.
         for scanned in scanned_trees:
             for node in ast.walk(scanned):
                 for identifier, _groups in _identifiers(node):
-                    if identifier in DISTINCTIVE_COPY_NAMES and identifier not in named:
+                    if identifier in BYTE_WRITE_NAMES:
+                        found[
+                            f'code cell {number} references {identifier}; '
+                            'a notebook must never byte-copy or byte-write a file over a database'
+                        ] = None
+                    elif identifier in SHUTIL_MODULE_NAMES and identifier not in named:
+                        found[
+                            f'code cell {number} references {identifier}; '
+                            'a notebook never uses shutil, whose functions byte-copy a database'
+                        ] = None
+                        named.add(identifier)
+                    elif identifier in DISTINCTIVE_COPY_NAMES and identifier not in named:
                         found[
                             f'code cell {number} references {identifier}; a notebook must never byte-copy a database'
                         ] = None
@@ -2183,13 +2215,18 @@ class TestR12MatchesEveryIdentifierAndString(SimpleTestCase):
 
 
 class TestR6CopyAndWriteFunctions(SimpleTestCase):
-    """WR-01 of the third review with developer decision D-G6 (b), and WR-01 of the fourth review with D-G7 (2).
+    """WR-01 of the third review with D-G6 (b), WR-01 of the fourth review with D-G7 (2), CR-01 and CR-02 of the fifth.
 
     The scratch file has the developer database's base name, so any copy or byte write of a whole directory or file
     can land on ``src/fomo_db.sqlite3`` without naming it. Every copy and write function is reported as a call, a
     reference, an import and a name looked up by string. The distinctive copy functions are reported wherever they
     are named, and ``copy`` and ``move`` wherever they are read from shutil or from a name the notebook binds to it.
-    Every case is the reference notebook plus one extra cell, or a copy of a real notebook.
+    With developer decision D-G11 (CR-01 and CR-02 of the fifth review) the shutil module's names (shutil, tempfile's
+    _shutil) and write_bytes are reported wherever they are named too, as the distinctive copy functions are, so
+    shutil handed to a parameter, a lambda or a match pattern is reported; ``copy`` and ``move`` stay tied to shutil
+    names, and the look-alike ``import shutil`` then ``shutil.which('ls')`` was superseded on purpose (it names
+    shutil, so it is reported). Every case is the reference notebook plus one extra cell, or a copy of a real
+    notebook.
     """
 
     def test_every_copy_and_write_function_in_any_spelling_is_a_problem(self):
@@ -2284,12 +2321,107 @@ class TestR6CopyAndWriteFunctions(SimpleTestCase):
             "print('a copy of the run')\n",
             "items.move_to_end('k')\n",
             "print('copytree is not used here')\n",
-            "import shutil\npath = shutil.which('ls')\n",
             'x = shutil_free\nx.copy()\n',
+            "print('shutil-free')\n",
+            'x = my_shutil\n',
+            'x = write_bytes_count\n',
         ]
         for source in sources:
             with self.subTest(source=source):
                 self.assertEqual(isolation_problems(_notebook(extra_cells=[_code(source)])), [])
+
+    def test_shutil_passed_on_in_any_way_is_reported_on_a_real_notebook(self):
+        # CR-01 of the fifth review, D-G11: shutil handed on without a binding R6 follows is reported by its name.
+        loop = '    for f in scratch_db_dir.iterdir():\n'
+        cases = {
+            'parameter given shutil': (
+                f"import shutil\ndef put(sh):\n{loop}        sh.copy(f, repo_root_path / 'src')\nput(shutil)\n"
+            ),
+            'lambda called at once': (
+                'import shutil\n'
+                "(lambda sh: [sh.copy(f, repo_root_path / 'src') for f in scratch_db_dir.iterdir()])(shutil)\n"
+            ),
+            'map over a lambda': (
+                'import shutil\n'
+                "list(map(lambda sh: [sh.move(f, repo_root_path / 'src') for f in scratch_db_dir.iterdir()], "
+                '[shutil]))\n'
+            ),
+            'keyword-only parameter': (
+                f"import shutil\ndef put(*, sh):\n{loop}        sh.move(f, repo_root_path / 'src')\nput(sh=shutil)\n"
+            ),
+            'match capture': (
+                'import shutil\nmatch shutil:\n    case sh:\n        for f in scratch_db_dir.iterdir():\n'
+                "            sh.copy(f, repo_root_path / 'src')\n"
+            ),
+            'class pattern': (
+                'import shutil\nmatch shutil:\n    case object(copy=c):\n        for f in scratch_db_dir.iterdir():\n'
+                "            c(f, repo_root_path / 'src')\n"
+            ),
+        }
+        notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+        for label, source in cases.items():
+            with self.subTest(label):
+                self.assert_r6_names(isolation_problems(_append_to_setup_cell(notebook, source)), 'shutil')
+        with self.subTest('control: parameter default'):
+            source = f"import shutil\ndef put(sh=shutil):\n{loop}        sh.move(f, repo_root_path / 'src')\nput()\n"
+            problems = isolation_problems(_append_to_setup_cell(notebook, source))
+            self.assert_r6_names(problems, 'move')
+            self.assert_r6_names(problems, 'shutil')
+
+    def test_write_bytes_at_any_identifier_is_reported_on_a_real_notebook(self):
+        # CR-02 of the fifth review, D-G11: write_bytes is matched at every identifier, once per cell.
+        cases = {
+            'class pattern': (
+                "for f in scratch_db_dir.iterdir():\n    match repo_root_path / 'src' / f.name:\n"
+                '        case object(write_bytes=w):\n            w(f.read_bytes())\n'
+            ),
+            'parameter': 'def put(p, write_bytes=None):\n    pass\n',
+            'keyword argument': 'put(p, write_bytes=data)\n',
+            'control: method': (
+                'for f in scratch_db_dir.iterdir():\n'
+                "    (repo_root_path / 'src' / f.name).write_bytes(f.read_bytes())\n"
+            ),
+        }
+        notebook = _load_notebook(NOTEBOOK_DIR / 'import_campaign_csv_demo.ipynb')
+        for label, source in cases.items():
+            with self.subTest(label):
+                problems = isolation_problems(_append_to_setup_cell(notebook, source))
+                self.assert_r6_names(problems, 'write_bytes')
+                self.assertEqual(sum('write_bytes' in problem for problem in problems), 1, problems)
+
+    def test_shutil_and_tempfile_shutil_are_reported_wherever_they_are_named(self):
+        # D-G11: the module's names are reported like the distinctive copy functions; shutil.which is superseded.
+        named = [
+            ('import shutil\n', 'shutil'),
+            ("import shutil\npath = shutil.which('ls')\n", 'shutil'),
+            ('from shutil import which\n', 'shutil'),
+            ('def f(shutil=None):\n    pass\n', 'shutil'),
+            ('f(shutil=1)\n', 'shutil'),
+            ('match m:\n    case object(shutil=s):\n        pass\n', 'shutil'),
+        ]
+        for source, name in named:
+            with self.subTest(source=source):
+                self.assert_r6_names(isolation_problems(_notebook(extra_cells=[_code(source)])), name)
+        with self.subTest('tempfile._shutil'):
+            problems = isolation_problems(
+                _notebook(extra_cells=[_code('import tempfile\ntempfile._shutil.copy(a, b)\n')])
+            )
+            self.assert_r6_names(problems, '_shutil')
+            self.assert_r6_names(problems, 'copy')
+        with self.subTest('a string'):
+            _first_problem_mentions(
+                self, isolation_problems(_notebook(extra_cells=[_code("x = 'shutil'\n")])), 'shutil'
+            )
+        with self.subTest('a dotted string'):
+            problems = isolation_problems(_notebook(extra_cells=[_code("x = 'tempfile._shutil'\n")]))
+            _first_problem_mentions(self, problems, '_shutil')
+        with self.subTest('one problem per cell'):
+            problems = isolation_problems(_notebook(extra_cells=[_code('import shutil\n'), _code('x = shutil\n')]))
+            numbers = [problem.split()[2] for problem in problems if 'references shutil' in problem]
+            self.assertEqual(len(numbers), 2, problems)
+            self.assertEqual(len(set(numbers)), 2, problems)
+        with self.subTest('the start set'):
+            self.assertEqual(_shutil_names([]), {'shutil', '_shutil'})
 
 
 class TestR0AllowList(SimpleTestCase):
