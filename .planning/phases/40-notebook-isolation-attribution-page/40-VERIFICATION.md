@@ -1,8 +1,8 @@
 ---
 phase: 40-notebook-isolation-attribution-page
-verified: 2026-10-11T14:04:58Z
-status: gaps_found
-score: 210/214 must-haves verified (prohibitions 67/67; one superseded by D-G2, two 40-15 items superseded by D-G16)
+verified: 2026-10-12T20:40:40Z
+status: human_needed
+score: 88/88 must-haves verified (4 by override; 129 withdrawn by the 261012-g4y rollback; prohibitions 23/23 in scope)
 covered_files:
   - ".planning/phases/40-notebook-isolation-attribution-page/40-01-PLAN.md"
   - ".planning/phases/40-notebook-isolation-attribution-page/40-01-SUMMARY.md"
@@ -63,182 +63,100 @@ covered_files:
   - "solsys_code/tests/test_pre_executed_notebooks.py"
   - "solsys_code/tests/test_projector_demo_notebook.py"
   - "src/fomo/settings.py"
+  - "src/templates/campaigns/approval_queue.html"
   - "src/templates/campaigns/attribution_queue.html"
+  - "src/templates/campaigns/campaign_list.html"
+  - "src/templates/campaigns/campaignrun_gap_analysis.html"
+  - "src/templates/campaigns/campaignrun_submit_form.html"
+  - "src/templates/campaigns/campaignrun_table.html"
   - "src/templates/campaigns/partials/attribution_return_state.html"
-covered_digest: "v3:sha256:4482ce31540d91d33856f9514e36c3edfcb7c4f017262e9151040fef3466636c"
+  - "src/templates/campaigns/submission_thanks.html"
+  - "src/templates/solsys_code/partials/campaign_links.html"
+covered_digest: "v3:sha256:d97cd134dd35068a286ec4a71dcc991764073f09821a9402e802632cd3c9ebb1"
 behavior_unverified: 0
-overrides_applied: 0
+overrides_applied: 4
 overrides:
   - must_have: "ROADMAP SC 2 (first half) / WARN-02: The notebook guard test fails for a notebook whose current source routes Django to the developer database even when that notebook's committed output is stale"
     reason: >-
-      The guard reports only the names and patterns on its lists, found in a notebook's literal source, and
-      makes no claim of completeness; the guard docstring lists every name. Rule R12, extended in 40-08
-      [301bd93, f1b4bb6], 40-10 [482606b, 3232341, c6c6322], 40-15 [1c830b1] and 40-17 [c78e517], reports in
-      every notebook the names on its five lists: Django's database settings and connection objects
-      (DATABASES, DATABASE_ROUTERS, settings_dict, override_settings, modify_settings, the helper's internals
-      developer_database_path, prepare_scratch_database and snapshot_database, DatabaseWrapper, load_backend,
-      connections, connection, _connections, ConnectionHandler, create_connection, get_connection_params,
-      get_new_connection, Database and sqlite3, the connections.settings and connections.databases attribute
-      chains and any sqlite3 import); attaching another database through raw SQL (a string holding ATTACH
-      followed by DATABASE, a quote, a placeholder or an opening parenthesis); starting a process or reaching
-      IPython's shell (subprocess, multiprocessing, pty, pexpect, ptyprocess, psutil, jupyter_client,
-      nbclient, nbconvert, IPython, ipykernel, traitlets, system, popen, fork, forkpty, startfile,
-      posix_spawn, posix_spawnp, os's exec* and spawn* functions, Popen, ProcessPoolExecutor,
-      create_subprocess_exec, create_subprocess_shell, getoutput, getstatusoutput, get_ipython, system_raw,
-      run_line_magic, run_cell_magic, getoutputerror, get_output_error_code, process_handler,
-      InteractiveShell, ZMQInteractiveShell, IPKernelApp, alias_manager, define_alias, soft_define_alias,
-      run_cell, run_cell_async, autocall, define_macro, magics_manager and register_magic_function); the
-      environment (environ, environb, putenv, unsetenv); and running code from a string or another file (exec,
-      eval, compile, __import__, __builtins__, importlib, runpy, builtins, ctypes, cffi,
-      execute_from_command_line, ManagementUtility, import_string, resolve_name, locate, Macro, IPyAutocall,
-      and call_command of shell, shell_plus or runscript). Each name is matched at the identifiers the guard
-      docstring lists (attributes never against the builtins exec, eval, compile, __import__ and __builtins__)
-      and against every '.'- or ':'-separated part of a str or bytes constant, and a string that parses and
-      holds a statement or a call is read like the cell's own code, to two levels, so reaching IPython's shell
-      as InteractiveShell.instance() or a process by a literal dotted string (import_string('subprocess.run'))
-      is reported. R3 and R4 (40-17 [fdd8b3e]) report a Django import before the helper call and a call
-      written django.setup(), an import of setup from django or django imported under an alias, in a cell's
-      code and in code inside its strings to two levels, and the Django-backed gate reads string code the same
-      way. R0 reports a cell that does not parse once %matplotlib inline lines and a first-line %%time or
-      %%capture (with only its --no-stderr, --no-stdout and --no-display flags and an output name) are
-      removed, a cell whose meaning IPython's static TransformerManager changes, and, since 40-13 [905408a], a
-      one-line cell whose first word is in IPython's default line-magic and alias set, whatever an earlier
-      cell assigns, imports or defines, unless the word is a builtin or keyword or is followed by = or a
-      comma. R5 and R7 report a str or bytes constant that contains FOMO_DATABASE_PATH or fomo_db.sqlite3 and
-      a keyword argument named FOMO_DATABASE_PATH (40-13 [4f02628]). R6 reports shutil, _shutil, copy2,
-      copyfile, copytree, copyfileobj and write_bytes at the identifiers the docstring lists and as string
-      parts (40-13 [4f02628], 40-15 [bc99b0e]), and copy and move read from an expression that mentions
-      shutil, _shutil or a name the notebook binds to one through an import, an assignment, a loop, a with, a
-      comprehension or a parameter default (40-17 [ca1cb7d]); a cell has at most one write_bytes problem
-      (40-17 [ca1cb7d]). Every literal form in the third review (CR-01, CR-02, WR-01), the fourth review's
-      CR-01 and WR-01 forms, the fifth review's CR-01 and CR-02 forms, the sixth review's CR-01 and CR-02
-      forms, the re-review's four forms and both round-1 probes is reported on a copy of a real notebook, the
-      fourth review's WR-02 bytes literals on the reference notebook, and every real pre-executed notebook
-      passes the guard and is Django-backed. Any route to a process, IPython's shell, Django's settings or the
-      database through a name or form the lists do not contain is not seen, including values assembled or
-      looked up at runtime (a name, module, SQL statement or file path built from pieces, or fetched with
-      getattr, globals(), vars() or sys.modules using such a string, and a module, function or method found at
-      runtime without its name, through inspect.getmodule, a function's __module__ or a search over
-      sys.modules or a module's vars()), code decoded at runtime (pickle, marshal, codecs, base64), code
-      nested more than two strings deep, rewrites IPython decides at run time (autocall, so exit -1 runs as
-      exit(-1), and a one-line cell that runs an alias or magic the notebook defined while it ran), code
-      outside the notebook (a module it imports, IPython's profile and start-up files with the extensions,
-      aliases and magics they define, or a library function that starts a process, sets Django up or writes a
-      file under a name these lists do not contain, such as a path's copy and move on Python 3.14 and later)
-      and, left out on purpose, JavaScript or HTML in a cell's output, which a notebook front end may run when
-      the notebook is opened.
+      The guard reads each notebook's JSON (its literal code and its committed output) and never runs it. In ordinary
+      code it catches a notebook that skips the helper or calls it twice (R2), imports Django before the helper call
+      (R3), sets Django up itself with `django.setup()`, `from django import setup` or `import django as x` (R4), names
+      `FOMO_DATABASE_PATH` or `fomo_db.sqlite3` in a string or passes a `FOMO_DATABASE_PATH=` keyword (R5/R7), or calls
+      `shutil.copy`, `copy2` or `copyfile`, also under an import alias (R6). R0, R5, R6 and R7 apply to every notebook;
+      the other rules apply only to a notebook that imports Django, the project app or a TOM plugin. It also checks the
+      committed output: counts 1..N and no error (R8), a Resolved line inside a `fomo-notebook-db-*` directory (R9), the
+      matching teardown at the end (R10), and no `assert` around a write (R11).
+
+      Deliberate evasion is out of scope (developer decision 2026-10-12). The guard does not see code inside a string
+      (`exec`, `eval`, a `timeit` string, including the setup call's own argument), IPython shell lines, magics and
+      aliases, monkey-patching (for example replacing `tempfile.mkdtemp`), or names, paths and values built at run time.
+      It also misses a helper call made through its module attribute, re-pointing Django's settings or connections
+      after the helper call without writing `FOMO_DATABASE_PATH` or `fomo_db.sqlite3`, and a byte copy by anything other
+      than shutil's `copy`, `copy2` and `copyfile` when the file name is not written out.
+
+      Another process is not seen either (a `!` shell line, `%run`, `subprocess`, `os.system`). Unlike the rest,
+      ordinary code can do this: a `!python manage.py ...` cell before the helper call or after the teardown runs with
+      `FOMO_DATABASE_PATH` unset, so `settings.py` falls back to `src/fomo_db.sqlite3`.
+      Accepted as residual by the developer (2026-10-12): an unlikely corner case in niche demo notebooks, no fix planned.
+
+      The run-time backstop is the 819321e helper. It refuses to start if Django is already set up or configured in the
+      kernel. Before `django.setup()` it raises `RuntimeError` unless `default` is the only alias, `DATABASE_ROUTERS` is
+      empty and `default` resolves to the scratch file it created. After a later failure it closes the connections,
+      switches every alias to the dummy backend, removes the scratch directory, restores the environment and re-raises.
+      If closing the connections itself fails, the switch is skipped and Django's own error replaces the helper's. A
+      `DATABASES` setting with no `default` alias does this (round-2 WR-02, left unfixed by the developer's decision); no
+      database is reachable then, because Django refuses every connection without a `default` alias. The teardown's
+      second line is fixed text, not a measurement (round-2 WR-01). The helper checks once, at setup, so code that runs
+      before the call, after the teardown or in another process is outside its checks.
     accepted_by: "Tim Lister"
-    accepted_at: "2026-10-11T13:37:50Z"
+    accepted_at: "2026-10-12T20:19:00Z"
+  - must_have: "40-08 must_have 8.14, 40-11 must_have 11.1 and 40-18 must_have 6 (every form the texts claim is reported is reported): the guard docstring and README state what R0-R12 check"
+    reason: >-
+      The texts those must-haves judged (the 40-08..40-18 guard docstrings, the README paragraph and the R12 they
+      describe) were rolled back with the guard. The texts in force are the 8ab5247 module docstring and the README
+      (819321e plus the two IN-01 sentence corrections). Read against the code, they claim more than is checked in four
+      places: (1) the docstring says a comment that merely mentions a name cannot satisfy or trip a check, but a cell
+      that does not parse is searched as text, comments included (R0; this only ever reports more; round-7 WR-03);
+      (2) the README says `/tmp/fomo-notebook-db-*`, but the helper uses `tempfile`, which follows `TMPDIR` (the README's
+      own command sets `TMPDIR=/tmp`; round-7 WR-04); (3) the README and docstring say a notebook never sets Django up,
+      routes the database itself or byte-copies, which means the forms in override 1 and no others; (4) the README and
+      `setup_scratch_django`'s docstring say a refusal or failure switches every alias to the dummy backend, which does
+      not hold when closing the connections fails (round-2 WR-02, accepted by dropping c45edbc).
+    accepted_by: "Tim Lister"
+    accepted_at: "2026-10-12T20:28:10Z"
 re_verification:
   previous_status: gaps_found
-  previous_score: 185/190 (prohibitions 58/58)
+  previous_score: 210/214 (prohibitions 67/67)
   gaps_closed:
-    - "Round-6 CR-01 (IPython's shell through InteractiveShell.instance()): the alias-plus-wipe, run_cell, autocall = 2 and ex forms are reported on a copy of import_campaign_csv_demo (verifier repro: alias form names IPython, InteractiveShell, alias_manager, define_alias); test green"
-    - "Round-6 CR-02 (R3, R4 and the gate did not read string code): the review's timeit probe before the setup cell and the settings.configure variant before the helper call each give 'calls django.setup()' and 'imports Django before the setup_scratch_django call' (verifier repro); test green"
-    - "Gap 3 / 40-15 must_have 15.10 (two write_bytes problems in one cell): method plus getattr now gives exactly one (verifier repro); test green"
-    - "40-14 must_have 14.2 (R0 alias sentence): the docstring, README and reason now say IPython's default line-magic and alias set, which matches _ipython_line_magic_names"
-    - "Round-6 IN-01 (_shutil import not followed): from tempfile import _shutil as sh / sh.move reports move and _shutil"
-    - "Round-6 IN-02 ('end the kernel'): gone from the docstring, README and reason"
-    - "Round-6 IN-03 (README and docstring omitted rules): R7's keyword check, R8's error output, R9, R10, R11's setup-cell assert and copy/move are now listed (D-G18)"
-  gaps_remaining:
-    - "ROADMAP SC 2 (first half) / WARN-02: now narrowed to the round-7 review's CR-01, Django set up from string code inside the setup_scratch_django call's own argument, which Python runs before the helper and R3 does not read"
-    - "40-08 must_have 8.14 and 40-11 must_have 11.1: the docstring's account of what R0-R12 check is still not accurate, now for the round-7 reasons (R2 'no other call of the setup function', 'R12 reports the IPython shell names a notebook would write to set those up', 'a comment ... cannot ... trip a check')"
+    - "ROADMAP SC 2 (first half) / WARN-02: closed by developer-accepted override 1 (2026-10-12T20:19:00Z), which replaces the 2026-10-11 override; the round-7 CR-01 route (string code in the setup call's own argument) is named in its residual, and the verifier's reproduction still gives [] as the override says"
+    - "40-08 must_have 8.14, 40-11 must_have 11.1, 40-18 must_have 6: closed by developer-accepted override 2 (2026-10-12T20:28:10Z); each of its four wording claims checked true against the current tree"
+  gaps_remaining: []
   regressions: []
-gaps:
-  - truth: "ROADMAP SC 2 (first half) / WARN-02: The notebook guard test fails for a notebook whose current source routes Django to the developer database even when that notebook's committed output is stale (round-7 review CR-01)"
-    status: partial
-    reason: >-
-      Reproduced by the verifier with the guard's own functions, loaded from a scratchpad copy of the module, on a deep
-      copy of import_campaign_csv_demo.ipynb: insert `import timeit` before the helper call and replace the call line
-      with `scratch_db_dir = setup_scratch_django(timeit.timeit("from django.conf import settings; import
-      src.fomo.settings as s; settings.configure(s); from django.apps import apps;
-      apps.populate(settings.INSTALLED_APPS); from django.core.management import call_command; call_command('flush',
-      interactive=False)", number=1) and repo_root_path, mode='fresh')`. setup_call() still finds the call,
-      notebook_mode() is 'fresh', and isolation_problems() is []. Control: the same timeit string as a statement before
-      the call gives 'code cell 1 imports Django before the setup_scratch_django call'. Cause: R3 stops at
-      `(number, index) >= (setup_number, setup_index)` (test_pre_executed_notebooks.py, isolation_problems R3 loop), so
-      the setup statement itself is never read; R2 checks only that there is one positional argument and a constant
-      mode, never what the argument is; R4 reports only its three written forms, and apps.populate is not one of them
-      (with a literal django.setup() in the argument R4 does report it). At run time Python evaluates the argument
-      before the helper: the setup cell has already put the repo root on sys.path, FOMO_DATABASE_PATH is unset, so
-      settings.py:100 falls back to src/fomo_db.sqlite3 and the flush empties it; the helper's RuntimeError ("already
-      set up or configured", fomo_nb_utils.py:293-299) comes after. Against the override's exact words: the reason
-      says "R3 and R4 (40-17 [fdd8b3e]) report a Django import before the helper call ... in a cell's code and in code
-      inside its strings to two levels". This route is a literal Django import, one string level deep, in the
-      notebook, that runs before the helper call, and it is not reported. The approved README says the same ("imports
-      Django before that call ... also in code inside a string"). So the route contradicts a specific sentence of the
-      reason and the override cannot be applied. The broad residual ("a name or form the lists do not contain") does
-      not rescue it: the route needs a Django import in string code, which is exactly the form the R3 sentence claims.
-      Only the module docstring scopes R3 to "a top-level statement before that call", and the reason does not.
-    artifacts:
-      - path: "solsys_code/tests/test_pre_executed_notebooks.py"
-        issue: "isolation_problems: R2 (`if len(call.args) != 1 or keyword is None ...`) never checks that the argument is a plain name, though its own message says 'with exactly those arguments'; the R3 loop breaks at the setup statement and never reads the call's arguments"
-      - path: "docs/notebooks/README.md"
-        issue: "line 95-96: 'imports Django before that call ..., also in code inside a string' is false for the call's own argument"
-    missing:
-      - "R2: report a setup call whose positional argument is not a plain ast.Name (all eight real notebooks pass `repo_root_path`, a Name; verifier checked each)"
-      - "R3: also read the setup call's own arguments and keyword values through _with_string_code, so the rule does not depend on R2"
-      - "A real-notebook test with the review's probe (argument holds the timeit string) and the statement-before-the-call control"
-      - "Keep all eight real notebooks clean and Django-backed"
-      - "Or, if the developer prefers: approve a reason and README that scope R3 to 'a top-level statement before the call' and name the call's own arguments as residual (needs the developer's approval)"
-  - truth: "40-08 must_have 8.14, 40-11 must_have 11.1 and 40-18 must_have 6 (every form the texts claim is reported is reported): the guard docstring and README state what R0-R12 check"
-    status: failed
-    reason: >-
-      Four sentences approved in 40-18 (aff2547) or kept from 40-02 are contradicted by the code or by the module's own
-      tests, each reproduced by the verifier on a deep copy of import_campaign_csv_demo.ipynb or a synthetic notebook.
-      (1) CR-01 above: the README's "imports Django before that call ..., also in code inside a string". (2) WR-01: the
-      R2 docstring's "and no other call of the setup function" and the README's "call the helper first and once":
-      `fomo_nb_utils.setup_scratch_django(repo_root_path, mode='snapshot')`, `s = setup_scratch_django; s(...)` and a
-      call inside timeit string code each give [] (control: a second bare call is reported). total_calls counts only
-      calls whose func is the bare Name. No database route: the helper refuses a second setup. (3) WR-02: "R12 reports
-      the IPython shell names a notebook would write to set those up" (module docstring line 40, residual item (3) at
-      line 126, isolation_problems docstring): `exit._ip.find_magic('alias')('wipe cd ../.. && env -i ... flush
-      --noinput')` plus a later one-line `wipe` cell gives []; `exit._ip.find_line_magic('sx')(...)` and
-      `sys.displayhook.shell.find_line_magic('sx')(...)` give []; the module's own autocall test asserts [] for an
-      autocall object built from `type(exit)`. IPython's autocall.py stores the shell as `self._ip` (lines 37-48, read,
-      not run). The routes are inside the override's residual ("through a name or form the lists do not contain"), so
-      the override is unaffected, but the sentence is false as written. (4) WR-03: "Code is inspected with ``ast`` so
-      a comment that merely mentions a name cannot satisfy or trip a check" (since 40-02 f24b04f): `%%time` / `# the
-      solar system objects` / `x = 1` is reported as 'not parseable Python but mentions Django, a database, a process
-      ...' while the same comment in a plain cell gives []; the comment above UNPARSEABLE_DJANGO_IMPORT ("tolerated
-      unless it is about Django or a database") is stale too. This one errs toward reporting, so it is a wording fault
-      only, made more likely by 40-17's new R12 words (system, IPython).
-    artifacts:
-      - path: "solsys_code/tests/test_pre_executed_notebooks.py"
-        issue: "module docstring lines 21-22 (comment cannot trip), 40 and 126 (R12 reports the shell names a definition writes), 56 (no other call of the setup function); isolation_problems docstring (same R12 sentence); comment at line 357"
-      - path: "docs/notebooks/README.md"
-        issue: "line 95 'first and once'; lines 95-96 'imports Django before that call ... also in code inside a string'"
-    missing:
-      - "After the gap-1 fix, reword or back each sentence: scope R2 to 'no other call written setup_scratch_django(...) in a cell's code' (or count every call whose _call_name is SETUP_FUNCTION across _with_string_code, plus other references); say R12 reports the listed shell names when written and a definition made through an unlisted name (an autocall object built from type(exit), the shell reached as exit._ip) is not seen (or add _ip, find_magic, find_line_magic and find_cell_magic to PROCESS_NAMES; none appears in the eight notebooks' code per the review); say a cell that does not parse as written is searched as text, comments included, and fix the line-357 comment"
-      - "Fold in the same pass (not failing truths on their own): WR-04, README lines 59 and 90 say /tmp/fomo-notebook-db-* but prepare_scratch_database uses tempfile.mkdtemp (fomo_nb_utils.py:249), which honours TMPDIR, and only the nbconvert route pins TMPDIR=/tmp; IN-01, README implies R5/R7 read string code (an escaped FOMO_DATABASE_PATH inside timeit string code gives []); IN-02, 'as the not-vacuous test requires' (is_django_backed now accepts a string-only import; all eight real notebooks do hold a real import in a cell tree, verifier checked)"
-      - "Rewording the README paragraph, docstring and override reason needs the developer's approval again (D-G17 procedure)"
 advisory:
-  - finding: "Round-7 IN-03: patching tempfile.mkdtemp before the helper call makes the developer database the 'scratch' file; the guard gives [] (verifier repro)"
+  - finding: "A Django import done through importlib.import_module('django') or __import__('django') before the helper call is not reported (R3 reads only import statements; R4 only the dotted name django.setup)"
     category: security
-    reason: "Inside the approved residual class (tempfile and mkdtemp are on no list; 'any route to ... the database through a name or form the lists do not contain'). Optional helper hardening (refuse a scratch path that is not a fomo-notebook-db-* directory directly under tempfile.gettempdir(), or that resolves to the developer database) is a Phase 41 triage candidate"
-    evidence_status: "reproduced: isolation_problems() == [] on a deep copy; not executed"
-  - finding: "Round-7 IN-04: three spellings of 'the tree plus its string code' (_with_string_code vs inline tuples in _byte_copy_problems and _database_rerouting_problems)"
+    reason: "Deliberate evasion, which override 1 puts out of scope ('Deliberate evasion is out of scope'); no ordinary demo notebook imports Django that way. Recorded so the next guard review sees it"
+    evidence_status: "reproduced: isolation_problems() == [] on a deep copy of import_campaign_csv_demo with importlib.import_module('django').setup() before the setup cell; not executed"
+  - finding: "R5/R7 read str constants only; b'src/fomo_db.sqlite3' gives []"
+    category: security
+    reason: "Override 1 says 'in a string', and a bytes literal is not a str, so the claim holds; a bytes path to the developer database is deliberate evasion. Round-4 WR-02 fixed this and was rolled back by 261012-g4y"
+    evidence_status: "reproduced on a deep copy; not executed"
+  - finding: "Round-7 IN-03 (carried): patching tempfile.mkdtemp before the helper call makes the developer database the 'scratch' file"
+    category: security
+    reason: "Named in override 1's residual ('monkey-patching (for example replacing tempfile.mkdtemp)'); optional helper hardening is a later-triage candidate"
+    evidence_status: "unchanged; helper is 819321e"
+  - finding: "Uncommitted developer edit in project_observation_calendar_demo.ipynb markdown cell 4862a7df ('never sidereal sources (CLAUDE.md)' -> 'almost never sidereal sources')"
     category: other
-    reason: "Maintainability only; no must-have depends on it"
-    evidence_status: "code read"
-  - finding: "Round-5 IN-02 (carried): the magic-name pin test uses a plain InteractiveShell, not ipykernel's ZMQInteractiveShell"
+    reason: "Present in the working tree at the start of this verification, not part of any Phase 40 plan or of 261012-g4y; markdown only, so no guard rule or test reads it. It is inside the fingerprinted file, so committing or reverting it changes covered_digest. The new wording also reads against CLAUDE.md's 'FOMO is exclusively for Solar System / non-sidereal targets'"
+    evidence_status: "git diff HEAD shows the one-line change; the guard and projector tests are green with it"
+  - finding: "Round-1 IN-03 (carried): the runbook's attribution-pass 'each table's page and sort' may read as covering the worklists' event_page/record_page"
     category: other
-    reason: "D-G14 out of scope; kept for Phase 41"
+    reason: "Documentation wording; UAT test 4 passed the runbook section on 2026-10-12. Not in Phase 41's roadmap text; would reach Phase 41 only as a todo"
     evidence_status: "unchanged since the previous report"
-  - finding: "Round-4 IN-01 (carried): the helper's logged warning wording; a non-dict DATABASES alias"
-    category: other
-    reason: "Out of scope by developer decision 2026-10-10; recorded for Phase 41"
-    evidence_status: "helper unchanged"
 human_verification:
-  - test: "Decide how to close round-7 CR-01 and the four false sentences, and approve the wording again"
-    expected: "Either (A) make R2 require a plain-name argument and have R3 read the call's own arguments, then fix or scope the R2, R12-shell and comment sentences (adding _ip, find_magic, find_line_magic, find_cell_magic is cheap), or (B) keep the code and approve a reason and README that scope R3 to a top-level statement before the call and name the call's own arguments as residual"
-    why_human: "Accepting residual risk and wording the override are the developer's decisions; the verifier cannot widen an override. The reason's R3 sentence can be read by source position; the verifier read it by execution order, as the README does"
-  - test: "Read both snapshot notebooks' prose against this regeneration's output (reconcile cells 8b703ea8, ce1fd748, e1edbaa7, d2adacf8, 3616c012, the NF-14 labels, projector cell 35debc54)"
-    expected: "Each claim matches the output beside it"
-    why_human: "Prose accuracy is a reading judgment (40-09 D2/D3), carried forward"
-  - test: "Read docs/runbooks/telescope_runs_calendar.rst lines ~935-990 (attribution pass)"
-    expected: "'each table's page and sort' does not read as covering the worklists' event_page/record_page (round-1 IN-03, kept for Phase 41)"
-    why_human: "Documentation wording, carried forward unchanged"
+  - test: "Re-read override 1's R6 sentence and override 2's 'four places' against the verifier's findings in the 'Override claim check' table, then either confirm both overrides stand as written or amend their wording"
+    expected: "Override 1 says R6 catches shutil.copy, copy2 or copyfile 'also under an import alias'. The guard follows an alias only inside the cell that imports it (shutil_names is rebuilt per cell, test_pre_executed_notebooks.py:304-307): `import shutil as sh` plus `from fomo_nb_utils import developer_database_path` in the setup cell and `sh.copy(developer_database_path(repo_root_path), scratch_db_dir / 'copy.sqlite3')` in a later cell gives [] on a copy of import_campaign_csv_demo (same cell, or plain `shutil.copy` in another cell: reported). That byte-copies the developer database, which SC 1 forbids, though it does not route Django to it. Separately, override 2 counts four overclaiming places; the README's 'it calls the helper first' (line 89-90) and the docstring's 'before any Django import' (line 12-13) hold only for literal import statements, a fifth place of the same kind as (3). In the other direction, override 1 says a `!python manage.py` cell after the teardown is not seen, but R10 fails any Django-backed notebook with a cell after the teardown (reproduced). No code change is needed to keep the overrides; a wording change (for example 'under an import alias made in the same cell') needs the developer"
+    why_human: "The overrides are the developer's accepted wording; the verifier may not edit or widen them, and the UAT acceptance (test 5) relied on the draft describing the guard 'as it is'"
 ---
 
 # Phase 40: Notebook Isolation & Attribution Page Verification Report
@@ -246,39 +164,85 @@ human_verification:
 **Phase Goal:** Every pre-executed demo notebook builds and uses its own scratch database, guarded by a check that
 catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3, closing the
 remaining six Phase 37.1 review warnings (WR-13 to WR-18).
-**Verified:** 2026-10-11T14:04:58Z (HEAD d5770ce; last source change aff2547, last code change ca1cb7d)
-**Status:** gaps_found
-**Re-verification:** Yes, after gap-closure plans 40-17 and 40-18 (gap round 7)
+**Verified:** 2026-10-12T20:40:40Z (HEAD d6fa287)
+**Status:** human_needed
+**Re-verification:** Yes, after the developer's rollback (quick task 261012-g4y) that ends Phase 40 at 40-04 plus the
+40-05 helper fix
 
 ## Summary
 
-Gap round 7 closed everything the round-6 report asked for:
+The phase goal is met on the current tree, with the guard's known limits accepted by the developer in two overrides.
 
-- Code (40-17): R12 lists IPython's shell modules, classes and entry points. R3, R4 and the Django-backed gate read
-  code inside strings. A cell gets one write_bytes problem. An import of `_shutil` is followed.
-- Wording (40-18): the docstrings, README and override reason were reworded and approved by the developer.
+- **Notebooks.** All eight notebooks use the 819321e helper, were re-executed on it (counts 1..N, no error output, a
+  `/tmp/fomo-notebook-db-*` Resolved line, the teardown at the end), and the 8ab5247 guard reports no problem in any of
+  them. The developer database's modification time is 2026-10-10 00:16, before the 2026-10-12 re-execution, so the two
+  snapshot runs did not write it.
+- **Guard and `python -O`.** The guard is back at 8ab5247 and the helper and its tests at 819321e (both `git diff`
+  clean). The helper raises a real `RuntimeError` under `-O` and `PYTHONOPTIMIZE=1`. SC 2's first half passes only
+  through override 1, as the developer decided.
+- **Attribution page.** No attribution file, template, runbook or CLAUDE.md line has changed since 8ab5247 (40-04's
+  last commit). The render tests and the three Chromium tests for the marker, the Bootstrap 5 sections and Undo staying
+  on the same page all pass.
 
-All four round-6 shell forms and both round-6 string-code probes are reported in the verifier's own reproduction. The
-code is unchanged since ca1cb7d apart from docstrings and comments (AST check). The module equals the approved
-candidate byte for byte. No test was removed. The only test that changed is the IPyAutocall set D-G16 superseded.
+Both overrides match their must-haves exactly and are applied. Most of their claims are true of the code they cite,
+but **one claim is not**: override 1 says R6 catches `shutil.copy`, `copy2` or `copyfile` "also under an import alias".
+The guard only follows an alias inside the cell that imports it. With a cross-cell alias, a notebook can byte-copy the
+developer database through `developer_database_path()` and the guard gives []. That route does not send Django to the
+developer database, so it does not undo override 1's must-have (SC 2, first half). Only the developer can amend the
+wording of an accepted override, so the phase is `human_needed` with one item. Two smaller wording points go with it.
 
 Test runs:
-- Verifier: guard, helper, projector and both attribution template modules, 174 tests, OK.
-- Orchestrator, full suite on ab72542: 2354 + 40 tests OK. No source has changed since.
+- Verifier: guard, helper, projector, attribution template and views modules, plus both template-scan classes: 181
+  tests, OK.
+- Verifier: the three attribution Chromium tests (High-band bar, sections open and close, Undo on page 2): 3 tests, OK.
+- Orchestrator regression gate on the current tree: 2293 + 40 tests, OK.
 
-SC 2's first half is still open on one route, the round-7 review's CR-01. String code in the `setup_scratch_django(...)`
-call's **own argument** runs before the helper, and R3 never reads it. The verifier reproduced it: it gives [].
-That contradicts the override reason's R3/R4 sentence and the approved README, so the override is **carried forward
-verbatim and not applied**. The fix is two small checks. All eight real notebooks pass the plain name `repo_root_path`,
-so they stay green.
+How the verifier stayed safe: it only called the guard's own functions, loaded from a scratchpad copy, on deep copies of
+real notebooks. It ran no notebook, never set `FOMO_DATABASE_PATH` and never opened `src/fomo_db.sqlite3`.
 
-Separately, four documentation sentences claim more than the code does (round-7 WR-01, WR-02, WR-03 and CR-01's README
-clause), so 8.14 and 11.1 stay failed on wording.
+## How the rollback was applied to the must-haves
 
-How the verifier stayed safe: it made only inert calls of the guard's own functions, loaded from a scratchpad copy of
-the module, on placeholder source or a deep copy of a real notebook. It read IPython source without running it. It ran
-no notebook, started no IPython shell, never set `FOMO_DATABASE_PATH`, and never opened `src/fomo_db.sqlite3`
-(`git status --short src/` is clean).
+Quick task 261012-g4y (developer decision 2026-10-12) ended Phase 40 at 40-04 plus the 40-05 helper fix. The verifier
+confirmed the restore table:
+
+| Path | Matches | Check |
+|------|---------|-------|
+| solsys_code/tests/test_pre_executed_notebooks.py | 8ab5247 | `git diff --quiet` clean |
+| pyproject.toml | 8ab5247 | clean |
+| docs/notebooks/fomo_nb_utils.py | 819321e (40-05 plan_head_after) | clean |
+| solsys_code/tests/test_notebook_helper.py | 819321e | clean |
+| docs/notebooks/README.md | 819321e plus S1+S2 and S3 (40-08's IN-01 sentences) | `git diff 819321e` shows exactly those two hunks |
+| eight notebooks | 17168ff source; only the eight teardown markdown cells changed | cell-by-cell source comparison (one more cell, 4862a7df, is the developer's uncommitted edit, see advisory) |
+
+Must-haves whose guard, pyproject, helper, docstring or README work was rolled back are **withdrawn**, as the developer
+decided (261012-g4y OVERRIDE-DRAFT "Must-haves the rollback withdraws"). They are not counted as failed or as verified.
+Must-haves whose work stayed are verified against the current tree. Where kept work was later reworded on purpose (the
+README's IN-01 sentences, the teardown sentence), the item is marked verified with the supersession noted.
+
+| Plan | Truths | Verified | By override | Withdrawn | Withdrawn because |
+|------|--------|----------|-------------|-----------|-------------------|
+| 40-01 | 10 | 10 | | | |
+| 40-02 | 14 | 14 | | | |
+| 40-03 | 8 | 8 | | | |
+| 40-04 | 14 | 14 | | | |
+| 40-05 | 13 | 13 | | | |
+| 40-06 | 8 | | | 8 | R12 and its docstring rolled back |
+| 40-07 | 9 | 9 | | | |
+| 40-08 | 23 | | 1 (8.14) | 22 | R12 capabilities, c45edbc helper and teardown line, README guard text rolled back (S1-S3 kept: see 9.3) |
+| 40-09 | 12 | 9 | | 3 | 9.1 and 9.2 need the c45edbc teardown line; 9.11 override replaced on 2026-10-12 |
+| 40-10 | 16 | | | 16 | R0 allow-list, R6/R12 widening rolled back |
+| 40-11 | 11 | 2 | 1 (11.1) | 8 | docstrings and README guard text rolled back; 11.8's "never opened" ban reversed with c45edbc |
+| 40-12 | 5 | | | 5 | 2026-10-10 override process; override replaced |
+| 40-13 | 12 | | | 12 | R0 automagic, R6 names, ipykernel dev extra rolled back |
+| 40-14 | 9 | | | 9 | docstring, README and override round 4 rolled back |
+| 40-15 | 12 | | | 12 | R6 and R12 additions rolled back |
+| 40-16 | 11 | | | 11 | docstring, README and override round 5 rolled back |
+| 40-17 | 12 | | | 12 | R12 shell forms, R3/R4 string reading rolled back |
+| 40-18 | 12 | | 1 (18.6) | 11 | docstring, README and override round 7 rolled back |
+| ROADMAP SC | 6 | 5 | 1 (SC2a) | | |
+| **Total** | **217** | **84** | **4** | **129** | |
+
+**Score:** 88/88 in-scope truths (84 verified, 4 passed by override), 0 present but behavior-unverified; 129 withdrawn.
 
 ## Goal Achievement
 
@@ -286,141 +250,158 @@ no notebook, started no IPython shell, never set `FOMO_DATABASE_PATH`, and never
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| SC1 | No notebook byte-copies or writes the dev DB; snapshot via read-only backup, others fresh; README rule and lists | ✓ VERIFIED | Helper and notebooks unchanged since cd883a6; all eight `isolation_problems()` = [] and Django-backed, each with a real Django import in a cell tree; TestReadmeStatesTheIsolationRule green |
-| SC2a | The guard fails a notebook whose current source routes Django to the dev DB, even with stale output | ✗ FAILED (partial). Override checked and **not applicable** | Round-6 routes closed; round-7 CR-01 reproduced (gap 1) |
-| SC2b | DB-path check raises an ordinary exception under `python -O` | ✓ VERIFIED | Helper unchanged; test_notebook_helper among the 174 OK |
-| SC3 | telescope_runs_demo reports the dip in one unit | ✓ VERIFIED | Notebook unchanged; dip pin test green |
-| SC4 | High-band marker, template test, BS 5.3 only | ✓ VERIFIED | No attribution file changed since cd883a6; test_attribution_template and test_bootstrap5_rendering OK; full suite on ab72542 OK |
-| SC5 | Undo on a Dismissed row keeps the section open on the same page | ✓ VERIFIED | Unchanged files; 40/40 functional tests OK in the orchestrator's run on ab72542 |
+| SC1 | No notebook byte-copies or writes the dev DB; snapshot notebooks read it only through a read-only online backup, the rest start fresh; the three byte-copying notebooks rebuilt on the helper; all re-executed with output; README rule and lists | ✓ VERIFIED | All eight `isolation_problems()` = [] and Django-backed; modes 6 fresh / 2 snapshot match the README lists (TestReadmeStatesTheIsolationRule green); `snapshot_database` opens `?mode=ro` and uses `Connection.backup()` (fomo_nb_utils.py:104-108); no `shutil.copy*` in any notebook; dev DB mtime 2026-10-10 00:16, before the 2026-10-12 re-execution; D-04 sentence verbatim in README:29, ROADMAP SC 1, REQUIREMENTS WARN-05 |
+| SC2a | The guard fails a notebook whose current source routes Django to the dev DB, even with stale output | PASSED (override) | Override 1: accepted by Tim Lister on 2026-10-12T20:19:00Z. Guard is 8ab5247; the residual it names reproduces as stated (see Override claim check) |
+| SC2b | The DB-path check raises an ordinary exception under `python -O` | ✓ VERIFIED | `check_resolved_database`/`check_database_settings` use `raise` (fomo_nb_utils.py:130-167); 0 asserts in the helper (AST); `test_a_databases_override_is_refused_before_migrate` runs plain, `-O` and `PYTHONOPTIMIZE=1` (green); no notebook setup cell has an assert and none wraps a write (246 demo asserts, 0 in setup cells, 0 around a write) |
+| SC3 | telescope_runs_demo reports the dip in one unit | ✓ VERIFIED | Committed `Las Campanas (2402 m): 1.4376 deg`; no `arcmin deg` in any notebook; pin test green |
+| SC4 | High-band marker, template test, Bootstrap 5.3 class names only | ✓ VERIFIED | `border-0 border-start border-4 border-success` in attribution_queue.html; `test_high_band_rows_carry_the_left_bar_marker_and_others_do_not` and TestTemplatesUseBootstrap5ClassNames green; Chromium `test_high_band_row_draws_a_green_left_bar_only` OK |
+| SC5 | Undo on a Dismissed row lands on the same page with the section open | ✓ VERIFIED | `attribution_return_state`, `_redirect`, `dismissed_section_open` in campaign_views.py; Undo forms carry the state (campaign_tables.py:577-595); TestAttributionReturnState green; Chromium `test_undo_on_a_dismissed_row_keeps_the_section_open_on_the_same_page` OK |
 
-### Override decision (ROADMAP SC 2 first half / WARN-02)
+### Override claim check (what the "What each claim rests on" table cites)
 
-The override (Tim Lister, accepted_at 2026-10-11T13:37:50Z, recorded in 0f5b540) is carried forward verbatim. The
-verifier checked the record:
+Line numbers in the draft's table were checked against the current files: R2 :363-392, R3 :394-399, R4 :264-278,
+R5/R7 :281-295, R6 :298-316, gate :344-349 and :190, R8 :351-361, R9 :401-412, R10 :414-433, R11 :435-446, R0 :334-342,
+`UNPARSEABLE_SUSPECT_TEXT` :83, helper :275, :295, :137, :115, :306, :184, :199, :364, settings.py:100, docstring :18-19,
+README :59, :69, :90, fomo_nb_utils.py:263-267. All point at the code described.
 
-- The reason equals `$HOME/tmp/phase40-18-approved-reason.txt` (whitespace-normalized).
-- accepted_at equals `phase40-18-approved-at.txt`, and must_have and accepted_by are unchanged.
-- At 0f5b540, every other front-matter key and the whole body equalled cd883a6.
+| Claim | Verifier check | Result |
+|-------|----------------|--------|
+| R2: skipped helper or a second call | Second bare call reported; a call through `fomo_nb_utils.` gives [] (named as missed) | True |
+| R3: Django import before the call | Three 40-02 bypasses before the setup statement on a real copy: reported | True for import statements (see human item on "first") |
+| R4: `django.setup()`, `from django import setup`, `import django as x` | Each reported | True |
+| R5/R7: `FOMO_DATABASE_PATH` / `fomo_db.sqlite3` in a string, `FOMO_DATABASE_PATH=` keyword | Each reported; a bytes literal gives [] | True ("in a string"; bytes in advisory) |
+| R6: `shutil.copy`, `copy2`, `copyfile`, "also under an import alias" | Same-cell alias reported; `from shutil import copy2 as c` reported; **alias imported in another cell gives []** (`shutil_names` is rebuilt per cell, :304-307) | **False for a cross-cell alias** (human item) |
+| R0, R5, R6, R7 apply to every notebook; the rest only to Django-backed | Code order :334-349 | True |
+| Output checks R8-R11 | Rules present; synthetic tests green | True |
+| Not seen: string code incl. the setup call's argument; shell lines; monkey-patching; run-time values | timeit string in the argument: [] (round-7 CR-01); `!python manage.py flush` cell before the helper: [] | True |
+| Not seen: `!` cell "after the teardown" | A cell after the teardown is reported by R10 ("the last code cell does not end with ...") | Overstates the residual (safe direction; human item) |
+| Not seen: re-pointing settings/connections after the helper | `connections['default'].settings_dict['NAME'] = ...` with a built name: [] | True |
+| Helper refuses a running Django (:275) | Up-front check, outside the `try` | True |
+| Settings checked before `django.setup()` (:295) | `check_database_settings` order: extra alias, routers, default NAME | True |
+| Failure path closes, switches to dummy, removes dir, restores env, re-raises | :306-314 and :184-207 | True |
+| Close can fail first; Django's error replaces the helper's | `connections.close_all()` (:199) runs before the switch; no `default` alias makes `ConnectionHandler.configure_settings` raise `ImproperlyConfigured` (Django 5.2.17 source read) | True |
+| Teardown second line is fixed text (:364) | `print('The developer database (src/fomo_db.sqlite3) was never opened for writing.')` | True |
+| Another process falls back to the dev file | settings.py:100 `os.getenv('FOMO_DATABASE_PATH') or os.path.join(BASE_DIR, 'fomo_db.sqlite3')` | True |
+| Override 2 (1): a comment in an unparseable cell trips R0 | `%%time` / `# fomo_db.sqlite3 mention` reported; same comment in a plain cell gives [] | True |
+| Override 2 (2): README `/tmp` vs `tempfile`/`TMPDIR` | README :59, :87 say `/tmp`; helper uses `tempfile.mkdtemp` (:233); README :78 sets `TMPDIR=/tmp` | True |
+| Override 2 (3): "never sets Django up, routes the database itself or byte-copies" | README :89-90, docstring :13 | True; but README "calls the helper first" / docstring "before any Django import" are a fifth place of the same kind (human item) |
+| Override 2 (4): "a refusal or failure switches every alias to the dummy backend" | README :69, helper docstring :263-267 | True |
 
-The verifier then tested every round-7 review route against the reason's exact words:
-
-| Finding | Reproduced? | Inside the reason's residual? | Classification |
-|---------|-------------|-------------------------------|----------------|
-| CR-01: Django set up from string code in the setup call's own argument (`timeit.timeit("...settings.configure(s); apps.populate(...); call_command('flush', ...)") and repo_root_path`) | **Yes**, []; control (same string as a statement before the call) reported; a literal `django.setup()` in the argument *is* reported by R4 | **No.** It contradicts "R3 and R4 ... report a Django import before the helper call ... in a cell's code and in code inside its strings to two levels". The import is literal, one string deep, in the notebook, and runs before the helper. It also contradicts the README ("imports Django before that call ... also in code inside a string") and R2's own message ("with exactly those arguments") | **Gap** (gap 1, gap 2). Contestable only if "before the helper call" is read as source position, which the docstring says ("top-level statement before that call") and the reason does not: **human decision** on wording |
-| WR-01: "no other call of the setup function", README "first and once" | **Yes**: attribute call, call through another name and call in string code each give []; second bare call reported | Not addressed by the reason (it says nothing about R2). No database route: the helper refuses a second setup (fomo_nb_utils.py:293-299) | **Gap** (wording, gap 2) |
-| WR-02: "R12 reports the IPython shell names a notebook would write to set those up" | **Yes**: `exit._ip.find_magic('alias')(...)` plus a `wipe` cell, `exit._ip.find_line_magic('sx')`, `sys.displayhook.shell.find_line_magic('sx')` all give []; `_ip` confirmed in IPython's autocall.py source | **Yes**: "through a name or form the lists do not contain". The reason does not repeat the sentence | Override unaffected; **gap** for the docstring wording (gap 2) |
-| WR-03: "a comment ... cannot satisfy or trip a check" | **Yes**: a comment under `%%time` is reported; the same comment in a plain cell gives [] | Not a route (the guard reports more, not less) | **Gap** (wording, gap 2; low weight, pre-existing since 40-02) |
-| WR-04: README `/tmp` vs `$TMPDIR` | **Yes**: README lines 59/90 say `/tmp`; helper uses `tempfile.mkdtemp` (line 249) | Not a guard route | Warning; fix in the gap-2 pass (40-02's must-have "README tells operators to delete leftover /tmp/... directories" is literally met) |
-| IN-01: README implies R5/R7 read string code | **Yes**: an escaped `FOMO_DATABASE_PATH` in timeit string code gives [] | Not a capability on its own (using the variable needs a listed environment or process name) | Info; fold into gap 2 |
-| IN-02: "as the not-vacuous test requires" | **Yes**: `x = 'import django'` makes a notebook Django-backed | Not a route; every real notebook has a real import in a cell tree | Info; fold into gap 2 |
-| IN-03: patching `tempfile.mkdtemp` before the helper | **Yes**: [] | **Yes**: an unlisted name reaching the database | **Accepted residual** (advisory; helper hardening for Phase 41) |
-| IN-04: three spellings of tree-plus-string-code | Code read | n/a | Not relevant to the must-haves (advisory) |
-
-One route (CR-01) contradicts a specific sentence of the reason, so the override does not apply (`overrides_applied:
-0`).
-
-### Observable Truths: 40-17 must_haves
-
-| # | Truth (abridged) | Status | Evidence |
-|---|------------------|--------|----------|
-| 17.1 | Four round-6 CR-01 forms reported with controls | ✓ VERIFIED | Test green; verifier repro of the alias form: IPython, InteractiveShell, alias_manager, define_alias |
-| 17.2 | Exactly fifteen names added; lists disjoint | ✓ VERIFIED | Constant diff vs cd883a6: only PROCESS_MODULES (+3) and PROCESS_NAMES (+12), nothing removed |
-| 17.3 | R3/R4/gate read string code; both probes report | ✓ VERIFIED | Verifier repro: both give 'calls django.setup()' and 'imports Django before ...' |
-| 17.4 | Gate on string-only Django import; `%%capture` pin holds | ✓ VERIFIED | Tests green |
-| 17.5 | One write_bytes problem per cell | ✓ VERIFIED | Repro: count 1; test green |
-| 17.6 | `_shutil` import followed | ✓ VERIFIED | Repro: move and _shutil reported |
-| 17.7 | Superseded expectations only | ✓ VERIFIED | Only test_autocall_..._reported changed (its one set) |
-| 17.8 | Adjacency edge | ✓ VERIFIED | Look-alike subtests green |
-| 17.9 | Empty edge | ✓ VERIFIED | Eight notebooks [] and Django-backed; `wipe` alone and `exit -1` give [] |
-| 17.10 | Ordering edge | ✓ VERIFIED | Pinned by the new tests |
-| 17.11 | No weakening | ✓ VERIFIED | All 91 cd883a6 test methods present; only the superseded one differs; docstrings and comments at ca1cb7d identical to cd883a6; only decorator `staticmethod` |
-| 17.12 | Three full-hook commits, guard module only | ✓ VERIFIED | `git show --name-only c78e517 fdd8b3e ca1cb7d` |
-
-### Observable Truths: 40-18 must_haves
+### Observable Truths: kept plans
 
 | # | Truth (abridged) | Status | Evidence |
 |---|------------------|--------|----------|
-| 18.1 | Draft and checks before any change | ✓ VERIFIED (historical) | Draft files 02:41-02:45 local; approval 06:37:50 local; docs commit 06:39:31 |
-| 18.2 | Module docstring names every list entry and the residual class | ✓ VERIFIED | Script: no entry of the 14 lists missing; residual sentence present |
-| 18.3 | Sweep free of BANNED_ALL | ✓ VERIFIED | Script: no hit in any docstring or comment |
-| 18.4 | D-G18 rules listed | ✓ VERIFIED | Keyword check, error output, R9-R11, copy/move present |
-| 18.5 | IN-02 wording | ✓ VERIFIED | No "end the kernel" in the docstring, README or reason |
-| 18.6 | Boundary both directions: named not-seen forms give [], and every form the texts claim is reported is reported | ✗ FAILED (partial) | The named boundary probes give [] and the enumerated forms are reported. But the README and reason claim a Django import in string code before the helper call is reported, and CR-01 is not (gap 1/2) |
-| 18.7 | Reason structure, citations, Evidence rows | ✓ VERIFIED (literal) | 70 rows; all cited commits exist. The R3/R4 sentence's evidence row cites the docstring's narrower "top-level statement" wording (Override decision) |
-| 18.8 | Blocking-human checkpoint; reply saved | ✓ VERIFIED | `phase40-18-decision.txt`: approve; approved_at 2026-10-11T13:37:50Z |
-| 18.9 | Module equals approved; code identical to ca1cb7d; README | ✓ VERIFIED | Byte-for-byte equal; stripped-AST equal; approved paragraph present; README diff limited to the paragraph |
-| 18.10 | Ledger at 226acc0 | ✓ VERIFIED (historical) | 13/13 lines changed, `open: 2`, `total: 12`; ledger since regenerated for round 7 (b0f33f2, a254611) |
-| 18.11 | Override: only reason and accepted_at | ✓ VERIFIED | Checked against cd883a6 at 0f5b540 |
-| 18.12 | Paired docs | ✓ VERIFIED | README changed; helper and notebooks unchanged, so no re-execution |
+| 1.1 | Helper tracked; `special_locations` byte-identical to feature/skymap; import leaves no Django | ✓ VERIFIED | `git ls-files`; source segment equal to `origin/feature/skymap`; `test_importing_the_module_does_not_import_django` green |
+| 1.2 | Fresh setup routes, migrates, prints Resolved line; teardown removes the directory | ✓ VERIFIED | `test_fresh_setup_routes_migrates_and_tears_down` green |
+| 1.3 | DATABASES override refused under python, `-O`, `PYTHONOPTIMIZE=1`; no assert | ✓ VERIFIED | Test green (three subtests); AST: 0 asserts |
+| 1.4 | `mode=ro` + backup; snapshot with no dev DB raises before mkdtemp | ✓ VERIFIED | :104-108, :231-233; two tests green |
+| 1.5 | Four converted notebooks call the helper with the right mode, top level, before any Django import | ✓ VERIFIED | Inert `notebook_mode()`: load/backfill/campaign fresh, reconcile snapshot; guard [] |
+| 1.6 | Re-executed with `TMPDIR=/tmp`; counts 1..N; `/tmp/fomo-notebook-db-*`; teardown last | ✓ VERIFIED | Script over all eight (re-executed on 819321e by 261012-g4y) |
+| 1.7 | CLAUDE.md map pairs the helper with every notebook | ✓ VERIFIED | CLAUDE.md:178 |
+| 1.8 | Resolved-path check uses `resolve()` | ✓ VERIFIED | :130; two unit tests green |
+| 1.9 | Empty input never routes to the dev DB | ✓ VERIFIED | Non-empty `str(scratch_db_path)` assigned; ValueError/RuntimeError before mkdtemp |
+| 1.10 | Guard and projector test pass after each commit | ✓ VERIFIED | Historical; both green now |
+| 2.1 | WR-13 bypasses reported (synthetic and on a real copy) | ✓ VERIFIED | 30 synthetic tests green; verifier replayed the assignment, aliased-setup and aliased-import bypasses on a copy of import_campaign_csv_demo: each reported |
+| 2.2 | Counts not 1..N or error output reported; all eight pass | ✓ VERIFIED | Tests green |
+| 2.3 | Not vacuous: eight names, each Django-backed with one setup call | ✓ VERIFIED | `test_the_real_notebook_check_is_not_vacuous` green |
+| 2.4 | Resolved line in `fomo-notebook-db-*`; teardown last with output | ✓ VERIFIED | Real-notebook test and verifier script |
+| 2.5 | No shutil copy, no literal; comments are not problems | ✓ VERIFIED | Tests green |
+| 2.6 | No setup-cell assert; no assert wraps a write; audit | ✓ VERIFIED | Audit now 246 (40-04 added ten demo asserts to campaign_lifecycle: 103 vs 93), 0 in setup cells, 0 around a write |
+| 2.7 | No `arcmin deg`; dip 1.42-1.46 | ✓ VERIFIED | 1.4376 |
+| 2.8 | Modes of the last four; projector cell 7022f987 kept | ✓ VERIFIED | Ids present; `test_projector_demo_notebook` green |
+| 2.9 | D-04 sentence in README, ROADMAP, REQUIREMENTS; README lists tested | ✓ VERIFIED | grep; TestReadmeStatesTheIsolationRule green |
+| 2.10 | IN-13: CSV inside `scratch_db_dir`, fixture in a `with` | ✓ VERIFIED | Cells 3b49c87a and 16d14cf8 |
+| 2.11 | IN-14: utf-8 | ✓ VERIFIED | :708, :766, :782, :785 |
+| 2.12 | No credential-shaped text | ✓ VERIFIED | Test green; verifier regex over all eight files |
+| 2.13 | 37.1 ledger WR-13/14/16/17, IN-13/14/17 fixed | ✓ VERIFIED | 37.1-REVIEW-DISPOSITION.md rows 336-347 |
+| 2.14 | README lists in file-name order; compared as sets | ✓ VERIFIED | README :33-43 |
+| 3.1-3.8 | High-band marker, Chromium computed style, BS 5.3 names, class guard, IN-12 scans, render suites, empty and encoding edges | ✓ VERIFIED | Files unchanged since 8ab5247; test_attribution_template, test_campaign_attribution_views, both scan classes and the Chromium marker test pass |
+| 4.1-4.14 | Undo returns to the open Dismissed page; one `_redirect`; carried state; Confirmed landing; last-page clamp; tampering dropped; IN-15 boolean; browser SC 5; runbook and lifecycle notebook; 37.1 ledger; staff gating; edges | ✓ VERIFIED | Files unchanged; TestAttributionReturnState, TestAttributionStaffGating green; Chromium Undo test OK; runbook :968 "same page of the Dismissed section"; lifecycle notebook shows the marker classes and `dismissed-page=` redirect; 37.1 rows WR-15, WR-18, IN-12, IN-15 fixed. 4.9's "last notebook re-executed" is historical (all eight were re-executed later on purpose) |
+| 5.1-5.8 | Refusal leaves no reachable database; failure after setup; up-front refusal never disables a working Django; aliases and routers; ready line; snapshot run; teardown location; environment restore | ✓ VERIFIED | Each named test exists and passes (behavioral, child processes) |
+| 5.9 | README states the check-before-setup sentence, teardown checks, environment restore; D-04 and lists kept | ✓ VERIFIED (wording superseded) | The 40-05 clause "after a refusal, or any later failure in the setup" was replaced by 40-08's S1+S2, kept by the developer in 261012-g4y; teardown checks :73-75; README test green |
+| 5.10-5.12 | Adjacency, empty and ordering edges | ✓ VERIFIED | `test_refuses_a_second_alias_even_when_it_names_the_scratch_file`, `test_refuses_a_missing_or_empty_default`, `test_names_the_extra_alias_before_the_routers`; except-path order at :306-314 |
+| 5.13 | All 14 helper tests from 0ad6991 still exist and pass | ✓ VERIFIED | Name diff: none missing; module green |
+| 7.1 | IN-05: eight NamedTemporaryFile calls pass `dir=scratch_db_dir` | ✓ VERIFIED | 8/8 in the seven cells; a0c4592f output `/tmp/fomo-notebook-db-nkqqkf8j/...`; directory gone; 2bd45621 explains it |
+| 7.2 | All eight re-executed on the 40-05 helper; ready line; Resolved line; counts; teardown; no `/home/` in setup or teardown output | ✓ VERIFIED | 819321e is 40-05's helper; verifier script found no issue in any notebook |
+| 7.3 | Setup markdown carries the README's setup-check sentence; none describes setup-before-check | ✓ VERIFIED | S1 (and S2, S3) in all eight setup cells and in the README; no old wording |
+| 7.4 | No other code cell changed | ✓ VERIFIED (historical) | Since 488a7bb only 40-09's three planned cells differ |
+| 7.5 | Snapshot ids kept; prose matches output | ✓ VERIFIED | Ids present; projector test green; prose: UAT test 1 (human, pass) |
+| 7.6 | Home-path inventory | ✓ VERIFIED | Only the spiceypy line in campaign_lifecycle d687bfab |
+| 7.7 | Guard, helper, projector tests pass | ✓ VERIFIED | Green (R12 part withdrawn) |
+| 7.8, 7.9 | Ledger and gate at the time | ✓ VERIFIED (historical) | Unchanged commits; carried from earlier reports |
+| 9.3 | Setup markdown has S1, S2, S3, same as the README; no 2026-10-09 refusal or re-run wording | ✓ VERIFIED | Verifier script, all eight |
+| 9.4 | NF-14 label in 2c723427 and 48b9f602; no hard-coded pk | ✓ VERIFIED | `NF14_EXPECTED_UNEXPLAINED` defined in 2c723427, used in 48b9f602; label on each CommandError line |
+| 9.5 | 35debc54 cites real headings and output lines | ✓ VERIFIED | Three quoted phrases are headings, one is an output line |
+| 9.6 | Code cells changed since 488a7bb: exactly the three | ✓ VERIFIED | Cell comparison against 488a7bb |
+| 9.7 | Snapshot ids kept; prose matches | ✓ VERIFIED | As 7.5 |
+| 9.8 | Guard, helper, projector tests pass | ✓ VERIFIED | Against the 8ab5247 guard (the 40-08 guard was rolled back) |
+| 9.9 | Home-path inventory | ✓ VERIFIED | As 7.6 |
+| 9.10, 9.12 | Ledger and gate at the time | ✓ VERIFIED (historical) | Carried |
+| 11.7 | Fresh-mode setup sentences F7, F49 (and F23); teardown sentences | ✓ VERIFIED (teardown wording superseded) | F7 in 7dfef438, F49 in 49ff72df, F23 in 23326d63; the three T1 sentences were replaced by 261012-g4y's sentence, which matches 819321e's fixed second line |
+| 11.9 | Markdown-only change at 40-11 | ✓ VERIFIED (historical) | Carried |
+| 8.14, 11.1, 18.6 | Guard docstring and README state what the rules check | PASSED (override) | Override 2: accepted by Tim Lister on 2026-10-12T20:28:10Z |
 
-### Carried truths (40-01 to 40-16)
-
-The helper, the eight notebooks and the attribution files are unchanged since the previous report, and so are the
-earlier PLAN and SUMMARY files. Status changes:
-
-| Truth | Before | Now |
-|-------|--------|-----|
-| 14.2 | Failed on the R0 alias sentence | **Verified**: it now says "IPython's default set", which matches `_ipython_line_magic_names` |
-| 15.10 | Failed | **Verified** (one write_bytes problem per cell) |
-| 15.5, 15.6 | Verified | **Superseded on purpose** by developer decision D-G16 (the IPyAutocall-only set; "gate code unchanged"), recorded in 40-17. Counted as verified, like the D-G2 supersession |
-| 8.14, 11.1 | Failed | **Still failed**, now on the round-7 wording findings (gap 2) |
-
-**Score:** 210/214 truths verified, 0 present but behavior-unverified. The 214 are 190 carried and 24 from 40-17 and
-40-18. The four failed truths are SC2a, 8.14, 11.1 and 18.6.
-
-### Prohibitions
+### Prohibitions (kept plans: 23)
 
 | Plan | Prohibition | Status | Evidence |
 |------|-------------|--------|----------|
-| 40-01..40-16 | 58 carried | ✓ VERIFIED (one superseded by D-G2; 40-15's no-gate-change superseded by D-G16) | No regression |
-| 40-17 | Guard not weakened | ✓ VERIFIED | AST comparison; nothing removed |
-| 40-17 | No existing docstring/comment edited | ✓ VERIFIED | Identical at ca1cb7d |
-| 40-17 | `_django_imports`, R0, R12 matching, string-code helpers unchanged | ✓ VERIFIED | Only the planned functions differ |
-| 40-17 | No notebook run, dev DB, shell, install | ✓ VERIFIED | `git status --short src/` clean |
-| 40-17 | No other file touched | ✓ VERIFIED | Commit file sets |
-| 40-18 | Nothing before the reply; only approved text | ✓ VERIFIED | Timestamps; byte-for-byte equality |
-| 40-18 | No code change; only reason and accepted_at; no push | ✓ VERIFIED | Stripped-AST check; 0f5b540 checks |
-| 40-18 | No dev DB access | ✓ VERIFIED | Inert checks |
-| 40-18 | No completeness claim; D-G14 untouched | ✓ VERIFIED | No banned phrase; attribution/helper files unchanged |
+| 40-01, 40-02, 40-05, 40-07, 40-09 | Never write, byte-copy or move `src/fomo_db.sqlite3`; snapshot only through `mode=ro` | ✓ VERIFIED (test) | Guard and helper tests; dev DB mtime 2026-10-10 00:16; every Resolved line in `/tmp/fomo-notebook-db-*` |
+| 40-01 | No silent fallback when snapshot finds no dev DB | ✓ VERIFIED (test) | `test_snapshot_mode_without_a_developer_database_raises_before_creating_anything` |
+| 40-02 | No weakening for a named notebook (judgment) | ✓ VERIFIED (judgment) | EXPECTED_NOTEBOOKS is used only for presence; no skip, expectedFailure or tag decorator in either module |
+| 40-02, 40-07, 40-09 | No credential-shaped text | ✓ VERIFIED (test) | Test green |
+| 40-03 | No BS4 compatibility stylesheet, no third-party template edits, scan not narrowed (judgment) | ✓ VERIFIED (judgment) | Unchanged since prior verification; `test_third_party_app_template_directories_are_not_scanned` green |
+| 40-04 | State carried by hidden inputs and server redirect only (judgment) | ✓ VERIFIED (judgment) | Unchanged; `_return_state_inputs` and the partial include |
+| 40-04 | campaign_lifecycle on fresh scratch | ✓ VERIFIED (test) | mode fresh; guard green |
+| 40-05 | Up-front refusal outside the `try` | ✓ VERIFIED (test) | :275 before :283; `test_setup_refuses_when_django_is_already_set_up` |
+| 40-05 | Call shape and both teardown lines unchanged | ✓ VERIFIED (test) | :317-319, :363-364 |
+| 40-05 | Out-of-scope files untouched; no helper test loosened | ✓ VERIFIED | Historical; 14 old tests present |
+| 40-07, 40-09 | No `--allow-errors`; counts 1..N; only planned code cells changed; ledger rows; VERIFICATION untouched at the time | ✓ VERIFIED | Script; historical |
+
+The 44 prohibitions of the withdrawn plans are withdrawn with them.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `solsys_code/tests/test_pre_executed_notebooks.py` | 15 shell names, string-code R3/R4/gate, write_bytes key, approved docstrings | ⚠️ VERIFIED with coverage gap | 96 guard tests green; CR-01 (gap 1); wording (gap 2) |
-| `docs/notebooks/README.md` | Approved guard paragraph | ⚠️ VERIFIED (text) | Two clauses false (gap 2); `/tmp` wording (WR-04) |
-| `40-REVIEW-DISPOSITION.md` | Round-6 rows fixed | ✓ VERIFIED | At 226acc0; round-7 rows now open (b0f33f2, a254611) |
-| `40-VERIFICATION.md` override | Approved reason recorded | ✓ VERIFIED (recorded, not applicable) | Carried verbatim |
-| Helper, notebooks, attribution artifacts | Unchanged | ✓ VERIFIED | `git diff cd883a6 HEAD` empty for them |
+| `docs/notebooks/fomo_nb_utils.py` | Scratch helper, settings check before setup, fail-closed path, teardown checks | ✓ VERIFIED | 819321e; `def check_database_settings`, `_active_setup`, dummy backend; used by all eight notebooks |
+| `solsys_code/tests/test_notebook_helper.py` | Child-process tests of the helper | ✓ VERIFIED | 27 tests incl. the -O refusal and refusal-state tests; green |
+| `solsys_code/tests/test_pre_executed_notebooks.py` | 8ab5247 guard R0-R11, real-notebook and README tests | ✓ VERIFIED | Green; limits accepted by override 1 |
+| `docs/notebooks/README.md` | D-04 rule, mode lists, helper section | ✓ VERIFIED | Wording limits accepted by override 2 |
+| Eight notebooks | On the helper, re-executed, prose matching | ✓ VERIFIED | Script plus UAT tests 1-2 |
+| `src/templates/campaigns/attribution_queue.html`, partial, `campaign_views.py`, `campaign_tables.py`, runbook | Marker, BS 5.3, return state | ✓ VERIFIED | Unchanged since 8ab5247; tests green |
+| `CLAUDE.md` | Helper pairing line | ✓ VERIFIED | :178 |
 
 ### Key Link Verification
 
 | From | To | Via | Status |
 |------|----|-----|--------|
-| PROCESS_MODULES / PROCESS_NAMES | R12_ALL_NAMES, UNPARSEABLE_SUSPECT_NAMES | built from the lists | ✓ WIRED |
-| is_django_backed, `_django_setup_problems`, R3 loop | `_string_code_trees` | `_with_string_code` | ✓ WIRED |
-| `_byte_copy_problems` | per-cell `found` | `setdefault` on `('write', name)` | ✓ WIRED |
-| `_shutil_names` | SHUTIL_MODULE_NAMES | `alias.name in SHUTIL_MODULE_NAMES` | ✓ WIRED |
-| R3 | the setup call's own arguments | none | ✗ NOT WIRED (gap 1, round-7 CR-01) |
+| Each notebook setup cell | fomo_nb_utils.py | `from fomo_nb_utils import setup_scratch_django, teardown_scratch_django` | ✓ WIRED (eight) |
+| setup_scratch_django | settings.py DATABASES NAME | `os.environ['FOMO_DATABASE_PATH'] = ...` (:287), checked at :295 before `django.setup()` | ✓ WIRED |
+| setup_scratch_django failure path | `_disable_django_databases` | `except BaseException` (:306) | ✓ WIRED |
+| teardown_scratch_django | `_active_setup` | recorded dir and environment | ✓ WIRED |
+| Guard | helper | `test_the_guard_names_match_the_helper` | ✓ WIRED |
+| Guard README test | README headings | `README_SNAPSHOT_HEADING` / `README_FRESH_HEADING` | ✓ WIRED |
+| campaign_tables Undo forms | `AttributionDecisionView._redirect` | hidden inputs re-validated by `attribution_return_state(request.POST)` | ✓ WIRED |
+| AttributionQueueView | attribution_queue.html | `return_state_fields`, `dismissed_section_open` | ✓ WIRED |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data | Source | Real data | Status |
 |----------|------|--------|-----------|--------|
-| Notebook Resolved line | resolved NAME | lazy settings, checked before setup | Yes | ✓ FLOWING (unchanged) |
-| Teardown second line | what setup checked | `check_database_settings` | Yes | ✓ FLOWING (unchanged) |
-| Attribution page state | return state | unchanged | Yes | ✓ FLOWING (unchanged) |
+| Notebook Resolved line | resolved NAME | lazy settings, checked before setup | Yes | ✓ FLOWING |
+| Teardown second line | none | fixed text (:364) | No (by design, stated in override 1 and the teardown prose) | ✓ As documented |
+| Attribution page state | band, page, sort | POST, validated, redirected | Yes | ✓ FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Guard, helper, projector, attribution template modules | `python manage.py test --noinput --parallel auto solsys_code.tests.test_pre_executed_notebooks ...test_notebook_helper ...test_projector_demo_notebook ...test_attribution_template ...test_bootstrap5_rendering` | Ran 174 tests, OK | ✓ PASS |
-| Round-6 forms (regression) | scratchpad `extra.py` | all reported as 40-17 claims | ✓ PASS |
-| Real notebooks | scratchpad `extra.py` | eight [] and Django-backed; each passes `repo_root_path` (a Name) | ✓ PASS |
-| Round-7 CR-01 | scratchpad `repro.py` | [] (control reported) | ✗ FAIL (gap 1) |
-| Round-7 WR-01/WR-02/WR-03/IN-01/IN-03 | scratchpad `repro.py` | as the review describes | ✗ FAIL (gap 2) / residual |
-| Dev DB untouched | `git status --short src/` | clean | ✓ PASS |
+| Guard, helper, projector, attribution template and views, template scans | `python manage.py test --noinput --parallel auto --exclude-tag ephemeris_segfault solsys_code.tests.test_pre_executed_notebooks ...test_notebook_helper ...test_projector_demo_notebook ...test_attribution_template ...test_campaign_attribution_views ...TestTemplatesUseBootstrap5DataAttributes ...TestTemplatesUseBootstrap5ClassNames` | Ran 181 tests, OK | ✓ PASS |
+| Attribution browser tests | the three named TestBootstrap5Rendering attribution tests | Ran 3 tests, OK | ✓ PASS |
+| Real notebooks | scratchpad `probe.py` | eight [] , Django-backed, modes as listed | ✓ PASS |
+| Override 1 R6 claim | scratchpad `probe2.py` | cross-cell alias [] ; same-cell and plain controls reported | ✗ claim false (human item) |
+| Notebook output and prose | scratchpad `nbcheck.py`, `nbcheck2.py` | no issue in any notebook | ✓ PASS |
+| Dev DB untouched | `git status --short src/`; mtime | clean; 2026-10-10 00:16 | ✓ PASS |
 
 ### Probe Execution
 
@@ -430,54 +411,47 @@ Step 7c: SKIPPED. No `scripts/*/tests/probe-*.sh` exists, and no plan declares o
 
 | Requirement | Source Plans | Description | Status | Evidence |
 |-------------|--------------|-------------|--------|----------|
-| WARN-02 | 40-02, 40-06..40-18 | Guard fails a notebook whose current source routes Django to the dev DB | ✗ BLOCKED (partial) | Gap 1; override not applicable. REQUIREMENTS.md marks it `[x]` / Complete, which this report does not support |
-| WARN-03 | 40-01, 40-02, 40-05, 40-07..40-09, 40-11 | Ordinary exception under `-O` | ✓ SATISFIED | SC2b |
-| WARN-04 | 40-03, 40-04 | BS 5.3 only; High-band marker; template test | ✓ SATISFIED | SC4 |
-| WARN-05 | 40-01, 40-02, 40-05, 40-07..40-11, 40-13..40-18 | Audit, shared helper, no byte copy or write, README rule and lists | ✓ SATISFIED | SC1; real notebooks clean; guard coverage counted under WARN-02 |
+| WARN-02 | 40-02 (kept); 40-06..40-18 (withdrawn) | Guard fails a notebook whose current source routes Django to the dev DB | ✓ SATISFIED (override) | SC2a by override 1 |
+| WARN-03 | 40-01, 40-02, 40-05, 40-07, 40-09 | Ordinary exception under `-O` | ✓ SATISFIED | SC2b |
+| WARN-04 | 40-03, 40-04 | BS 5.3 only; marker; template test | ✓ SATISFIED | SC4 |
+| WARN-05 | 40-01, 40-02, 40-05, 40-07, 40-09 | Audit, shared helper, no byte copy or write, README rule and lists | ✓ SATISFIED | SC1 |
 | WARN-06 | 40-02 | Dip in one unit | ✓ SATISFIED | SC3 |
 | WARN-07 | 40-04 | Undo keeps Dismissed open on the same page | ✓ SATISFIED | SC5 |
 
-All six IDs appear in plan front matter and in REQUIREMENTS.md (Phase 40). No requirement is orphaned.
+All six IDs appear in plan front matter and in REQUIREMENTS.md (Phase 40). None is orphaned. REQUIREMENTS.md still shows
+them unchecked with "Gaps Found"; the orchestrator updates that.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| solsys_code/tests/test_pre_executed_notebooks.py | isolation_problems R2/R3 | Setup call argument neither shape-checked nor read | 🛑 Blocker | Gap 1 (carried-forward gap; file modified since the prior verification) |
-| solsys_code/tests/test_pre_executed_notebooks.py | 21-22, 40, 56, 126, 357 | Docstring/comment claims more than the code | ⚠️ Warning | Gap 2 |
-| docs/notebooks/README.md | 59, 90, 95-96 | `/tmp` vs `$TMPDIR`; "first and once"; string-code import claim | ⚠️ Warning | Gap 2 |
+| solsys_code/tests/test_pre_executed_notebooks.py | 304-307 | `shutil_names` rebuilt per cell, so an alias from another cell is not followed | ⚠️ Warning | Makes override 1's R6 sentence false for a cross-cell alias (human item); no Django route |
+| docs/notebooks/pre_executed/project_observation_calendar_demo.ipynb | cell 4862a7df | Uncommitted developer edit | ℹ️ Info | Outside the phase; changes covered_digest when committed or reverted |
 
-No TBD, FIXME, XXX, TODO or HACK in the lines added since cd883a6.
+`TBD` in campaign_tables.py, campaign_views.py and import_campaign_csv_demo is the domain word for an undetermined
+observing window, not a debt marker. No `FIXME`, `XXX`, `TODO` or `HACK` in the phase files.
+
+40-REVIEW.md (round 7), 40-VALIDATION.md and 40-SECURITY.md still describe the rolled-back guard. The developer asked
+for the review not to be re-run; they are planning records, not must-haves.
 
 ### Human Verification Required
 
-These items do not change the gaps_found status.
+UAT (2026-10-12, 10 passed, 7 skipped for rolled-back work) covers 40-01 D6, 40-02 D7, 40-04 D7, 40-05 D7 and the
+override acceptance (40-12 D3, 40-14 D4). One new item:
 
-1. **Close round-7 CR-01 and approve the wording again.** Option (A): make R2 require a plain-name argument and have
-   R3 read the call's arguments, then fix or scope the R2, R12-shell and comment sentences. Option (B): approve a
-   reason and README that scope R3 to a top-level statement before the call. Why human: residual risk and override
-   wording are the developer's decisions.
-2. **Snapshot notebook prose** (carried). Why human: prose accuracy.
-3. **Runbook attribution-pass wording** (round-1 IN-03, kept for Phase 41). Why human: wording.
+1. **Override wording against the code**
+   - **Test:** Read the "Override claim check" table.
+   - **Expected:** Confirm both overrides stand as written, or amend them. The R6 sentence holds only when the alias is
+     imported in the same cell as the call. Override 2's "four places" leaves out "calls the helper first" and "before
+     any Django import". The `!` cell "after the teardown" is in fact reported by R10.
+   - **Why human:** Only the developer can change an accepted override. No code change is needed either way.
 
 ### Gaps Summary
 
-The root cause is the same as in earlier rounds, now much narrower: **the guard's code is still slightly narrower than
-what its approved texts say.** Round 7 closed both round-6 families completely. One literal route is left: string code
-inside the setup call's own argument runs before the helper and is not read by R3. Two checks close it, an R2 shape
-check (plain-name argument) and an R3 pass over the call's arguments. All eight real notebooks pass the plain name
-`repo_root_path`, so none changes.
-
-Fix these wording points in the same pass, with the developer's approval:
-- R2's "no other call of the setup function" and the README's "once".
-- "R12 reports the IPython shell names a notebook would write". It is false for `exit._ip`. Listing `_ip` and
-  `find_*magic` would also be cheap.
-- "a comment cannot trip a check".
-- The README's `/tmp`, its string-code scope and "as the not-vacuous test requires".
-
-Nothing here is deferred: Phases 41 and 42 do not cover the notebook guard.
+There are no gaps. Every in-scope truth is verified or passed by a developer-accepted override, and every rolled-back
+must-have is recorded as withdrawn. The phase waits only on the developer's answer to the one wording item above.
 
 ---
 
-_Verified: 2026-10-11T14:04:58Z_
+_Verified: 2026-10-12T20:40:40Z_
 _Verifier: Claude (gsd-verifier)_
