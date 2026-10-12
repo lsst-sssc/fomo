@@ -6,10 +6,10 @@ current_phase: 40
 current_phase_name: Notebook Isolation & Attribution Page
 status: gaps_found
 stopped_at: Completed 40-18-PLAN.md
-last_updated: "2026-10-11T13:43:00.594Z"
+last_updated: "2026-10-12T19:16:04.224Z"
 last_activity: 2026-10-11
 last_activity_desc: Phase 40 re-verification after gap round 7 (gaps_found 210/214)
-state_head: 0f5b540f676ae73ae9e71ea0d6f47fc3be3f69c3
+state_head: ef0c58ac66e2e8c7306efe51a72d9535fbd73e41
 progress:
   total_phases: 6
   completed_phases: 42
@@ -31,8 +31,8 @@ See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
 
 Phase: 40 (Notebook Isolation & Attribution Page) — GAPS FOUND
 Plan: 18 of 18
-Status: Gap round 7 executed (40-17 guard code, 40-18 docs + approved override 2026-10-11T13:37:50Z); re-verification gaps_found 210/214 on round-7 review CR-01 (Django set up in string code inside the setup_scratch_django call argument, contradicts the override reason, override not applied) and wording gaps WR-01..WR-04, IN-01, IN-02; next /gsd-plan-phase 40 --gaps
-Last activity: 2026-10-11 — Phase 40 re-verified after gap plans 40-17..40-18 (gaps_found 210/214)
+Status: Developer ended Phase 40 at the 40-04 stage plus the 40-05 helper fix (quick task 261012-g4y, 2026-10-12): guard work from gap rounds 40-06..40-18 rolled back as out of scope (it guarded against deliberate evasion, not accidents); gap plans 40-19..40-21 reverted unexecuted; override draft awaits developer approval; next /gsd-verify-work 40 to record it and close the phase
+Last activity: 2026-10-12 - Completed quick task 261012-g4y: End Phase 40 at 40-04 plus the 40-05 helper fix (override draft awaiting developer approval)
 
 Progress: [████████████████████] 17/17 plans ([██████████] 100%)
 
@@ -171,6 +171,12 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 - [Phase 40]: WARN-05 names `docs/notebooks/pre_executed/README`; the real file is `docs/notebooks/README.md`.
 - [Phase 42]: REVERIFY-02 routes fixes into "the TRIAGE-02 gap-closure phase", which runs before Phase 42. A re-verification gap fixed this milestone needs a further phase inserted after 42, then a re-run of that report.
 - [Phase 41]: TRIAGE-03 needs the TOM Toolkit Slack "multi proposal support" thread content from the developer.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 261012-g4y | End Phase 40 at 40-04 plus the 40-05 helper fix: guard and pyproject back to 40-04, helper and tests back to 40-05, README IN-01 fix, all eight notebooks re-executed; override drafted for approval | 2026-10-12 | ef0c58a | [261012-g4y-end-phase-40-at-40-04-plus-the-40-05-hel](./quick/261012-g4y-end-phase-40-at-40-04-plus-the-40-05-hel/) |
 
 ### Roadmap Evolution
 
