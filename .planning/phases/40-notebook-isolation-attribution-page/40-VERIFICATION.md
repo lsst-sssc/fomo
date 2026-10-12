@@ -1,7 +1,7 @@
 ---
 phase: 40-notebook-isolation-attribution-page
 verified: 2026-10-12T20:40:40Z
-status: human_needed
+status: passed
 score: 88/88 must-haves verified (4 by override; 129 withdrawn by the 261012-g4y rollback; prohibitions 23/23 in scope)
 covered_files:
   - ".planning/phases/40-notebook-isolation-attribution-page/40-01-PLAN.md"
@@ -82,7 +82,7 @@ overrides:
       code it catches a notebook that skips the helper or calls it twice (R2), imports Django before the helper call
       (R3), sets Django up itself with `django.setup()`, `from django import setup` or `import django as x` (R4), names
       `FOMO_DATABASE_PATH` or `fomo_db.sqlite3` in a string or passes a `FOMO_DATABASE_PATH=` keyword (R5/R7), or calls
-      `shutil.copy`, `copy2` or `copyfile`, also under an import alias (R6). R0, R5, R6 and R7 apply to every notebook;
+      `shutil.copy`, `copy2` or `copyfile`, also under an import alias made in the same cell (R6). R0, R5, R6 and R7 apply to every notebook;
       the other rules apply only to a notebook that imports Django, the project app or a TOM plugin. It also checks the
       committed output: counts 1..N and no error (R8), a Resolved line inside a `fomo-notebook-db-*` directory (R9), the
       matching teardown at the end (R10), and no `assert` around a write (R11).
@@ -95,7 +95,7 @@ overrides:
       than shutil's `copy`, `copy2` and `copyfile` when the file name is not written out.
 
       Another process is not seen either (a `!` shell line, `%run`, `subprocess`, `os.system`). Unlike the rest,
-      ordinary code can do this: a `!python manage.py ...` cell before the helper call or after the teardown runs with
+      ordinary code can do this: a `!python manage.py ...` cell before the helper call runs with
       `FOMO_DATABASE_PATH` unset, so `settings.py` falls back to `src/fomo_db.sqlite3`.
       Accepted as residual by the developer (2026-10-12): an unlikely corner case in niche demo notebooks, no fix planned.
 
@@ -109,21 +109,23 @@ overrides:
       second line is fixed text, not a measurement (round-2 WR-01). The helper checks once, at setup, so code that runs
       before the call, after the teardown or in another process is outside its checks.
     accepted_by: "Tim Lister"
-    accepted_at: "2026-10-12T20:19:00Z"
+    accepted_at: "2026-10-12T20:54:36Z"
   - must_have: "40-08 must_have 8.14, 40-11 must_have 11.1 and 40-18 must_have 6 (every form the texts claim is reported is reported): the guard docstring and README state what R0-R12 check"
     reason: >-
       The texts those must-haves judged (the 40-08..40-18 guard docstrings, the README paragraph and the R12 they
       describe) were rolled back with the guard. The texts in force are the 8ab5247 module docstring and the README
-      (819321e plus the two IN-01 sentence corrections). Read against the code, they claim more than is checked in four
+      (819321e plus the two IN-01 sentence corrections). Read against the code, they claim more than is checked in five
       places: (1) the docstring says a comment that merely mentions a name cannot satisfy or trip a check, but a cell
       that does not parse is searched as text, comments included (R0; this only ever reports more; round-7 WR-03);
       (2) the README says `/tmp/fomo-notebook-db-*`, but the helper uses `tempfile`, which follows `TMPDIR` (the README's
       own command sets `TMPDIR=/tmp`; round-7 WR-04); (3) the README and docstring say a notebook never sets Django up,
       routes the database itself or byte-copies, which means the forms in override 1 and no others; (4) the README and
       `setup_scratch_django`'s docstring say a refusal or failure switches every alias to the dummy backend, which does
-      not hold when closing the connections fails (round-2 WR-02, accepted by dropping c45edbc).
+      not hold when closing the connections fails (round-2 WR-02, accepted by dropping c45edbc); (5) the README's "it
+      calls the helper first" and the docstring's "before any Django import" hold only for literal import statements
+      (R3).
     accepted_by: "Tim Lister"
-    accepted_at: "2026-10-12T20:28:10Z"
+    accepted_at: "2026-10-12T20:54:36Z"
 re_verification:
   previous_status: gaps_found
   previous_score: 210/214 (prohibitions 67/67)

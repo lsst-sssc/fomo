@@ -3,7 +3,7 @@ status: complete
 phase: 40-notebook-isolation-attribution-page
 source: [40-01-SUMMARY.md, 40-02-SUMMARY.md, 40-03-SUMMARY.md, 40-04-SUMMARY.md, 40-05-SUMMARY.md, 40-06-SUMMARY.md, 40-07-SUMMARY.md, 40-08-SUMMARY.md, 40-09-SUMMARY.md, 40-10-SUMMARY.md, 40-11-SUMMARY.md, 40-12-SUMMARY.md, 40-13-SUMMARY.md, 40-14-SUMMARY.md, 40-15-SUMMARY.md, 40-16-SUMMARY.md, 40-17-SUMMARY.md, 40-18-SUMMARY.md]
 started: 2026-10-12T19:43:21Z
-updated: 2026-10-12T20:19:00.941Z
+updated: 2026-10-12T20:54:45Z
 ---
 
 <!--
@@ -76,48 +76,20 @@ result: pass
 source: automated
 coverage_id: 40-05 D1, D2, D3, D4, D5, D6
 
-### 11. 40-06 guard rule R12 and its docstring
-expected: 40-06 D1-D5
-result: skipped
-reason: "Rolled back by quick task 261012-g4y (developer decision 2026-10-12): guard restored to 8ab5247"
+### 11. Override wording matches the code (re-verification human item)
+expected: The two accepted overrides in 40-VERIFICATION.md describe the guard as it is. Developer amended the wording (2026-10-12): R6 aliases "made in the same cell"; the after-teardown shell case dropped (R10 catches it); override 2 counts five overclaiming places, adding the R3 literal-import case
+result: pass
 
-### 12. 40-07 review ledger
-expected: 40-07 D4
-result: skipped
-reason: "Planning ledger, not user-observable; superseded by the 261012-g4y record of decisions"
-
-### 13. 40-08 guard capabilities, helper dummy-switch-first fix, teardown line
-expected: 40-08 D1-D3
-result: skipped
-reason: "Rolled back by quick task 261012-g4y: c45edbc dropped by developer decision 2026-10-12, knowing round-2 WR-02"
-
-### 14. 40-09 ledger and 2026-10-10 override
-expected: 40-09 D4
-result: skipped
-reason: "Planning ledger and override superseded by the 261012-g4y override draft (test 5)"
-
-### 15. 40-10 guard R0 allow-list, R6 and R12 widening, ledger
-expected: 40-10 D1-D6
-result: skipped
-reason: "Rolled back by quick task 261012-g4y: guard restored to 8ab5247"
-
-### 16. 40-11 guard and helper docstrings, README guard text, ledger
-expected: 40-11 D1, D2, D3, D5
-result: skipped
-reason: "Rolled back by quick task 261012-g4y: 7af64d0 dropped with c45edbc; guard and helper restored. Notebook sentences (D4) kept and checked under test 2"
-
-### 17. 40-12 to 40-18 guard rounds 4-7 (R0/R5/R6/R7 forms, ipykernel dev extra, docstrings, overrides)
-expected: 40-12 D1-D2, 40-13 D1-D4, 40-14 D1-D3, 40-15 D1-D7, 40-16, 40-17 D1-D3, 40-18
-result: skipped
-reason: "Rolled back by quick task 261012-g4y: guard and pyproject.toml restored to 8ab5247, helper to 819321e; the override question these plans put to the developer is test 5"
+<!-- Rows for the 40-06 and 40-08 to 40-18 deliverables removed by quick task 261012-g4y were moved out of this file
+on 2026-10-12: 40-VERIFICATION.md (re-verification d449540) records those 129 must-haves as withdrawn by the rollback. -->
 
 ## Summary
 
-total: 17
-passed: 10
+total: 11
+passed: 11
 issues: 0
 pending: 0
-skipped: 7
+skipped: 0
 blocked: 0
 
 ## Gaps
