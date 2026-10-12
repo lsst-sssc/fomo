@@ -146,7 +146,7 @@ Superseded after five spikes showed that routing observation-precision narrowing
 - [x] **Phase 38: Sync with main** - Merge `origin/main` into the branch and adopt exactly what `main` requires (tomtoolkit 3.1.0, tom_jpl 0.3.0, ruff 0.16.9, LINCC template v2.2.0, the Django runner in CI), drop the dead pytest setup, get the full suite green, and rewrite draft PR #43's description for v2.4 (completed 2026-10-07)
 - [x] **Phase 39: Calendar Write Access** - An anonymous visitor can no longer create, change or delete a calendar event, the month view stops offering them the controls, and the event pop-up template's header comment says truthfully how it differs from upstream (completed 2026-10-08)
 - [x] **Phase 39.1: Test-Suite Speed-Up (INSERTED)** - The unit-test suite the `django-test` hook and CI run finishes in about a minute instead of about ten (memoised `sun_event()`, cheaper crossing search, `--parallel`, fast test hasher, tagged migration tests) so code commits stop needing `SKIP=django-test`, with the 2-minute skycalc sun-event accuracy kept (completed 2026-10-09)
-- [ ] **Phase 40: Notebook Isolation & Attribution Page** - Every pre-executed demo notebook runs on its own scratch database with a guard that catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3, closing the last six Phase 37.1 review warnings
+- [x] **Phase 40: Notebook Isolation & Attribution Page** - Every pre-executed demo notebook runs on its own scratch database with a guard that catches one that does not, and the staff attribution page renders and pages correctly under Bootstrap 5.3, closing the last six Phase 37.1 review warnings (completed 2026-10-12)
 - [ ] **Phase 41: Todo Triage & Seed Notes** - Every pending todo and backlog Phase 999.1 gets a fix-now / drop / park decision with a reason, fix-now items are set up as an inserted phase, and the Proposal-record seed records upstream's multi-proposal direction
 - [ ] **Phase 42: Re-verify the v2.4 Phases** - The five stale v2.4 verification reports are re-run against the final HEAD and refreshed in their archived directories, and the v2.4 milestone record states the real per-phase outcome instead of an override
 
@@ -328,7 +328,7 @@ Plans:
   4. On the attribution page, High-band rows show their marker again, a template test asserts the marker is present in the rendered HTML, and the page's templates use Bootstrap 5.3 class names only
   5. A staff member working down the Dismissed list can press Undo on a row and land back on the same page with the Dismissed section still open, with no re-open or re-page between rows
 
-**Plans**: 18/18 plans executed (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07; 40-08 and 40-09 close the 2026-10-10 re-review's WR-01, WR-02, IN-01 and IN-02 and record the developer's override for the residual WARN-02 risk; 40-10 to 40-12 close the third review's CR-01, CR-02, WR-01, WR-02 and IN-01 and put a corrected override reason to the developer; 40-13 and 40-14 close the fourth review's CR-01, WR-01, WR-02 and IN-02 and put the reworded docstring, README and override reason to the developer; 40-15 and 40-16 close the fifth review's CR-01, CR-02, WR-01 and WR-02 and put the reworded docstring, README and override reason to the developer again; 40-17 and 40-18, planned, close the sixth review's CR-01, CR-02, WR-01 and IN-01 to IN-03 and put docstrings, comments, README and an override reason that describe each rule by its lists and name one residual class to the developer)
+**Plans**: 18/18 plans complete (40-05 to 40-07 close verification gaps CR-01 and WR-01 plus review findings WR-02, IN-01, IN-02, IN-05, IN-06 and the helper-test part of IN-07; 40-08 and 40-09 close the 2026-10-10 re-review's WR-01, WR-02, IN-01 and IN-02 and record the developer's override for the residual WARN-02 risk; 40-10 to 40-12 close the third review's CR-01, CR-02, WR-01, WR-02 and IN-01 and put a corrected override reason to the developer; 40-13 and 40-14 close the fourth review's CR-01, WR-01, WR-02 and IN-02 and put the reworded docstring, README and override reason to the developer; 40-15 and 40-16 close the fifth review's CR-01, CR-02, WR-01 and WR-02 and put the reworded docstring, README and override reason to the developer again; 40-17 and 40-18, planned, close the sixth review's CR-01, CR-02, WR-01 and IN-01 to IN-03 and put docstrings, comments, README and an override reason that describe each rule by its lists and name one residual class to the developer)
 
 Plans:
 **Wave 1**
@@ -474,7 +474,7 @@ Plans:
 | 38. Sync with main | v2.5 | 7/7 | Complete    | 2026-10-07 |
 | 39. Calendar Write Access | v2.5 | 6/6 | Complete    | 2026-10-08 |
 | 39.1. Test-Suite Speed-Up (INSERTED) | v2.5 | 4/4 | Complete    | 2026-10-09 |
-| 40. Notebook Isolation & Attribution Page | v2.5 | 18/18 | In Progress | - |
+| 40. Notebook Isolation & Attribution Page | v2.5 | 18/18 | Complete    | 2026-10-12 |
 | 41. Todo Triage & Seed Notes | v2.5 | 0/TBD | Not started | - |
 | 42. Re-verify the v2.4 Phases | v2.5 | 0/TBD | Not started | - |
 

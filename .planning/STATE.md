@@ -2,39 +2,39 @@
 gsd_state_version: "1.0"
 milestone: v2.5
 milestone_name: Main Sync & Consolidation
-current_phase: 40
-current_phase_name: Notebook Isolation & Attribution Page
-status: gaps_found
-stopped_at: Completed 40-18-PLAN.md
-last_updated: "2026-10-12T19:16:04.224Z"
-last_activity: 2026-10-11
-last_activity_desc: Phase 40 re-verification after gap round 7 (gaps_found 210/214)
-state_head: ef0c58ac66e2e8c7306efe51a72d9535fbd73e41
+current_phase: 41
+current_phase_name: Todo Triage & Seed Notes
+status: planning
+stopped_at: Phase 40 complete, ready to plan Phase 41
+last_updated: "2026-10-12T20:57:22.074Z"
+last_activity: 2026-10-12
+last_activity_desc: Phase 40 complete, transitioned to Phase 41
+state_head: df6c645af842ceb89ce39c6ba53f14da8555471a
 progress:
   total_phases: 6
-  completed_phases: 42
+  completed_phases: 43
   total_plans: 35
   completed_plans: 35
-  percent: 100
+  percent: 93
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-09 — Phase 39.1 complete)
+See: .planning/PROJECT.md (updated 2026-10-12 — Phase 40 complete)
 
 **Core value:** The `issue37-telescope-runs-calendar` branch is back in step with `main` — same dependency floors, same tooling, same CI runner — and the debt v2.4 carried forward is either fixed or has a written decision, so the next feature milestone starts from a current, clean base.
-**Current focus:** Phase 40 — Notebook Isolation & Attribution Page
+**Current focus:** Phase 41 — Todo Triage & Seed Notes
 
 ## Current Position
 
-Phase: 40 (Notebook Isolation & Attribution Page) — GAPS FOUND
-Plan: 18 of 18
-Status: Developer ended Phase 40 at the 40-04 stage plus the 40-05 helper fix (quick task 261012-g4y, 2026-10-12): guard work from gap rounds 40-06..40-18 rolled back as out of scope (it guarded against deliberate evasion, not accidents); gap plans 40-19..40-21 reverted unexecuted; override draft awaits developer approval; next /gsd-verify-work 40 to record it and close the phase
-Last activity: 2026-10-12 - Completed quick task 261012-g4y: End Phase 40 at 40-04 plus the 40-05 helper fix (override draft awaiting developer approval)
+Phase: 41 — Todo Triage & Seed Notes
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-12 — Phase 40 complete, transitioned to Phase 41
 
-Progress: [████████████████████] 17/17 plans ([██████████] 100%)
+Progress: [████████████████████] 17/17 plans ([█████████░] 93%)
 
 ## Performance Metrics
 
@@ -168,7 +168,6 @@ Full decision log: `.planning/PROJECT.md` (Key Decisions). Roadmap decisions for
 
 - [Phase 39+]: PR #58 (`production-deploy` → `main`) switches `main`'s `settings.py` to `from .local_settings import *`. At the next sync with `main`, keep the branch's absolute `from fomo.local_settings import *` — its `ImportError` guard tolerates only that module name, and the relative form crashes every checkout without the file under `manage.py` (38-REVIEW WR-02).
 - [Phase 38 follow-ups]: 38-07's docs commits reached PR #43 in the 39.1-04 snapshot (8cb2d2f); still open: `CLAUDE.md:106` names `local_settings.py` without a path (PR #58 rewrites that line on `main`); REQUIREMENTS.md traceability table lacks PROP-01, SITE-10, DEP-01 (phase.complete warning).
-- [Phase 40]: WARN-05 names `docs/notebooks/pre_executed/README`; the real file is `docs/notebooks/README.md`.
 - [Phase 42]: REVERIFY-02 routes fixes into "the TRIAGE-02 gap-closure phase", which runs before Phase 42. A re-verification gap fixed this milestone needs a further phase inserted after 42, then a re-run of that report.
 - [Phase 41]: TRIAGE-03 needs the TOM Toolkit Slack "multi proposal support" thread content from the developer.
 
@@ -217,8 +216,8 @@ and 4 debug sessions the audit flagged were found to be complete and closed in f
 
 ## Session
 
-**Last session:** 2026-10-11T13:43:00.421Z
-**Stopped at:** Completed 40-18-PLAN.md
+**Last session:** 2026-10-12T20:57:58Z
+**Stopped at:** Phase 40 complete, ready to plan Phase 41
 **Resume file:** None
 
 ## Operator Next Steps
