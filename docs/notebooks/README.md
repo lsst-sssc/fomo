@@ -62,26 +62,23 @@ directory with a plain assignment (never `setdefault`, so an inherited value can
 fills that database with SQLite's online backup of `src/fomo_db.sqlite3`, opened through a read-only (`mode=ro`)
 connection so the unattended runner can write the developer database at the same moment. Before `django.setup()`
 runs, the helper raises a `RuntimeError` (a real `raise`, so it also fires under `python -O`) unless Django would
-use exactly the scratch database file, with no database alias other than `default` and no `DATABASE_ROUTERS`; after
-that refusal, or any later failure once the helper has started reading Django's settings, no cell can reach a
-database until the kernel is restarted. A failure before the settings are read (for example snapshot mode with no
-developer database) routes nothing, and the setup cell can simply be run again. A refusal or failure once the
-settings are being read switches every database alias to Django's dummy backend (any query raises
-`ImproperlyConfigured`) before it closes the connections, then drops Django's cached connection wrappers whether or
-not the close worked, so no query made through Django can reach a database; it then removes the scratch directory,
-puts the two variables back and raises the original error. When the checks pass, the helper runs `django.setup()`,
-migrates the scratch database to head and prints `Resolved database: ...`.
+use exactly the scratch database file, with no database alias other than `default` and no `DATABASE_ROUTERS`;
+after that refusal, or any later failure once the helper has started reading Django's settings, no cell can reach
+a database until the kernel is restarted. A failure before the settings are read (for example snapshot mode with no
+developer database) routes nothing, and the setup cell can simply be run again.
+A refusal or failure switches every database alias to Django's dummy backend (any query raises
+`ImproperlyConfigured`), removes the scratch directory and puts the two variables back. When the checks pass, the
+helper runs `django.setup()`, migrates the scratch database to head and prints `Resolved database: ...`.
 
 The teardown refuses any directory other than the one this kernel's setup created directly inside the temporary
 directory. For that one it closes Django's connections, removes the directory and restores `FOMO_DATABASE_PATH`
-and `DJANGO_ALLOW_ASYNC_UNSAFE` to their values before the setup. Its second printed line says what the setup
-checked: before `django.setup()` ran, Django's only configured database was the scratch file.
+and `DJANGO_ALLOW_ASYNC_UNSAFE` to their values before the setup.
 
 To regenerate a notebook, run `pre-commit run ruff-format --files <notebook>`, then, from this `pre_executed/`
 directory, `env TMPDIR=/tmp jupyter nbconvert --to notebook --execute --inplace <notebook>`, or choose
 *Restart and Run All* in Jupyter. Re-running the setup cell once the helper has read Django's settings in this kernel
-(after a successful setup, a refusal or a later failure) raises `RuntimeError`; use *Restart and Run All* instead.
-Never export `FOMO_DATABASE_PATH` yourself -- the helper sets it -- and commit the notebook with its output.
+(after a successful setup, a refusal or a later failure) raises `RuntimeError`; use *Restart and Run All* instead. Never export `FOMO_DATABASE_PATH` yourself -- the helper sets it --
+and commit the notebook with its output.
 
 The two snapshot notebooks need a populated `src/fomo_db.sqlite3` (they raise `RuntimeError` without one), and the
 numbers they print change from one regeneration to the next because the developer database changes.
@@ -89,22 +86,7 @@ numbers they print change from one regeneration to the next because the develope
 A snapshot holds a full copy of the developer database. If a run fails before the teardown cell, delete any
 leftover `/tmp/fomo-notebook-db-*` directory yourself.
 
-`solsys_code/tests/test_pre_executed_notebooks.py` checks every notebook in `pre_executed/`. It reports only the names
-and patterns on its lists, found in a notebook's literal source: its code and imports, the '.'- or ':'-separated parts
-of its str and bytes literals, and code inside its strings (read to two levels). It reports a notebook that does not
-call the helper first and once, with a constant mode; imports Django before that call or calls `django.setup()` itself,
-also in code inside a string; names `FOMO_DATABASE_PATH` or the developer database file in a str or bytes literal, or
-passes a `FOMO_DATABASE_PATH` keyword argument; names `shutil`, tempfile's `_shutil`, shutil's `copy2`, `copyfile`,
-`copytree` or `copyfileobj`, or `write_bytes`, or reads `copy` or `move` from a shutil name; names one of the listed
-ways to choose or reach a database, start a process, reach IPython's shell (`get_ipython`, `InteractiveShell`, the
-IPython, ipykernel and traitlets modules, and the shell's alias, `run_cell` and `autocall` entry points), change the
-environment, or run code built from a string or loaded from another file; has a cell that is not Python IPython runs
-unchanged, apart from `%matplotlib inline` and a first-line `%%time` or `%%capture`, or a one-line cell that starts with
-one of IPython's default magic or alias names, unless that name is a Python builtin or keyword or is followed by `=` or
-`,`; has execution counts other than 1..N or an error output; has no `Resolved database:` line in the setup cell's
-output; has an `assert` in the setup cell or one wrapping a write; or does not end with the teardown call and its
-output. A route to a process, IPython's shell, Django's settings or the database through a name or form the lists do not
-contain is not reported. Its module docstring lists every name, says what a static check of a notebook's source cannot
-see, and makes no claim of completeness. It reads each notebook's JSON and never executes one.
-`solsys_code/tests/test_notebook_helper.py` runs the helper itself, and a test in the first module keeps the two
-lists above equal to each notebook's `mode`.
+`solsys_code/tests/test_pre_executed_notebooks.py` checks every notebook in `pre_executed/`: it calls the helper
+first, never sets Django up or routes the database itself, never byte-copies, and shows output from one fresh run.
+It reads each notebook's JSON and never executes one. `solsys_code/tests/test_notebook_helper.py` runs the helper
+itself, and a test in the first module keeps the two lists above equal to each notebook's `mode`.
