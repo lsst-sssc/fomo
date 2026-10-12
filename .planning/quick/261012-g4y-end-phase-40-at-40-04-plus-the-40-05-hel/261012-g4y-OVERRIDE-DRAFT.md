@@ -27,7 +27,7 @@ reason: >-
   Another process is not seen either (a `!` shell line, `%run`, `subprocess`, `os.system`). Unlike the rest,
   ordinary code can do this: a `!python manage.py ...` cell before the helper call or after the teardown runs with
   `FOMO_DATABASE_PATH` unset, so `settings.py` falls back to `src/fomo_db.sqlite3`.
-  [Developer: accept or ask for a fix]
+  Accepted as residual by the developer (2026-10-12): an unlikely corner case in niche demo notebooks, no fix planned.
 
   The run-time backstop is the 819321e helper. It refuses to start if Django is already set up or configured in the
   kernel. Before `django.setup()` it raises `RuntimeError` unless `default` is the only alias, `DATABASE_ROUTERS` is
