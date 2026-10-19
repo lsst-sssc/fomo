@@ -49,8 +49,13 @@ INSTALLED_APPS = TOMTOOLKIT_INSTALLED_APPS + [  # noqa: F405
 
 SITE_ID = 1
 
+# WhiteNoise serves the collected static files (STATIC_ROOT) under gunicorn with DEBUG=False; it must
+# sit directly after SecurityMiddleware. With DEBUG=True it serves straight from the finders instead.
+_after_security = TOMTOOLKIT_MIDDLEWARE.index('django.middleware.security.SecurityMiddleware') + 1  # noqa: F405
 MIDDLEWARE = (
-    TOMTOOLKIT_MIDDLEWARE  # noqa: F405
+    TOMTOOLKIT_MIDDLEWARE[:_after_security]  # noqa: F405
+    + ['whitenoise.middleware.WhiteNoiseMiddleware']
+    + TOMTOOLKIT_MIDDLEWARE[_after_security:]  # noqa: F405
     + [
         # any FOMO specific middleware would go here
     ]
@@ -149,6 +154,9 @@ FORMAT_MODULE_PATH = [
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, '_static')
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+# Files WhiteNoise serves at the site root (/favicon.ico, /apple-touch-icon.png) for clients that probe for
+# them directly. The page <link> favicon is static/tom_common/img/favicon-32.ico, overriding TOM Toolkit's.
+WHITENOISE_ROOT = os.path.join(BASE_DIR, 'root_files')
 MEDIA_ROOT = os.path.join(BASE_DIR, 'data')
 MEDIA_URL = '/data/'
 
@@ -363,6 +371,6 @@ REST_FRAMEWORK = {
 PLOTLY_THEME = 'plotly_white'
 
 try:
-    from local_settings import *  # noqa
+    from .local_settings import *  # noqa
 except ImportError:
     pass
