@@ -107,7 +107,10 @@ Coverage is measured with `coverage run manage.py test` (`[tool.coverage.run]` i
   CI/pre-commit files assume pytest; after each `copier update` the test steps in
   `testing-and-coverage.yml`, `smoke-test.yml` and `.pre-commit-config.yaml` must be re-pointed at
   `manage.py test`, and the `ruff-pre-commit` rev (stale upstream) re-bumped — these are deliberate local
-  divergences. Answer `custom_install: custom`, never `retrofit` (which strips the ruff config).
+  divergences. So are the CI hardening changes, which must also survive a `copier update`: job and
+  install-step `timeout-minutes`, no `sudo apt-get update` outside the docs build's pandoc step, and the
+  `~/.cache/sorcha` cache plus "Seed MPC observatory codes" step (from `solsys_code/tests/data/ObsCodes.json.gz`)
+  in every job that imports `solsys_code.ephem_utils`. Answer `custom_install: custom`, never `retrofit` (which strips the ruff config).
 - **Verify the checked-out branch before any branch-implicit git command** (`rebase`, `reset`,
   `merge`, `cherry-pick`, `commit --amend`, etc.) — these operate on whatever `HEAD` currently
   points to, not the branch name mentioned in a prior command. `git push origin <branch>` in
