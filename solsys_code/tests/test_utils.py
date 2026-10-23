@@ -1,10 +1,19 @@
 import tempfile
 from pathlib import Path
 
+import pandas as pd
 from astropy.table import Table
 from django.test import SimpleTestCase
 
-from solsys_code.utils import convert_ades_to_table, read_psv, write_psv, zero_aperture_extrapolation
+from solsys_code.utils import (
+    ades_dataframe_to_ades_data,
+    apply_zero_aperture_extrapolation,
+    convert_ades_to_table,
+    perform_zero_aperture_extrapolation_on_psv,
+    read_psv,
+    write_psv,
+    zero_aperture_extrapolation,
+)
 
 
 class TestReadPSV(SimpleTestCase):
@@ -165,29 +174,66 @@ class TestWritePSV(SimpleTestCase):
             '2025-11-11T05:40:24.0Z': {'zero_ap_ra': 138.038080, 'zero_ap_dec': 12.403972},
             '2025-11-11T05:43:44.6Z': {'zero_ap_ra': 138.038430, 'zero_ap_dec': -12.403934},
         }
+        self.expected_header_line = (
+            'permID |provID     |trkSub  |mode|stn |obsTime                |ra         |dec        |rmsRA'
+            '|rmsDec|astCat  |mag  '
+            '|rmsMag|band|fltr|photCat |photAp|logSNR|seeing|exp |rmsFit|nStars|notes|remarks'
+        )
 
         self.maxDiff = None
         return super().setUp()
 
-    def test_write_psv(self):
+    def _write_and_read_lines(self, ades_data):
         with tempfile.NamedTemporaryFile(prefix='fomo', suffix='.psv') as tmp:
             output_psv_file = Path(tmp.name)
-            write_psv(self.ades_data, self.expected_zaa_ra_dec, output_psv_file)
-            # Read back the written file and compare
+            write_psv(ades_data, output_psv_file)
             with open(output_psv_file, 'r') as f:
-                written_lines = f.readlines()
+                return f.readlines()
+
+    def test_apply_zero_aperture_extrapolation(self):
+        extrapolated = apply_zero_aperture_extrapolation(self.ades_data, self.expected_zaa_ra_dec)
+
+        self.assertEqual(extrapolated['header'], self.ades_data['header'])
+        self.assertEqual(extrapolated['keywords'], self.ades_data['keywords'])
+        # Only the reference aperture (1 of the 6 apertures per frame) survives
+        self.assertEqual(len(extrapolated['observations']), len(self.ades_data['observations']) // 6)
+        keywords = extrapolated['keywords']
+        first = dict(zip(keywords, extrapolated['observations'][0], strict=False))
+        self.assertEqual(first['photAp'], '1.8')
+        self.assertEqual(first['ra'], '138.036628')
+        self.assertEqual(first['dec'], '+12.403883')
+        self.assertEqual(first['notes'], 'e')
+        last = dict(zip(keywords, extrapolated['observations'][-1], strict=False))
+        self.assertEqual(last['dec'], '-12.403934')
+        self.assertEqual(last['notes'], 'eK')
+        # Input is not modified
+        self.assertEqual(len(self.ades_data['observations']), 36)
+
+    def test_write_psv_roundtrip(self):
+        written_lines = self._write_and_read_lines(self.ades_data)
+
+        self.assertEqual(written_lines[0].rstrip(), '# version=2022')
+        self.assertIn('# observatory\n', written_lines)
+        self.assertIn('! mpcCode Z24\n', written_lines)
+        with tempfile.NamedTemporaryFile(prefix='fomo', suffix='.psv', mode='w') as tmp:
+            tmp.writelines(written_lines)
+            tmp.flush()
+            reread = read_psv(Path(tmp.name))
+        self.assertEqual(reread['header'], self.ades_data['header'])
+        self.assertEqual(reread['keywords'], self.ades_data['keywords'])
+        self.assertEqual(
+            [[v.strip() for v in obs] for obs in reread['observations']],
+            [[v.strip() for v in obs] for obs in self.ades_data['observations']],
+        )
+
+    def test_write_psv_with_zero_aperture_extrapolation(self):
+        extrapolated = apply_zero_aperture_extrapolation(self.ades_data, self.expected_zaa_ra_dec)
+        written_lines = self._write_and_read_lines(extrapolated)
+
         check_217p = False
         for line in written_lines:
             if line.startswith('permID'):
-                header_line = line.strip()
-                self.assertEqual(
-                    header_line,
-                    (
-                        'permID |provID     |trkSub  |mode|stn |obsTime                |ra         |dec        |rmsRA'
-                        '|rmsDec|astCat  |mag  '
-                        '|rmsMag|band|fltr|photCat |photAp|logSNR|seeing|exp |rmsFit|nStars|notes|remarks'
-                    ),
-                )
+                self.assertEqual(line.strip(), self.expected_header_line)
             elif line.lstrip().startswith('217P') and not check_217p:
                 self.assertEqual(
                     line.rstrip(),
@@ -208,3 +254,92 @@ class TestWritePSV(SimpleTestCase):
                     ),
                 )
                 break
+        self.assertTrue(check_217p)
+
+    def test_perform_zero_aperture_extrapolation_on_psv(self):
+        with tempfile.NamedTemporaryFile(prefix='fomo', suffix='.psv') as tmp:
+            output_psv_file = Path(tmp.name)
+            perform_zero_aperture_extrapolation_on_psv(self.test_psv_file, output_psv_file, make_plots=False)
+            reread = read_psv(output_psv_file)
+
+        self.assertEqual(reread['keywords'], self.ades_data['keywords'])
+        self.assertEqual(len(reread['observations']), 6)
+        for observation in reread['observations']:
+            fields = dict(zip(reread['keywords'], observation, strict=False))
+            self.assertEqual(fields['photAp'].strip(), '1.8')
+            self.assertTrue(fields['notes'].startswith('e'))
+            expected = self.expected_zaa_ra_dec[fields['obsTime'].strip()]
+            self.assertAlmostEqual(float(fields['ra']), expected['zero_ap_ra'], places=6)
+            self.assertAlmostEqual(float(fields['dec']), expected['zero_ap_dec'], places=6)
+
+
+class TestADESDataFrameToADESData(SimpleTestCase):
+    """Conversion of the MPC Observations API `ADES_DF` DataFrames (all-lowercase columns) to PSV."""
+
+    def setUp(self) -> None:
+        test_csv_file = Path(__file__).parent / 'test_data' / 'test_ades_df.csv'
+        self.df = pd.read_csv(test_csv_file, index_col=0, dtype=str)
+        self.maxDiff = None
+        return super().setUp()
+
+    def test_ades_dataframe_to_ades_data(self):
+        ades_data = ades_dataframe_to_ades_data(self.df)
+
+        self.assertEqual(ades_data['header'], {'version': '2022'})
+        # Keywords are the populated columns, renamed to ADES camelCase and in standard ADES order
+        self.assertEqual(
+            ades_data['keywords'],
+            [
+                'permID', 'provID', 'trkSub', 'obsID', 'trkID', 'mode', 'stn', 'prog', 'obsTime', 'ra', 'dec',
+                'rmsRA', 'rmsDec', 'astCat', 'mag', 'rmsMag', 'band', 'logSNR', 'ref', 'disc', 'subFrm', 'subFmt',
+                'precTime', 'precRA', 'precDec', 'remarks',
+            ],
+        )  # fmt: skip
+        self.assertNotIn('Obstype', ades_data['keywords'])
+        self.assertEqual(len(ades_data['observations']), 6)
+        first = dict(zip(ades_data['keywords'], ades_data['observations'][0], strict=False))
+        self.assertEqual(first['permID'], '33933')
+        self.assertEqual(first['obsTime'], '1971-09-16T04:20:36.672Z')
+        self.assertEqual(first['ra'], '348.84408')
+        self.assertEqual(first['disc'], '*')
+        self.assertEqual(first['stn'], '808')
+        # Missing values become empty fields
+        self.assertEqual(first['provID'], '1971 SO')
+        self.assertEqual(first['trkSub'], '')
+        self.assertEqual(first['mag'], '')
+
+    def test_camelcase_columns_pass_through(self):
+        df = self.df.rename(columns={'obstime': 'obsTime', 'rmsra': 'rmsRA', 'permid': 'permID'})
+        ades_data = ades_dataframe_to_ades_data(df)
+
+        self.assertEqual(ades_data['keywords'], ades_dataframe_to_ades_data(self.df)['keywords'])
+
+    def test_deprecated_observations_dropped(self):
+        df = self.df.copy()
+        df.loc[df.index[1], 'deprecated'] = 'X'
+
+        ades_data = ades_dataframe_to_ades_data(df)
+        self.assertEqual(len(ades_data['observations']), 5)
+        self.assertNotIn('deprecated', ades_data['keywords'])
+
+        ades_data = ades_dataframe_to_ades_data(df, drop_deprecated=False)
+        self.assertEqual(len(ades_data['observations']), 6)
+        self.assertIn('deprecated', ades_data['keywords'])
+
+    def test_write_psv_from_dataframe(self):
+        with tempfile.NamedTemporaryFile(prefix='fomo', suffix='.psv') as tmp:
+            output_psv_file = Path(tmp.name)
+            write_psv(self.df, output_psv_file)
+            with open(output_psv_file, 'r') as f:
+                written_lines = f.readlines()
+            reread = read_psv(output_psv_file)
+
+        self.assertEqual(written_lines[0].rstrip(), '# version=2022')
+        self.assertTrue(written_lines[1].startswith('permID |provID     |trkSub  |'))
+        self.assertEqual(len(written_lines), 8)
+        self.assertEqual(reread['keywords'], ades_dataframe_to_ades_data(self.df)['keywords'])
+        self.assertEqual(len(reread['observations']), 6)
+        last = dict(zip(reread['keywords'], reread['observations'][-1], strict=False))
+        self.assertEqual(last['stn'].strip(), 'R17')
+        self.assertEqual(last['obsTime'].strip(), '2025-04-27T21:51:58.89Z')
+        self.assertEqual(last['ra'].strip(), self.df['ra'].iloc[-1])

@@ -2,6 +2,7 @@ import logging
 import re
 
 import numpy as np
+import pandas as pd
 from ades import adesutility
 from ades.adesutility import applyPaddingAndJustification
 from ades.psvtoxml import (
@@ -204,10 +205,12 @@ def parsePSV(psvline, stack):
             stack['header'][stack['currentHeader']][fields[0]] = fields[1]
         else:
             print('unexpected record type in ObsContextState:', record)
-    elif nextState == 'FirstObsDataState':
+    # The `ades` state machine uses the `...DataState` names when the keyword/data lines aren't
+    # preceded by an obsContext header block (e.g. MPC Explorer / Observations API output)
+    elif nextState in ('FirstObsDataState', 'FirstDataState'):
         if record == KEYWORD_RECORD_LINE:
             stack['keywords'] = fields[:-1]  # all but last field (tag/observation type)
-    elif nextState == 'ObsDataState':
+    elif nextState in ('ObsDataState', 'DataState'):
         if record == DATA_RECORD_LINE:
             stack['observations'].append(fields)
         else:
@@ -245,7 +248,7 @@ def read_psv(psvfile, psvencoding='UTF-8'):
                 print(e)
                 logger.error(f'Error parsing line {lineNumber} of {psvfile}: {e}')
 
-    del stack['currentHeader']
+    stack.pop('currentHeader', None)
     return stack
 
 
@@ -407,26 +410,90 @@ def zero_aperture_extrapolation(ades_table, reference_ap=1.8, make_plots=False):
     return derived_zaa
 
 
-def write_psv(ades_data, zaa_ra_dec, output_psv_file, reference_ap=1.8, psvencoding='UTF-8'):
-    """Write ADES data dictionary to a PSV format ADES file, including zero-aperture RA and Dec values.
+def ades_dataframe_to_ades_data(df, version='2022', drop_deprecated=True):
+    """Convert a DataFrame of ADES observations into the ADES data dictionary used by `write_psv()`.
+
+    Accepts either standard ADES camelCase column names or the all-lowercase names returned by the
+    MPC Observations API / MPC Explorer (e.g. the `ADES_DF` output of `get-obs`). Columns that aren't
+    ADES optical elements (e.g. `Obstype`) and columns with no data are dropped, and the remaining
+    keywords are put into standard ADES order. Values should already be strings
+    (`pd.DataFrame(..., dtype=str)`) so that the original precision is preserved; missing values
+    become empty fields.
+
+    :param df: ADES observations, one per row
+    :type df: pandas.DataFrame
+    :param version: ADES version to record in the header, defaults to '2022'
+    :type version: str, optional
+    :param drop_deprecated: Whether to drop observations flagged in the `deprecated` column, defaults to True
+    :type drop_deprecated: bool, optional
+    :return: Dictionary with 'header', 'keywords' and 'observations' keys
+    :rtype: dict
+    """
+
+    ades_names = {name.lower(): name for name in allowedElementDict['optical']}
+    df = df.rename(columns=lambda col: ades_names.get(col.lower(), col)).fillna('').astype(str)
+    if drop_deprecated and 'deprecated' in df:
+        df = df[df['deprecated'] == '']
+    keywords = [name for name in allowedElementDict['optical'] if name in df and (df[name] != '').any()]
+    observations = df[keywords].values.tolist()
+    return {'header': {'version': version}, 'keywords': keywords, 'observations': observations}
+
+
+def apply_zero_aperture_extrapolation(ades_data, zaa_ra_dec, reference_ap=1.8):
+    """Replace the RA and Dec of the reference-aperture observations with their zero-aperture values.
 
     :param ades_data: ADES data dictionary with 'keywords' and 'observations'
     :type ades_data: dict
-    :param zaa_ra_dec: List of tuples with zero-aperture RA and Dec values
-    :type zaa_ra_dec: list of tuples
-    :param output_psv_file: Filepath to output PSV file
-    :type output_psv_file: str
+    :param zaa_ra_dec: Zero-aperture RA and Dec values, keyed by `obsTime` (from `zero_aperture_extrapolation()`)
+    :type zaa_ra_dec: dict
     :param reference_ap: Reference aperture size in arcseconds, defaults to 1.8
     :type reference_ap: float, optional
+    :return: New ADES data dictionary containing only the observations measured at `reference_ap`, with
+        `ra`/`dec` replaced by the extrapolated values and `notes` prefixed with 'e' to mark them as extrapolated
+    :rtype: dict
+    """
+
+    keywords = ades_data['keywords']
+    index_photAp = keywords.index('photAp')
+    index_obsTime = keywords.index('obsTime')
+    observations = []
+    for observation in ades_data['observations']:
+        if float(observation[index_photAp]) != reference_ap:
+            continue
+        zaa = zaa_ra_dec[observation[index_obsTime]]
+        new_observation = []
+        for col, value in zip(keywords, observation, strict=False):
+            if col == 'ra':
+                value = f'{zaa["zero_ap_ra"]:010.6f}'
+            elif col == 'dec':
+                value = f'{zaa["zero_ap_dec"]:+09.6f}'
+            elif col == 'notes':
+                value = 'e' + value
+            new_observation.append(value)
+        observations.append(new_observation)
+    return {**ades_data, 'observations': observations}
+
+
+def write_psv(ades_data, output_psv_file, psvencoding='UTF-8'):
+    """Write ADES data to a PSV format ADES file.
+
+    :param ades_data: ADES data dictionary with 'header', 'keywords' and 'observations' (as returned by
+        `read_psv()`), or a DataFrame of ADES observations (converted with `ades_dataframe_to_ades_data()`)
+    :type ades_data: dict or pandas.DataFrame
+    :param output_psv_file: Filepath to output PSV file
+    :type output_psv_file: str
     :param psvencoding: PSV file encoding, defaults to "UTF-8"
     :type psvencoding: str, optional
     """
 
+    if isinstance(ades_data, pd.DataFrame):
+        ades_data = ades_dataframe_to_ades_data(ades_data)
+    header = ades_data.get('header', {})
+
     with open(output_psv_file, 'w', encoding=psvencoding) as f:
-        # Write version line
-        f.write('# version=2022\n')
+        f.write(f'# version={header.get("version", "2022")}\n')
         # Write header lines
-        for key, value in ades_data['header'].items():
+        for key, value in header.items():
             if key == 'version':
                 # version is special case, already written
                 continue
@@ -488,27 +555,11 @@ def write_psv(ades_data, zaa_ra_dec, output_psv_file, reference_ap=1.8, psvencod
                 cols.append(col)
 
         f.write('|'.join(cols) + '\n')
-        index_photAp = ades_data['keywords'].index('photAp')
-        # Write data lines with zero-aperture RA and Dec appended
         for observation in ades_data['observations']:
-            # Skip line if photAp is not the reference aperture size
-            if float(observation[index_photAp]) != reference_ap:
-                continue
-            obsTime = None
             obsline = []
             for col, value in zip(ades_data['keywords'], observation, strict=False):
                 if col in headerDict:
                     headerItem = headerDict[col]
-                    if col == 'obsTime':
-                        obsTime = value
-                    elif col == 'ra':
-                        value = f'{zaa_ra_dec[obsTime]["zero_ap_ra"]:010.6f}'
-                    elif col == 'dec':
-                        value = f'{zaa_ra_dec[obsTime]["zero_ap_dec"]:+09.6f}'
-                    elif col == 'notes':
-                        value = 'e' + value  # mark as extrapolated
-                    # print(value, type(value), headerItem[1], type(headerItem[1]), headerItem[2], \
-                    # type(headerItem[2]),  headerItem[3], type(headerItem[3]))
                     col_str, w, dposnew = applyPaddingAndJustification(
                         value, headerItem[1], headerItem[2], headerItem[3]
                     )
@@ -536,4 +587,5 @@ def perform_zero_aperture_extrapolation_on_psv(
     ades_data = read_psv(input_psv_file, psvencoding=psvencoding)
     ades_table = convert_ades_to_table(ades_data)
     zaa_ra_dec = zero_aperture_extrapolation(ades_table, reference_ap=reference_ap, make_plots=make_plots)
-    write_psv(ades_data, zaa_ra_dec, output_psv_file, reference_ap=reference_ap, psvencoding=psvencoding)
+    ades_data = apply_zero_aperture_extrapolation(ades_data, zaa_ra_dec, reference_ap=reference_ap)
+    write_psv(ades_data, output_psv_file, psvencoding=psvencoding)
