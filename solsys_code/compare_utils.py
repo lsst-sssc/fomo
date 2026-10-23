@@ -42,9 +42,10 @@ def compare_ades_with_csv(
     - Use `rtol`/`atol` to control floating-point tolerance.
     """
     # The MPC ADES API returns every field as a string, so `ades_df` is all object
-    # dtype. Left to infer, `read_csv` would turn those back into float64 and the
-    # comparison would pit the string '12.17347' against the float 12.17347.
-    str_cols = [c for c in ades_df.columns if ades_df[c].dtype == object]
+    # dtype (or pandas 3's dedicated `str` dtype). Left to infer, `read_csv` would turn
+    # those back into float64 and the comparison would pit the string '12.17347'
+    # against the float 12.17347.
+    str_cols = [c for c in ades_df.columns if pd.api.types.is_string_dtype(ades_df[c].dtype)]
     disk_df = pd.read_csv(csv_path, index_col=index_col, dtype=dict.fromkeys(str_cols, str))
 
     # Work on copies so we don't mutate caller data

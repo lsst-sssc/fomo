@@ -30,3 +30,14 @@ a:hover {
     color: #0056b3;
     text-decoration: underline;
 }
+
+/* Front page: balance the welcome heading over its lines instead of leaving a short last line. */
+.fomo-welcome h2 {
+    text-wrap: balance;
+}
+
+/* Front page: keep the Rubin/TOM partner logos secondary to the FOMO badge and heading. */
+.fomo-partner-logos img {
+    max-height: 120px;
+    width: auto;
+}

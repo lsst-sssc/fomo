@@ -10,24 +10,30 @@ Installation and Getting Started
 Requirements
 -----------------------------
 
-``fomo`` has the following requirements that will be automatically installed  using pip or conda when you install the requirements from the ``pytproject.toml`` file in the fomo package:
+``fomo`` has the following requirements that will be automatically installed  using pip or conda when you install the requirements from the ``pyproject.toml`` file in the fomo package:
 
-* python 3.11 or later
+* python 3.10 or later
 * astropy
-* tomtoolkit>=3.0.0a3
-* tom_alertstreams
-* tom_fink>=1.0.0
-* tom-registration
-* numpy>=2.0
+* tomtoolkit>=3.1.0
+* tom_alertstreams>=1.3.0
+* tom_fink>=2.0.1
+* tom_eso>=0.3.1
+* tom_jpl>=0.3.0
+* numpy>1.24 (tomtoolkit currently caps this below 2.2)
 * sorcha (which has several other dependencies of which the ones below are likely to be the largest or most troublesome):
 
   * assist
   * numba
   * pandas
   * rebound
-  * sbpy (>0.6.0 needed for Astropy 7.2+)
+  * sbpy (>=0.6.0 needed for Astropy 7.2+)
   * scipy
   * spiceypy
+
+* whitenoise>=6.6 (serves static files when ``DEBUG=False``)
+
+The optional ``deploy`` extra (``pip install -e '.[deploy]'``) adds gunicorn>=23 for running FOMO as a
+long-lived service; see :doc:`deploy/deploy`.
 
 
 Setting Up Your Virtual Environment
@@ -104,6 +110,8 @@ Several lines of debugging output should appear. You should then be able to poin
   :width: 800
   :alt: Screenshot of the FOMO frontpage after first running the webserver
   :align: center
+
+``runserver`` is intended for development only. To run FOMO as a long-lived service that survives reboots, see :doc:`deploy/deploy`.
 
 Log in as the admin user you created earlier using the `Login` button in the top right corner of the menu bar.
 

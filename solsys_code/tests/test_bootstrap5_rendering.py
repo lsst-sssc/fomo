@@ -11,6 +11,7 @@ upgrade (GitHub issue #45).
 import os
 
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from django.test import tag
 from django.urls import reverse
 from playwright.sync_api import sync_playwright
 from tom_targets.tests.factories import NonSiderealTargetFactory
@@ -18,6 +19,7 @@ from tom_targets.tests.factories import NonSiderealTargetFactory
 from solsys_code.solsys_code_observatory.models import Observatory
 
 
+@tag('functional')
 class TestBootstrap5Rendering(StaticLiveServerTestCase):
     """Functional suite proving BS5 JS behavior and crispy BS5 layout markup render correctly."""
 

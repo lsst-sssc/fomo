@@ -51,8 +51,20 @@ add_module_names = False
 
 autoapi_type = 'python'
 autoapi_dirs = ['../src']
-autoapi_ignore = ['*/__main__.py', '*/_version.py']
+autoapi_ignore = ['*/__main__.py']
 autoapi_add_toc_tree_entry = False
 autoapi_member_order = 'bysource'
 
 html_theme = 'sphinx_rtd_theme'
+
+
+def _skip_version_module(app, what, name, obj, skip, options):
+    # fomo._version must stay parsed (not in autoapi_ignore) so that
+    # `from ._version import __version__` in fomo/__init__.py resolves, but the
+    # setuptools_scm-generated module doesn't merit its own API page.
+    return True if name == 'fomo._version' else None
+
+
+def setup(app):
+    """Register the Sphinx event handlers."""
+    app.connect('autoapi-skip-member', _skip_version_module)

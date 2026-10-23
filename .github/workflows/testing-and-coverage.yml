@@ -14,6 +14,7 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12']
@@ -24,15 +25,28 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Cache SPICE kernels
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/sorcha
+        key: sorcha-kernels-v1
+    - name: Seed MPC observatory codes
+      # sorcha only downloads ObsCodes.json from minorplanetcenter.net when it is missing from its
+      # cache, and MPC intermittently drops connections from GitHub runners; seed it from the repo.
+      run: |
+        mkdir -p ~/.cache/sorcha
+        [ -f ~/.cache/sorcha/ObsCodes.json ] || gunzip -c solsys_code/tests/data/ObsCodes.json.gz > ~/.cache/sorcha/ObsCodes.json
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
     - name: Install dependencies
+      timeout-minutes: 10
       run: |
-        sudo apt-get update
-        python -m pip install --upgrade pip
-        pip install -e .[dev]
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Run unit tests with pytest
+        uv pip install --system -e .[dev]
+        if [ -f requirements.txt ]; then uv pip install --system -r requirements.txt; fi
+    - name: Run Django unit tests with coverage
       run: |
-        python -m pytest --cov=fomo --cov-report=xml
+        coverage run manage.py test --exclude-tag functional
+        coverage xml
     - name: Upload coverage report to codecov
       uses: codecov/codecov-action@v7
       with:
@@ -41,6 +55,7 @@ jobs:
   functional-tests:
 
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
     - uses: actions/checkout@v7
@@ -53,9 +68,13 @@ jobs:
       with:
         path: ~/.cache/sorcha
         key: sorcha-kernels-v1
-    - name: Install dependencies
+    - name: Seed MPC observatory codes
       run: |
-        sudo apt-get update
+        mkdir -p ~/.cache/sorcha
+        [ -f ~/.cache/sorcha/ObsCodes.json ] || gunzip -c solsys_code/tests/data/ObsCodes.json.gz > ~/.cache/sorcha/ObsCodes.json
+    - name: Install dependencies
+      timeout-minutes: 10
+      run: |
         python -m pip install --upgrade pip
         pip install -e .[dev]
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -65,8 +84,9 @@ jobs:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
     - name: Install Playwright chromium
+      timeout-minutes: 10
       run: |
         playwright install --with-deps chromium
-    - name: Run Playwright functional tests and Scout/Rubin ToO/ADES tests
+    - name: Run Playwright functional tests
       run: |
-        python manage.py test solsys_code.tests.test_bootstrap5_rendering solsys_code.tests.test_scout_views solsys_code.tests.test_rubin_too solsys_code.tests.test_ades_processor solsys_code.tests.test_utils solsys_code.tests.test_compare_utils
+        python manage.py test --tag functional
