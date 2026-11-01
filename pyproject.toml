@@ -26,7 +26,7 @@ dependencies = [
     "numpy>1.24",
     "sbpy>=0.6.0",  # We don't use sbpy directly, but sorcha does and sbpy 0.6.0 is needed for astropy 7.2.0+
     "sorcha",
-    "whitenoise>=6.6", # Serves collected static files when DEBUG=False (no separate web server needed)
+    "whitenoise>=6.12.0", # Serves collected static files when DEBUG=False (no separate web server needed)
 ]
 
 [project.urls]
