@@ -131,6 +131,26 @@ Use ``restart`` rather than ``reload``: ``reload`` (``SIGHUP``) restarts the
 workers gracefully and picks up new code, but does not re-run
 ``collectstatic``.
 
+Refreshing the MPC observatory codes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+sorcha downloads the MPC observatory codes to ``~/.cache/sorcha/ObsCodes.json``
+only when that file is missing, and never refreshes it. Each worker also reads
+it just once, at startup. New or corrected MPC sites therefore only reach FOMO
+when ``deploy/refresh_obscodes.sh`` runs. The script:
+
+- downloads MPC's file only if it is newer than the cached copy;
+- rejects a download that is much smaller than the current file or is missing
+  key sites;
+- installs the new file, keeping the old one as ``ObsCodes.json.prev``;
+- reloads ``fomo`` if the codes changed.
+
+Run it monthly from cron:
+
+.. code-block:: text
+
+   23 5 1 * * /path/to/fomo/deploy/refresh_obscodes.sh >> /var/log/fomo/refresh_obscodes.log 2>&1
+
 Configuration
 -------------
 
