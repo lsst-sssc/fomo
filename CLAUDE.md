@@ -110,7 +110,7 @@ Coverage is measured with `coverage run manage.py test` (`[tool.coverage.run]` i
   divergences. So are the CI hardening changes, which must also survive a `copier update`: job and
   install-step `timeout-minutes`, no `sudo apt-get update` outside the docs build's pandoc step, and the
   `~/.cache/sorcha` cache plus "Seed MPC observatory codes" step (from `solsys_code/tests/data/ObsCodes.json.gz`)
-  in every job that imports `solsys_code.ephem_utils`. Answer `custom_install: custom`, never `retrofit` (which strips the ruff config).
+  in every job that imports `solsys_code.ephem_utils` (including `build-documentation.yml`, whose scout notebook imports it via `fomo.urls`), plus a `timeout-minutes` on its `Build docs` step. Answer `custom_install: custom`, never `retrofit` (which strips the ruff config).
 - **Verify the checked-out branch before any branch-implicit git command** (`rebase`, `reset`,
   `merge`, `cherry-pick`, `commit --amend`, etc.) — these operate on whatever `HEAD` currently
   points to, not the branch name mentioned in a prior command. `git push origin <branch>` in
