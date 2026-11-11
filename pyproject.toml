@@ -34,7 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 deploy = [
-    "gunicorn>=23", # Production WSGI server; see deploy/install_service.sh
+    "gunicorn>=26.2.0", # Production WSGI server; see deploy/install_service.sh
 ]
 # On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
 dev = [
