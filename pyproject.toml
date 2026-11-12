@@ -26,15 +26,19 @@ dependencies = [
     "numpy>1.24",
     "sbpy>=0.6.0",  # We don't use sbpy directly, but sorcha does and sbpy 0.6.0 is needed for astropy 7.2.0+
     "sorcha>=1.2.1",  # geocentre (obscode 500) support, dirac-institute/sorcha#1203
+    "whitenoise>=6.12.0", # Serves collected static files when DEBUG=False (no separate web server needed)
 ]
 
 [project.urls]
 "Source Code" = "https://github.com/lsst-sssc/fomo"
 
-# On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
 [project.optional-dependencies]
+deploy = [
+    "gunicorn>=26.2.0", # Production WSGI server; see deploy/install_service.sh
+]
+# On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
 dev = [
-    "factory_boy >3.2.1,<3.4", # Provides  Test fixtures for tom_jpl model factories (and tom_targets factories)
+    "factory_boy >=3.3.3,<3.4", # Provides  Test fixtures for tom_jpl model factories (and tom_targets factories)
     "ipython",
     "jupyter", # Clears output from Jupyter notebooks
     "playwright", # Headless-browser functional tests (solsys_code/tests/test_bootstrap5_rendering.py)
@@ -45,8 +49,8 @@ dev = [
 
 [build-system]
 requires = [
-    "setuptools>=62", # Used to build and package the Python project
-    "setuptools_scm>=6.2", # Gets release version from git. Makes it available programmatically
+    "setuptools>=84.2.1", # Used to build and package the Python project
+    "setuptools_scm>=10.3.4", # Gets release version from git. Makes it available programmatically
 ]
 build-backend = "setuptools.build_meta"
 

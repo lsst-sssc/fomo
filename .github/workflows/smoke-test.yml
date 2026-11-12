@@ -18,6 +18,7 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12']
@@ -28,11 +29,23 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Cache SPICE kernels
+      # Same key as testing-and-coverage.yml: this daily run on main keeps the cache from expiring.
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/sorcha
+        key: sorcha-kernels-v1
+    - name: Seed MPC observatory codes
+      # sorcha only downloads ObsCodes.json from minorplanetcenter.net when it is missing from its
+      # cache, and MPC intermittently drops connections from GitHub runners; seed it from the repo.
+      run: |
+        mkdir -p ~/.cache/sorcha
+        [ -f ~/.cache/sorcha/ObsCodes.json ] || gunzip -c solsys_code/tests/data/ObsCodes.json.gz > ~/.cache/sorcha/ObsCodes.json
     - name: Install uv
       uses: astral-sh/setup-uv@v7
     - name: Install dependencies
+      timeout-minutes: 10
       run: |
-        sudo apt-get update
         uv pip install --system -e .[dev]
         if [ -f requirements.txt ]; then uv pip install --system -r requirements.txt; fi
     - name: List dependencies

@@ -66,6 +66,7 @@ fomo_db.sqlite3-journal
 fomo_db_20*.sqlite3
 fomo_db.sqlite3.bak-*
 rubin.sqlite
+src/_static/
 
 # Flask stuff:
 instance/
