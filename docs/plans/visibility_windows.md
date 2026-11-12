@@ -57,31 +57,6 @@ Merged coverage is 09:00→08:00(+1d) = 23 h; the only real gap is 08:00–09:00
 15-min COJ→CPT hole at 17:15–17:30 worth reporting as a sub-gap but not treated as a break).
 Result: window 09:00→08:00, **midpoint 20:30 UTC, ±11.5 h**. Use these as the fixture for tests.
 
-## What exists today (verified)
-
-- `solsys_code/views.py` `Ephemeris.get` (~line 170–393) does everything inline: parses request
-  (`obscode`, `start`, `stop`, `step`), builds `pointings_df`, runs sorcha/ASSIST `integrate_light_time`
-  + `calculate_rates_and_geometry` + erfa `atciqz`/`atioq` per step, and ends with a pandas
-  `predictions` DataFrame (one row per time; columns include `epoch_UTC, RA_deg, Dec_deg, Obs_Az_deg,
-  Obs_Alt_deg, Obs_HA_deg, APmag, sky_motion, ...`) for a **single** observatory. There is no callable
-  that returns that frame — that is the missing internal wiring.
-- Importing `solsys_code.ephem_utils` (and hence `solsys_code.views`) runs `fomo_furnish_spiceypy()`
-  at import: ~1.6 GB SPICE kernels into `~/.cache/sorcha/`. Keep pure helpers out of those modules so
-  their tests stay cheap.
-- TOM Toolkit's plotting convention is **Plotly**, embedded via
-  `plotly.offline.plot(fig, output_type='div', show_link=False)` in template tags
-  (`tom_observations/templatetags/observation_extras.py::observation_plan`,
-  `tom_targets/templatetags/targets_extras.py::target_distribution`, `moon_distance`).
-  plotly 5.24.1, astroplan 0.10.1 and matplotlib 3.11 are installed; use Plotly.
-- `tom_observations.utils.get_sidereal_visibility(target, start, end, interval, airmass_limit,
-  facility_name)` returns `{site_name: [datetimes, airmasses]}` and explicitly refuses
-  `NON_SIDEREAL` targets. Mirror its output shape so TOM's existing airmass plot also works.
-- `Observatory` model (`solsys_code/solsys_code_observatory/`) has MPC codes; LCO sites map as
-  `{'LSC': ['W85','W86','W87'], 'CPT': ['K91','K92','K93'], 'COJ': ['Q63','Q64']}` (one code per
-  site is enough — inter-dome differences are negligible).
-- Project-level template tags live in `src/templatetags/` (`fomo_extras`, `solsys_code_extras`).
-- Tests: Django runner only (`python manage.py test`), under `solsys_code/tests/`.
-
 ## Design (four pieces, in dependency order)
 
 1. **Ephemeris core extraction** — move the middle of `Ephemeris.get` into
@@ -110,12 +85,6 @@ Result: window 09:00→08:00, **midpoint 20:30 UTC, ±11.5 h**. Use these as the
    site, a "combined" row from `coverage`, a vertical line at `midpoint`, hover text with exact
    times. Include on the target-detail page next to the existing TOM plots.
 
-## Suggested first PR
-
-Steps 1 and 3 together (extraction + pure helper with tests). Neither needs the heavy pipeline to
-test, and 1 is the enabler for everything else. Branch off `main` (not `issue29-…`) so the PR stays
-independent of the Scout review; rebase after that merges if needed.
-
 ## Status (2026-09-18) and follow-ups
 
 Steps 1–4 are implemented on `feature/visibility-windows`. Deviations from the design above: the
@@ -127,28 +96,37 @@ compared with the per-sample integration).
 
 To revisit:
 
-- **Fixed colour per site.** Neither TOM's `target_plan`/`observation_plan` nor our figures pin a
+- **Fixed colour per site** (open; flag in the PR for reviewers to prioritise). Neither TOM's `target_plan`/`observation_plan` nor our figures pin a
   colour to a site; both take Plotly's colorway in trace order, so colours shift when sites are
   deselected or greyed out. Add a colour to each `LCO_SITES` entry and use it in `airmass_figure`
   and `cadence_figure` (plus a fixed colour for the "All sites" row).
-- **Window edges** (partly done): `visibility_windows` now extends each run to the midpoint between
-  its edge sample and the invalid sample beyond it, removing the one-sided bias (every window was
-  short by up to one interval at each end) and the zero-width single-sample run that
-  `cadence_window` silently discarded. What remains is the curvature of the altitude curve across
-  one interval: ~20 s at the 15-min floor, ~2 min at the ~35-min interval a 7-day plan coarsens to.
-  To remove it, solve the two crossings separately and intersect: the Sun's is exact and cheap
-  (`_find_crossing` in `telescope_runs.py` on `issue37-telescope-runs-calendar` is pure and needs no
-  timezone -- only its `sun_event` wrapper does, for local-noon anchoring -- so it lifts into
-  `visibility.py` without waiting for PR #43), and the target's interpolates from samples already
-  computed, quadratically to kill the term above, at no extra ephemeris cost.
+- **Window edges** (done, `c59d8b9b`): `get_nonsidereal_visibility` returns a third per-site element,
+  each sample's margin in degrees to its tightest limit (target altitude or Sun altitude, see
+  `observability_margins`), and `visibility_windows` places each edge where that margin, interpolated
+  linearly between the last valid and first invalid sample, crosses zero. The earlier midpoint rule
+  was wrong by up to half a sampling interval (measured: up to 7.4 min at 15 min, 17.5 min at the
+  35-min interval a 7-day plan coarsens to), not the ~20 s / ~2 min this document previously
+  claimed. Linear interpolation measures at ≤3.3 s (15 min) and ≤18 s (35 min) against 1-minute
+  sampling for two main-belt/NEO targets from LSC, and within 7 s for 2025 FA22 the night after
+  close approach. Solving the Sun crossing separately (`_find_crossing` from PR #43) plus a
+  quadratic for the target would reach ~1 s but was judged not worth the dependency. The
+  two-element TOM shape is still accepted and falls back to the midpoint. Windows shorter than one
+  sampling interval can still be missed entirely.
 - **Rapidly moving NEOs** (done): `TestCloseApproach2025FA22` in `test_ephem_utils.py` checks the
   geocentric ephemeris of 2025 FA22 against JPL Horizons through its 0.0056 au approach on
   2025-09-18 (agreement < 0.01", 1e-10 au) and that LCO visibility switches on the night after
   closest approach. The IAWN geometry file for the campaign differs from Horizons by up to 218"
   at closest approach (older orbit solution), so it is not used as the reference. Geocentric
   ephemerides need sorcha >= 1.2.1 (dirac-institute/sorcha#1203), which closes FOMO issue #27.
-- **Render time.** A 7-day, six-site plan takes ~11 s; the per-row `build_apco_context` in
-  `compute_ephemeris` is the obvious optimisation target.
+- **Render time** (done, `b22cf751`): `build_apco_context` was ~70% of `compute_ephemeris`, almost
+  all of it two IERS table lookups (UT1−UTC and polar motion, ~1.1 ms each) and time scale
+  conversions repeated per row; the erfa calls were ~6%. It now accepts the whole pointings frame
+  and is called once per site, taking a 7-day six-site plan from 6.4 s to 1.8 s with identical
+  output. Considered and not done: feeding TT instead of TDB to `epv00`/`apco` (changes Alt/Az by
+  <0.01 µas but saves only ~15 ms per site once vectorised) and disabling the IERS auto-download
+  check (~0.5 ms per site, and it would stop the table refreshing for future dates). The remaining
+  time is spread over the per-row light-time integration, the pandas `iterrows` loop and the CSV
+  round trip, with no single dominant cost.
 
 ## Handoff (2026-11-11)
 
@@ -158,15 +136,15 @@ Written so a fresh session on any machine can continue from `docs/plans/visibili
 brought in PRs #58, #67, `refresh-obscodes`, #44 and the dependabot bumps #60–#65; one trivial
 `pyproject.toml` conflict, resolved keeping `sorcha>=1.2.1`). On top of that: `dac7669f` guards the
 `autoapi-skip-member` hook in `docs/conf.py` so esbonio's partial Sphinx can initialise, and
-`53eec341` refreshed the priority context above. The full non-functional test suite passes on the
-merged tree (pre-commit hook). **No PR has been opened yet.**
+`53eec341` refreshed the priority context above. `b22cf751` (vectorised apco contexts) and `c59d8b9b`
+(interpolated window edges) followed on 2026-11-11 and are **not yet pushed**. The full
+non-functional test suite (171 tests) passes (pre-commit hook). **No PR has been opened yet.**
 
 **Before opening the PR.**
 
-- Trim this document: "What exists today" and "Suggested first PR" describe the pre-branch code and
-  can go; keep Goal, Design, Status/follow-ups and this section.
-- Decide the three open "To revisit" items (fixed colour per site, exact window edges, render time):
-  either do them on this branch or file them as FOMO issues and reference them from the PR.
+- Push the branch.
+- Flag the one open "To revisit" item, fixed colour per site, in the PR body for reviewers to
+  decide its priority. The other two (window edges, render time) are done.
 - `src/templates/tom_targets/target_detail.html` is a full copy of tom_targets' template with two
   changes (`{% load visibility_extras %}`, `{% nonsidereal_target_plan %}` beside `{% target_plan %}`).
   Add a comment naming the tomtoolkit version it was copied from (3.1.x) so it gets re-diffed on
