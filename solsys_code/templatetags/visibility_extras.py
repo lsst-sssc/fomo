@@ -53,7 +53,7 @@ def airmass_figure(visibility, width=600, height=400):
     Airmass against time, one line per site, in the same style as TOM's ``target_plan`` tag. Sites with no
     visible samples are left greyed out in the legend (``visible='legendonly'``).
 
-    :param visibility: ``{site: (times, airmasses)}`` as returned by ``get_nonsidereal_visibility``
+    :param visibility: ``{site: (times, airmasses, ...)}`` as returned by ``get_nonsidereal_visibility``
     :rtype: plotly.graph_objs.Figure
     """
     data = [
@@ -64,7 +64,7 @@ def airmass_figure(visibility, width=600, height=400):
             name=site,
             visible=True if any(airmass is not None for airmass in airmasses) else 'legendonly',
         )
-        for site, (times, airmasses) in visibility.items()
+        for site, (times, airmasses, *_) in visibility.items()
     ]
     layout = go.Layout(
         xaxis={'title': 'UTC'}, yaxis={'autorange': 'reversed', 'title': 'Airmass'}, width=width, height=height

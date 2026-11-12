@@ -79,12 +79,14 @@ Notes and limitations
 
 - The sampling interval is 15 minutes for ranges up to about three days and is
   coarsened for longer ranges so that no more than 300 samples per site are
-  computed (35 minutes for a week, about 2.5 hours for a month). Windows are
-  bounded by the first and last *valid* sample, so they are conservative by up
-  to one interval at each end and short windows can be missed at coarse
-  intervals. Use a shorter range for objects that are only briefly observable.
-- Each sample is a full light-time-corrected integration, so a plan takes a few
-  seconds for one or two nights and around ten seconds for a week over all six
+  computed (35 minutes for a week, about 2.5 hours for a month). Window edges
+  are interpolated between the last observable sample and the first
+  unobservable one, which places them to within a few seconds at 15 minutes and
+  about 20 seconds at 35 minutes. Windows shorter than the interval can still
+  be missed altogether, so use a shorter range for objects that are only
+  briefly observable.
+- Each sample is a full light-time-corrected integration, so a plan takes about
+  a second for one or two nights and around two seconds for a week over all six
   sites.
 - The panel needs an :class:`~solsys_code.solsys_code_observatory.models.Observatory`
   row for each site (MPC codes W85, K91, Q63, Z31, V38 and T04). Missing rows
@@ -110,8 +112,12 @@ The pieces are available separately for scripts and notebooks:
    window = cadence_window([interval for intervals in windows.values() for interval in intervals])
    print(window.midpoint, window.duration)
 
-``get_nonsidereal_visibility`` returns ``{site: (times, airmasses)}`` in the same
-shape as ``tom_observations.utils.get_sidereal_visibility``; ``visibility_windows``
-and ``cadence_window`` (in ``solsys_code.visibility``) are pure functions with no
+``get_nonsidereal_visibility`` returns ``{site: (times, airmasses, margins)}``:
+the first two elements are in the same shape as
+``tom_observations.utils.get_sidereal_visibility`` and ``margins`` is how far, in
+degrees, each sample is inside or outside its tightest limit, which
+``visibility_windows`` uses to interpolate the window edges (it also accepts the
+two-element form and then falls back to the midpoint between samples).
+``visibility_windows`` and ``cadence_window`` (in ``solsys_code.visibility``) are pure functions with no
 Django or SPICE dependencies. ``cadence_window`` accepts a ``period`` other than
 24 hours for non-daily cadences.

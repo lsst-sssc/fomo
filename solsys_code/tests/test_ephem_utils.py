@@ -1,5 +1,5 @@
 from collections import namedtuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import erfa
@@ -347,16 +347,21 @@ class TestGetNonsiderealVisibility(TestCase):
         visibility = get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.start, self.end, 60)
 
         self.assertEqual(list(visibility.keys()), ['CPT'])
-        times, airmasses = visibility['CPT']
+        times, airmasses, margins = visibility['CPT']
         self.assertEqual(len(times), 25)
         self.assertEqual(len(airmasses), 25)
+        self.assertEqual(len(margins), 25)
+        # A sample is observable exactly where its margin is positive
+        self.assertEqual([airmass is not None for airmass in airmasses], [margin > 0 for margin in margins])
         self.assertEqual(times[0], self.start)
         self.assertEqual(times[-1], self.end)
 
     def test_target_only_visible_in_evening_from_cpt(self):
         # (33933) sets a few hours after the Sun in May 2025; from K93 it is only above the horizon
         # after astronomical twilight between 18:00 and 20:00 UTC on 2025-05-10.
-        times, airmasses = get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.start, self.end, 60)['CPT']
+        times, airmasses, _ = get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.start, self.end, 60)[
+            'CPT'
+        ]
 
         valid = {time.hour: airmass for time, airmass in zip(times, airmasses, strict=True) if airmass is not None}
         self.assertEqual(sorted(valid), [18, 19, 20])
@@ -365,7 +370,7 @@ class TestGetNonsiderealVisibility(TestCase):
         self.assertAlmostEqual(valid[20], 5.11, places=2)
 
     def test_airmass_limit(self):
-        times, airmasses = get_nonsidereal_visibility(
+        times, airmasses, _ = get_nonsidereal_visibility(
             self.target, {'CPT': self.cpt}, self.start, self.end, 60, airmass_limit=3.0
         )['CPT']
 
@@ -438,12 +443,17 @@ class TestCloseApproach2025FA22(TestCase):
         )
 
         # Two days before closest approach the target is 31 deg from the Sun: nothing from either hemisphere
-        for site, (times, airmasses) in visibility.items():
+        for site, (times, airmasses, _margins) in visibility.items():
             self.assertTrue(
                 all(airmass is None for time, airmass in zip(times, airmasses, strict=True) if time.day == 16), site
             )
         # The night after closest approach it is well placed from both hemispheres
         windows = visibility_windows(visibility)
-        # Edges sit half a sampling interval outside the first/last valid sample (see visibility_windows)
-        self.assertEqual(windows['LSC'][-1], (datetime(2025, 9, 19, 5, 22, 30), datetime(2025, 9, 19, 9, 22, 30)))
-        self.assertEqual(windows['OGG'][-1], (datetime(2025, 9, 19, 8, 52, 30), datetime(2025, 9, 19, 14, 52, 30)))
+        # Edges are interpolated between samples; the expected values come from sampling every minute
+        expected = {
+            'LSC': (datetime(2025, 9, 19, 5, 22, 39), datetime(2025, 9, 19, 9, 16, 26)),
+            'OGG': (datetime(2025, 9, 19, 8, 55, 41), datetime(2025, 9, 19, 14, 59, 33)),
+        }
+        for site, edges in expected.items():
+            for edge, expected_edge in zip(windows[site][-1], edges, strict=True):
+                self.assertAlmostEqual(edge, expected_edge, delta=timedelta(seconds=10), msg=site)

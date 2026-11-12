@@ -36,7 +36,7 @@ from sorcha.ephemeris.simulation_parsing import Observatory as SorchaObservatory
 from sorcha.ephemeris.simulation_setup import create_assist_ephemeris, furnish_spiceypy
 from sorcha.utilities.sorchaConfigs import auxiliaryConfigs
 
-from solsys_code.visibility import airmass_samples
+from solsys_code.visibility import airmass_samples, observability_margins
 
 # Value of au in meters (fixed by IAU 2012 resolution)
 AU_M = 149597870700
@@ -633,8 +633,9 @@ def get_nonsidereal_visibility(target, sites, start_time, end_time, interval, ai
     """
     Sample the airmass of a non-sidereal Target from each site between ``start_time`` and ``end_time``.
 
-    Non-sidereal counterpart of ``tom_observations.utils.get_sidereal_visibility`` with the same output
-    shape, so the result can be fed to ``solsys_code.visibility.visibility_windows`` or TOM's airmass plot.
+    Non-sidereal counterpart of ``tom_observations.utils.get_sidereal_visibility``. Each site's entry starts
+    with the same ``(datetimes, airmasses)`` pair and adds the per-sample margins that let
+    ``solsys_code.visibility.visibility_windows`` interpolate the window edges.
     A sample is ``None`` when the target is below the horizon, at or above ``airmass_limit`` or the Sun is
     above -18 degrees (see ``solsys_code.visibility.airmass_samples``).
 
@@ -650,7 +651,8 @@ def get_nonsidereal_visibility(target, sites, start_time, end_time, interval, ai
     :type interval: int
     :param airmass_limit: Maximum acceptable airmass; ``None`` means 10
     :type airmass_limit: float
-    :return: ``{site: (datetimes, airmasses)}`` with one entry per site and one sample per time
+    :return: ``{site: (datetimes, airmasses, margins)}`` with one entry per site and one sample per time;
+        ``margins`` are in degrees (see ``solsys_code.visibility.observability_margins``)
     :rtype: dict
     """
     if end_time < start_time:
@@ -668,5 +670,10 @@ def get_nonsidereal_visibility(target, sites, start_time, end_time, interval, ai
         )
         sun_alt = sun.transform_to(AltAz(obstime=times, location=location)).alt.deg
         predictions = compute_ephemeris(target, observatory, times)
-        visibility[site] = (times.datetime, airmass_samples(predictions['Obs_Alt_deg'], sun_alt, airmass_limit))
+        target_alt = predictions['Obs_Alt_deg']
+        visibility[site] = (
+            times.datetime,
+            airmass_samples(target_alt, sun_alt, airmass_limit),
+            observability_margins(target_alt, sun_alt, airmass_limit),
+        )
     return visibility

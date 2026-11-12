@@ -82,15 +82,57 @@ def airmass_samples(altitudes_deg, sun_altitudes_deg, airmass_limit=None, sun_al
     return airmasses
 
 
-def _run_interval(times: list, first: int, last: int) -> Interval:
+def observability_margins(altitudes_deg, sun_altitudes_deg, airmass_limit=None, sun_alt_limit_deg=-18.0) -> list:
+    """
+    How far, in degrees, each sample is inside (positive) or outside (negative) its tightest limit.
+
+    The limits are those of ``airmass_samples``: the target above the altitude at which its plane-parallel
+    airmass equals ``airmass_limit``, and the Sun below ``sun_alt_limit_deg``. The margin is the smaller of the
+    two clearances, so it passes through zero where the sample stops being observable, whichever limit causes
+    it. ``visibility_windows`` interpolates that zero crossing to place the window edges.
+
+    :param altitudes_deg: Target altitude at each sample (degrees)
+    :param sun_altitudes_deg: Sun altitude at each sample (degrees)
+    :param airmass_limit: Maximum acceptable airmass; ``None`` means 10
+    :param sun_alt_limit_deg: Samples with the Sun above this altitude are not observable
+    :return: Margin per sample in degrees; NaN where the target altitude is NaN (e.g. the geocentre)
+    :rtype: list
+    """
+    if airmass_limit is None:
+        airmass_limit = 10
+    altitude_limit_deg = math.degrees(math.asin(min(1.0, 1.0 / airmass_limit)))
+    return [
+        float(min(alt - altitude_limit_deg, sun_alt_limit_deg - sun_alt)) if alt == alt else math.nan
+        for alt, sun_alt in zip(altitudes_deg, sun_altitudes_deg, strict=True)
+    ]
+
+
+def _crossing_fraction(margins, valid: int, invalid: int) -> float:
+    """
+    Fraction of the way from the valid sample to the invalid one at which the margin reaches zero.
+
+    Falls back to the midpoint (0.5) without margins, or where they do not bracket zero.
+    """
+    if margins is None:
+        return 0.5
+    inside, outside = margins[valid], margins[invalid]
+    if not (inside >= 0 and outside <= 0 and inside > outside):
+        return 0.5
+    return inside / (inside - outside)
+
+
+def _run_interval(times: list, first: int, last: int, margins=None) -> Interval:
     """
     The interval covered by the run of valid samples ``times[first:last + 1]``.
 
-    Extended halfway towards the invalid sample on either side, except where the run reaches the end
-    of the sampled range. See ``visibility_windows``.
+    Extended towards the invalid sample on either side, except where the run reaches the end of the
+    sampled range. See ``visibility_windows``.
     """
-    start = times[first] if first == 0 else times[first - 1] + (times[first] - times[first - 1]) / 2
-    end = times[last] if last == len(times) - 1 else times[last] + (times[last + 1] - times[last]) / 2
+    start, end = times[first], times[last]
+    if first > 0:
+        start = times[first] - (times[first] - times[first - 1]) * _crossing_fraction(margins, first, first - 1)
+    if last < len(times) - 1:
+        end = times[last] + (times[last + 1] - times[last]) * _crossing_fraction(margins, last, last + 1)
     return start, end
 
 
@@ -98,26 +140,26 @@ def visibility_windows(samples: dict[str, tuple]) -> dict[str, list[Interval]]:
     """
     Turns sampled visibility into per-site intervals of contiguous valid samples.
 
-    Each run is extended to the midpoint between its first (last) valid sample and the invalid sample
-    before (after) it: the crossing lies somewhere between that pair, so the midpoint is the best
-    estimate available without recomputing the ephemeris. Taking the valid sample itself would clip
-    every window by up to one sampling interval at each end, always in the same direction, and would
-    collapse a single-sample run to zero width (which ``cadence_window`` then discards). A run
-    reaching the first or last sample is not extended, as nothing is known beyond the sampled range.
-
-    The residual error is the curvature of the altitude curve across one interval; interpolating the
-    crossing from the surrounding samples would remove it.
+    The edge of each run lies somewhere between its first (last) valid sample and the invalid sample
+    before (after) it. Where a site's samples carry margins (see ``observability_margins``) the edge is
+    placed where the margin, interpolated linearly between that pair, reaches zero; this is good to a few
+    seconds at a 15-minute interval and about 20 s at 35 minutes. Without margins the midpoint of the pair
+    is used, which can be wrong by half a sampling interval. Either way a single-sample run keeps a
+    non-zero width (``cadence_window`` discards zero-width intervals). A run reaching the first or last
+    sample is not extended, as nothing is known beyond the sampled range.
 
     :param samples: ``{site: (times, airmasses)}`` in the shape returned by
-        ``tom_observations.utils.get_sidereal_visibility``; a sample is valid when its airmass is
-        neither ``None`` nor NaN
+        ``tom_observations.utils.get_sidereal_visibility``, or ``{site: (times, airmasses, margins)}`` as
+        returned by ``solsys_code.ephem_utils.get_nonsidereal_visibility``; a sample is valid when its
+        airmass is neither ``None`` nor NaN
     :type samples: dict
     :return: ``{site: [(start, end), ...]}``, one interval per run of valid samples
     :rtype: dict
     """
     windows = {}
-    for site, (times, airmasses) in samples.items():
+    for site, (times, airmasses, *rest) in samples.items():
         times = list(times)
+        margins = rest[0] if rest else None
         valid = [_is_valid(airmass) for _, airmass in zip(times, airmasses, strict=True)]
         intervals = []
         first = None
@@ -126,10 +168,10 @@ def visibility_windows(samples: dict[str, tuple]) -> dict[str, list[Interval]]:
                 if first is None:
                     first = index
             elif first is not None:
-                intervals.append(_run_interval(times, first, index - 1))
+                intervals.append(_run_interval(times, first, index - 1, margins))
                 first = None
         if first is not None:
-            intervals.append(_run_interval(times, first, len(valid) - 1))
+            intervals.append(_run_interval(times, first, len(valid) - 1, margins))
         windows[site] = intervals
     return windows
 
