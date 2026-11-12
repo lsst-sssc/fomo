@@ -137,20 +137,20 @@ brought in PRs #58, #67, `refresh-obscodes`, #44 and the dependabot bumps #60–
 `pyproject.toml` conflict, resolved keeping `sorcha>=1.2.1`). On top of that: `dac7669f` guards the
 `autoapi-skip-member` hook in `docs/conf.py` so esbonio's partial Sphinx can initialise, and
 `53eec341` refreshed the priority context above. `b22cf751` (vectorised apco contexts) and `c59d8b9b`
-(interpolated window edges) followed on 2026-11-11 and are **not yet pushed**. The full
-non-functional test suite (171 tests) passes (pre-commit hook). **No PR has been opened yet.**
+(interpolated window edges) followed on 2026-11-11, then the 2026 ED138 / SOAR test case against
+Horizons (`1f05f015`, `64ebcb65`) and the tomtoolkit-version comment in the `target_detail.html`
+override (`c562ddb4`). The full non-functional test suite (175 tests) passes (pre-commit hook).
+**Opened as PR [#68](https://github.com/lsst-sssc/fomo/pull/68)**, which closes issue #27;
+`issue27-geocenter-ephem` can be deleted once it merges.
 
-**Before opening the PR.**
+**Open on the PR.**
 
-- Push the branch.
-- Flag the one open "To revisit" item, fixed colour per site, in the PR body for reviewers to
-  decide its priority. The other two (window edges, render time) are done.
-- `src/templates/tom_targets/target_detail.html` is a full copy of tom_targets' template with two
-  changes (`{% load visibility_extras %}`, `{% nonsidereal_target_plan %}` beside `{% target_plan %}`).
-  Add a comment naming the tomtoolkit version it was copied from (3.1.x) so it gets re-diffed on
-  upgrades.
-- Closes issue #27 (geocentric ephemerides); say so in the PR body. `issue27-geocenter-ephem` can be
-  deleted afterwards.
+- Fixed colour per site is flagged for reviewers to decide its priority; it is not implemented.
+- The rate columns are along the ICRF axes, not the equator of date that Horizons uses (see the
+  `compute_ephemeris` docstring). Whether that matters for telescope tracking rates, at SOAR in
+  particular, is unanswered.
+- The Plan panel has not been checked in a browser since the edge-interpolation and vectorisation
+  commits.
 
 **Next after this branch.** `feature/add_mpc_obs` (22 commits ahead of `main`, no conflicts
 expected) needs `git merge origin/main`, and a reply to tom_base
