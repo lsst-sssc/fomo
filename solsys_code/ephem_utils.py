@@ -412,14 +412,21 @@ def build_apco_context(pointing, observatory):
 
     Parameters
     ----------
-    pointing : ``pd.Series``
-        A single row (``pd.Series``) pulled from the pointings_df instance
-        for which to calculate the calculate the astrom values.
+    pointing : ``pd.Series`` or ``pd.DataFrame``
+        A single row (``pd.Series``) pulled from the pointings_df instance, or the whole
+        pointings_df, for which to calculate the astrom values. Pass the whole frame where
+        possible: the time scale conversions and IERS lookups cost about 3 ms per call however
+        many times they cover, so building one context per row dominates the ephemeris runtime.
     observatory : ``Observatory``
         An observatory
+
+    Returns
+    -------
+    The ``erfa.apco`` astrom structure: a scalar for a single row, otherwise an array with one
+    element per row of ``pointing``.
     """
     lon, lat, height = observatory.to_geodetic()
-    obstime = Time(pointing['observationMidpointMJD_TAI'], format='mjd', scale='tai')
+    obstime = Time(np.asarray(pointing['observationMidpointMJD_TAI'], dtype=float), format='mjd', scale='tai')
 
     jd1_tt, jd2_tt = get_jd12(obstime, 'tt')
     # Polar motion values (interpolated from IERS data) and TIO locator, s' (`sp`)
@@ -575,8 +582,11 @@ def compute_ephemeris(target, observatory, times):
     pointings_df['v_sun_y'] = v_sun[:, 1]
     pointings_df['v_sun_z'] = v_sun[:, 2]
 
+    # Astrometric contexts for the ICRS -> observed transform (undefined for the geocentre)
+    astroms = None if geocentric else build_apco_context(pointings_df, observatory)
+
     # Generate ephemeris
-    for _, pointing in pointings_df.iterrows():
+    for row, (_, pointing) in enumerate(pointings_df.iterrows()):
         mjd_tai = float(pointing['observationMidpointMJD_TAI'])
         r_obs = get_vec(pointing, 'r_obs')
         ephem_geom_params = EphemerisGeometryParameters()
@@ -597,8 +607,7 @@ def compute_ephemeris(target, observatory, times):
             out_tuple = out_tuple + (np.nan, np.nan, np.nan)
         else:
             # Transform from ICRS RA, Dec -> observed Alt, Az, HA
-            # Assemble astrometric context
-            astrom = build_apco_context(pointing, observatory)
+            astrom = astroms[row]
             # Transform to CIRS (can easily transform further to apparent RA, Dec if needed)
             cirs_ra, cirs_dec = erfa.atciqz(np.radians(out_tuple[8]), np.radians(out_tuple[10]), astrom)
             # Transform from CIRS->observed
