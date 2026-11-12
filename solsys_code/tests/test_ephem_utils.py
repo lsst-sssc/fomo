@@ -6,7 +6,7 @@ import erfa
 import numpy as np
 import pandas as pd
 from astropy import units as u
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import ICRS, TETE, SkyCoord
 from astropy.time import Time
 from django.test import SimpleTestCase, TestCase, tag
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
@@ -531,8 +531,17 @@ class TestDistantObject2026ED138(TestCase):
         ra_rate = predictions['RARateCosDec_deg_day'] * deg_day_to_arcsec_hr
         dec_rate = predictions['DecRate_deg_day'] * deg_day_to_arcsec_hr
         self.assertLess(np.hypot(ra_rate, dec_rate).max(), 3.0)
-        self.assertLess(np.abs(ra_rate - self.horizons['ra_rate_arcsec_hr']).max(), 0.02)
-        self.assertLess(np.abs(dec_rate - self.horizons['dec_rate_arcsec_hr']).max(), 0.02)
+
+        # Horizons gives rates along the true equator and equinox of date; ours are along the ICRF axes.
+        # North of date is rotated from ICRF north by 11.7 arcmin at this position in 2026, which moves
+        # 0.009 arcsec/hour of the RA motion into Dec, so resolve our rates along the of-date axes first.
+        position = SkyCoord(self.horizons['ra_deg'], self.horizons['dec_deg'], unit='deg')
+        pole_of_date = SkyCoord(0 * u.deg, 90 * u.deg, frame=TETE(obstime=self.times)).transform_to(ICRS())
+        rotation = position.position_angle(pole_of_date).rad
+        ra_rate_of_date = ra_rate * np.cos(rotation) - dec_rate * np.sin(rotation)
+        dec_rate_of_date = ra_rate * np.sin(rotation) + dec_rate * np.cos(rotation)
+        self.assertLess(np.abs(ra_rate_of_date - self.horizons['ra_rate_arcsec_hr']).max(), 0.002)
+        self.assertLess(np.abs(dec_rate_of_date - self.horizons['dec_rate_arcsec_hr']).max(), 0.002)
 
     def test_visibility_windows_from_soar(self):
         # Expected edges are interpolated from Horizons 1-minute airless elevations of the target and the

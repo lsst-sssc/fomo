@@ -492,6 +492,15 @@ def compute_ephemeris(target, observatory, times):
         ``Obs_Alt_deg``, ``Obs_HA_deg``, ``APmag``, ``sky_motion``, ``sky_motion_PA_deg``, ``Helio_LTC_au``,
         ``Range_LTC_au`` and ``phase_deg``. For the geocentre (MPC code 500) ``Obs_Az_deg``, ``Obs_Alt_deg`` and
         ``Obs_HA_deg`` are NaN.
+
+        ``RA_deg``/``Dec_deg`` are astrometric ICRF positions and ``RARateCosDec_deg_day``/``DecRate_deg_day``
+        (hence ``sky_motion`` and ``sky_motion_PA_deg``) are rates along the ICRF axes. JPL Horizons instead
+        quotes rates along the true equator and equinox of date, whose north is rotated from ICRF north by
+        up to about ``20 arcsec * (years since 2000) * sin(RA) / cos(Dec)`` (11.7 arcmin for an object at
+        RA 274, Dec -43 in 2026). The total rate is unaffected; its split between RA and Dec, and the
+        position angle, change by that angle (0.3% of the motion in that example). Rotate the rates before
+        comparing with Horizons or passing them to a telescope that expects of-date tracking rates; see
+        ``TestDistantObject2026ED138`` in ``tests/test_ephem_utils.py`` for the rotation.
     :rtype: pandas.DataFrame
     """
     obscode = observatory.obscode
