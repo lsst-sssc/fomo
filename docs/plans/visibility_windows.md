@@ -149,3 +149,43 @@ To revisit:
   ephemerides need sorcha >= 1.2.1 (dirac-institute/sorcha#1203), which closes FOMO issue #27.
 - **Render time.** A 7-day, six-site plan takes ~11 s; the per-row `build_apco_context` in
   `compute_ephemeris` is the obvious optimisation target.
+
+## Handoff (2026-11-11)
+
+Written so a fresh session on any machine can continue from `docs/plans/visibility_windows.md` alone.
+
+**Branch state.** `feature/visibility-windows` is pushed and merged with `main` (`d367282e`, which
+brought in PRs #58, #67, `refresh-obscodes`, #44 and the dependabot bumps #60–#65; one trivial
+`pyproject.toml` conflict, resolved keeping `sorcha>=1.2.1`). On top of that: `dac7669f` guards the
+`autoapi-skip-member` hook in `docs/conf.py` so esbonio's partial Sphinx can initialise, and
+`53eec341` refreshed the priority context above. The full non-functional test suite passes on the
+merged tree (pre-commit hook). **No PR has been opened yet.**
+
+**Before opening the PR.**
+
+- Trim this document: "What exists today" and "Suggested first PR" describe the pre-branch code and
+  can go; keep Goal, Design, Status/follow-ups and this section.
+- Decide the three open "To revisit" items (fixed colour per site, exact window edges, render time):
+  either do them on this branch or file them as FOMO issues and reference them from the PR.
+- `src/templates/tom_targets/target_detail.html` is a full copy of tom_targets' template with two
+  changes (`{% load visibility_extras %}`, `{% nonsidereal_target_plan %}` beside `{% target_plan %}`).
+  Add a comment naming the tomtoolkit version it was copied from (3.1.x) so it gets re-diffed on
+  upgrades.
+- Closes issue #27 (geocentric ephemerides); say so in the PR body. `issue27-geocenter-ephem` can be
+  deleted afterwards.
+
+**Next after this branch.** `feature/add_mpc_obs` (22 commits ahead of `main`, no conflicts
+expected) needs `git merge origin/main`, and a reply to tom_base
+[#1685](https://github.com/TOMToolkit/tom_base/issues/1685) before its data model can be settled;
+see item 3 under "Priority context".
+
+**Local environment (not in git).**
+
+- VS Code over Remote-WSL: esbonio otherwise runs the venv's python with `-S` against its bundled
+  Sphinx and cannot import `sphinx-autoapi`/`nbsphinx`. Fix is in the *remote* user settings:
+  `"esbonio.sphinx.pythonCommand": ["${command:python.interpreterPath}"]`, and in the gitignored
+  `.vscode/settings.json`: `"esbonio.sphinx.configOverrides": {"nbsphinx_execute": "never"}` so
+  background rebuilds don't execute the notebooks (one imports `solsys_code.ephem_utils`).
+- `pandoc` must be installed for nbsphinx to render the notebooks' markdown cells.
+- The venv must be reinstalled (`pip install -e .[dev]`) after the dependabot merges; `whitenoise`
+  in particular is now a hard dependency of the test suite.
