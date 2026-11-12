@@ -1,4 +1,9 @@
 {% extends 'tom_common/base.html' %}
+{% comment %}
+  Copy of tom_targets/templates/tom_targets/target_detail.html from tomtoolkit 3.1.x, overridden to load
+  visibility_extras and show nonsidereal_target_plan for NON_SIDEREAL targets in the Plan tab.
+  Re-diff against the installed tomtoolkit template when upgrading.
+{% endcomment %}
 {% load comments django_bootstrap5 tom_common_extras targets_extras observation_extras dataproduct_extras static cache %}
 {% load dataservices_extras %}
 {% load visibility_extras %}
