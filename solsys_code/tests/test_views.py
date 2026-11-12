@@ -192,6 +192,13 @@ class TestNonsiderealTargetPlan(TestCase):
         self.assertNotIn('id="cadence-window"', content)
         self.assertNotIn('non-sidereal airmass plugin', content)
 
+    def test_no_cds_assets_for_non_sidereal_target(self):
+        # The Aladin finder chart, stylesheet and script are sidereal-only in the overridden template; a
+        # stylesheet in the page head would block rendering whenever the CDS servers are slow or down
+        content = self.client.get(self.url).content.decode().lower()
+
+        self.assertNotIn('aladin', content)
+
     def test_plots_and_cadence_window(self):
         response = self.client.get(self.url + '?start_time=2025-05-10&end_time=2025-05-11&airmass=3')
         content = response.content.decode()
