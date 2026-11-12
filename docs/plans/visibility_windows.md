@@ -11,17 +11,37 @@ Checked against the "FOMO Quick Requirements" Google Doc
 visibility/cadence tool is **not** on the requirements list (nearest item: "Observing Tools → ETC"
 under Full Requirements). Things the doc ranks higher:
 
-1. Scout ingest (`issue29-jpl-scout-ingest`): tom_jpl changes are merged upstream; FOMO
-   [PR #50](https://github.com/lsst-sssc/fomo/pull/50) is awaiting review. Nothing to do until then.
-2. Brokers (MVP "Add new objects → Brokers"): Tim is adding LSST/TAP support to the ALeRCE broker in
+1. Brokers (MVP "Add new objects → Brokers"): Tim is adding LSST/TAP support to the ALeRCE broker in
    tom_base, branch `origin/enhancement/alerce-add-tap-and-lsst` (in the tom_base repo, not here).
-   FOMO-side wiring (`TOM_ALERT_CLASSES` in `src/fomo/settings.py`) follows once that lands.
-3. Hosting/deployment (Tim's action items, overdue since week of 2026-08-17) — not code.
-4. MPC observations → `ReducedDatums`: already in flight on `feature/add_mpc_obs`, see
-   `docs/plans/ades_processor_port.md` on that branch. **Resume that before starting this plan
-   unless Tim says otherwise.**
-5. Target matching / metadata storage (provisional ID ↔ final designation, target extras) — should be
-   settled as part of (4).
+   FOMO-side wiring (`TOM_ALERT_CLASSES` in `src/fomo/settings.py`) follows once that lands.  **(still) in progress with ALeRCE support; awaiting tom_base PR #1686**.
+2. Hosting/deployment (Tim's action items, overdue since week of 2026-08-17): **partly done**.
+   PR #58 (2026-10) added the single-host gunicorn + systemd deployment and it is running at
+   `tlister-thinkmate.lco.gtn:6729`, but that is only reachable inside the LCO network/VPN. The
+   requirement is an externally visible deployment, which is still outstanding.
+3. MPC observations → `ReducedDatums`: in flight on `feature/add_mpc_obs` (22 commits ahead of
+   `main`, last 2026-10-23; see `docs/plans/ades_processor_port.md` and `ades_reduced_datum.md` on
+   that branch). **Blocked on a design decision upstream**, tom_base issue
+   [#1685](https://github.com/TOMToolkit/tom_base/issues/1685) (opened 2026-09-23, open):
+   - Tim proposed a new `ADESReducedDatum` model with FKs to the `AstrometryReducedDatum` and
+     `PhotometryReducedDatum` each ADES row splits into, a `JSONField` for the remaining ADES
+     columns, and asked whether `stn`, `astCat`/`rmsCorr`, `band` vs `fltr`, `photCat` and
+     `photAp` should become real columns on the existing Datums.
+   - phycodurus (2026-09-30) agreed a linking model is needed, since the reverse accessors from
+     `DataProduct` don't record which astrometry row pairs with which photometry row.
+   - **Joey Chatelain (jchate6, 2026-10-14) pushed back**: make each ADES line its own
+     `DataProduct` ("ADESRow"), linked to by one `PhotometryReducedDatum` and one
+     `AstrometryReducedDatum`; keep the extra ADES fields in each datum's JSON `value` (duplicated
+     where needed); pairing then comes for free via the DataProduct's reverse FK. A bespoke
+     `ADESReducedDatum` is only justified if those fields need indexing/filtering. FOMO could still
+     build one locally on `ReducedDatumCommon` without a tom_base change.
+   - **Not yet answered.** The questions to settle in the reply: whether a DataProduct per ADES
+     *row* (not per file) is acceptable for exports with thousands of rows; whether cut/filter
+     access to `seeing`, `rmsFit`, `nStars`, `photAp` (comet multi-aperture photometry) is enough
+     to justify indexed columns; and whether the per-row approach can round-trip to a PSV export.
+     The `feature/add_mpc_obs` plan currently assumes the `ADESReducedDatum` + tom_base
+     `DataProcessor.post_process` hook shape, so the answer changes that branch.
+4. Target matching / metadata storage (provisional ID ↔ final designation, target extras) — should be
+   settled as part of (3).
 
 This plan is the self-contained, lower-priority piece to pick up while waiting on reviews.
 
