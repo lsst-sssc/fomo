@@ -1,16 +1,26 @@
 import json
 import logging
+from datetime import datetime, timedelta
 from importlib.resources import files
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, unquote, urlparse
 
 from astropy.table import QTable
+from django.contrib.auth.models import User
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from tom_targets.models import Target
 
+from solsys_code.forms import EphemerisForm
 from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.templatetags.visibility_extras import (
+    airmass_figure,
+    cadence_figure,
+    sampling_interval,
+    window_summary,
+)
 from solsys_code.views import JPLSBDBQuery, split_number_unit_regex
+from solsys_code.visibility import CadenceWindow
 
 ## Silence logging during tests
 logging.disable(logging.CRITICAL)
@@ -122,6 +132,188 @@ class TestEphemeris(TestCase):
     def test_no_site(self):
         response = self.client.get(reverse('ephem', kwargs={'pk': self.test_target.pk}) + '?obscode=500')
         self.assertEqual(response.status_code, 404)
+
+    def test_geocentre_shows_na_for_azimuth_and_elevation(self):
+        Observatory.objects.create(obscode='500', name='Geocentric', lat=90.0, lon=0.0, altitude=-6356752.314)
+        url = reverse('ephem', kwargs={'pk': self.test_target.pk}) + '?obscode=500&start=2025-05-10&stop=2025-05-12'
+
+        for full_precision in ('false', 'true'):
+            with self.subTest(full_precision=full_precision):
+                content = self.client.get(url + f'&full_precision={full_precision}').content.decode()
+
+                self.assertInHTML(f'Ephemeris for {self.test_target.name} at  (500)', content)
+                self.assertEqual(content.count('<td>n.a.</td>'), 2 * 3)
+                self.assertNotIn('<td>nan</td>', content)
+
+
+class TestEphemerisFormSiteChoices(TestCase):
+    def test_geocentre_offered_but_not_space_telescopes(self):
+        # Zero MPC parallax constants convert to lat 90, altitude -6356752 m (as the MPC fetcher stores them)
+        Observatory.objects.create(obscode='500', name='Geocentric', lat=90.0, lon=0.0, altitude=-6356752.314)
+        Observatory.objects.create(obscode='C51', name='WISE', lat=90.0, lon=0.0, altitude=-6356752.314)
+        Observatory.objects.create(obscode='289', name='Roman Space Telescope', lat=None, lon=None, altitude=None)
+        Observatory.objects.create(obscode='K93', name='Sutherland-LCO Dome C', lat=-32.38, lon=20.81, altitude=1808.33)
+
+        choices = EphemerisForm(initial={'target_id': 1}).fields['site_code'].queryset
+
+        self.assertEqual(set(choices.values_list('obscode', flat=True)), {'500', 'K93'})
+
+
+class TestNonsiderealTargetPlan(TestCase):
+    def setUp(self):
+        self.target, created = Target.objects.get_or_create(
+            name='33933',
+            type='NON_SIDEREAL',
+            permissions='PUBLIC',
+            scheme='MPC_MINOR_PLANET',
+            epoch_of_elements=61000.0,
+            mean_anomaly=342.8987983972185,
+            arg_of_perihelion=197.2440098291647,
+            eccentricity=0.21317079351206,
+            lng_asc_node=55.4085914553028,
+            inclination=1.0791909799414,
+            semimajor_axis=2.186745866749343,
+            epoch_of_perihelion=59874.98228566302,
+            perihdist=1.72059551512517,
+            abs_mag=14.89,
+            slope=0.15,
+        )
+        self.url = reverse('targets:detail', kwargs={'pk': self.target.pk})
+        self.client = Client()
+        self.client.force_login(User.objects.create_user(username='planner', password='pw'))
+
+    def test_form_shown_without_plot_by_default(self):
+        response = self.client.get(self.url)
+        content = response.content.decode()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Maximum Airmass', content)
+        self.assertNotIn('id="nonsidereal-airmass"', content)
+        self.assertNotIn('id="cadence-window"', content)
+        self.assertNotIn('non-sidereal airmass plugin', content)
+
+    def test_no_cds_assets_for_non_sidereal_target(self):
+        # The Aladin finder chart, stylesheet and script are sidereal-only in the overridden template; a
+        # stylesheet in the page head would block rendering whenever the CDS servers are slow or down
+        content = self.client.get(self.url).content.decode().lower()
+
+        self.assertNotIn('aladin', content)
+
+    def test_plots_and_cadence_window(self):
+        response = self.client.get(self.url + '?start_time=2025-05-10&end_time=2025-05-11&airmass=3')
+        content = response.content.decode()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="nonsidereal-airmass"', content)
+        self.assertIn('id="cadence-window"', content)
+        self.assertIn('midpoint', content)
+        # Observatory rows for the default LCO sites are created on demand
+        self.assertEqual(
+            set(Observatory.objects.filter(obscode__in=['W85', 'K91', 'Q63']).values_list('obscode', flat=True)),
+            {'W85', 'K91', 'Q63'},
+        )
+
+    def test_site_selection(self):
+        response = self.client.get(self.url + '?start_time=2025-05-10&end_time=2025-05-11&airmass=3&sites=cpt')
+        content = response.content.decode()
+
+        self.assertIn('id="cadence-window"', content)
+        self.assertTrue(Observatory.objects.filter(obscode='K91').exists())
+        self.assertFalse(Observatory.objects.filter(obscode__in=['W85', 'Q63']).exists())
+
+    def test_unknown_site_shows_form_error(self):
+        response = self.client.get(self.url + '?start_time=2025-05-10&end_time=2025-05-11&sites=xxx')
+        content = response.content.decode()
+
+        self.assertIn('not one of the available choices', content)
+        self.assertNotIn('id="nonsidereal-airmass"', content)
+
+    def test_not_observable(self):
+        response = self.client.get(self.url + '?start_time=2025-05-10&end_time=2025-05-11&airmass=1.0')
+        content = response.content.decode()
+
+        self.assertIn('not observable', content)
+        self.assertIn('id="nonsidereal-airmass"', content)
+        self.assertNotIn('id="cadence-window"', content)
+
+    def test_end_before_start_shows_form_error(self):
+        response = self.client.get(self.url + '?start_time=2025-05-11&end_time=2025-05-10')
+        content = response.content.decode()
+
+        self.assertIn('Start time must be before end time', content)
+        self.assertNotIn('id="nonsidereal-airmass"', content)
+
+
+class TestVisibilityFigures(SimpleTestCase):
+    def setUp(self):
+        self.t0 = datetime(2026, 9, 16, 9, 0)
+        self.hour = timedelta(hours=1)
+        self.times = [self.t0 + i * self.hour for i in range(4)]
+
+    def test_airmass_figure_one_trace_per_site(self):
+        visibility = {'COJ': (self.times, [1.5, 1.2, None, None]), 'CPT': (self.times, [None, None, 2.0, 1.8])}
+
+        fig = airmass_figure(visibility)
+
+        self.assertEqual([trace.name for trace in fig.data], ['COJ', 'CPT'])
+        self.assertEqual(list(fig.data[0].x), self.times)
+        self.assertEqual(list(fig.data[1].y), [None, None, 2.0, 1.8])
+        self.assertEqual(fig.layout.yaxis.autorange, 'reversed')
+
+    def test_airmass_figure_greys_out_sites_with_no_visibility(self):
+        visibility = {'COJ': (self.times, [None] * 4), 'OGG': (self.times, [None, 1.3, 1.1, None])}
+
+        fig = airmass_figure(visibility)
+
+        self.assertEqual([(trace.name, trace.visible) for trace in fig.data], [('COJ', 'legendonly'), ('OGG', True)])
+
+    def test_cadence_figure_bars_and_midpoint(self):
+        windows = {'COJ': [(self.t0, self.t0 + self.hour)], 'CPT': [(self.t0 + 2 * self.hour, self.t0 + 3 * self.hour)]}
+        window = CadenceWindow(
+            start=self.t0,
+            end=self.t0 + 3 * self.hour,
+            midpoint=self.t0 + 1.5 * self.hour,
+            duration=3 * self.hour,
+            coverage=windows['COJ'] + windows['CPT'],
+            gaps=[(self.t0 + self.hour, self.t0 + 2 * self.hour)],
+        )
+
+        fig = cadence_figure(windows, window)
+
+        bars = [(trace.y[0], trace.base[0], trace.x[0]) for trace in fig.data]
+        self.assertEqual(
+            bars,
+            [
+                ('COJ', self.t0, 3600000.0),
+                ('CPT', self.t0 + 2 * self.hour, 3600000.0),
+                ('All sites', self.t0, 3600000.0),
+                ('All sites', self.t0 + 2 * self.hour, 3600000.0),
+            ],
+        )
+        self.assertEqual(fig.layout.shapes[0].x0, window.midpoint)
+        self.assertEqual(fig.layout.xaxis.type, 'date')
+
+    def test_sampling_interval(self):
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=1)), 15)
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=3)), 15)
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=7)), 35)
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=30)), 145)
+        self.assertEqual(sampling_interval(self.t0, self.t0 + timedelta(days=1), minimum=10), 10)
+
+    def test_window_summary(self):
+        window = CadenceWindow(
+            start=self.t0,
+            end=self.t0 + 23 * self.hour,
+            midpoint=self.t0 + 11.5 * self.hour,
+            duration=23 * self.hour,
+            coverage=[],
+            gaps=[(datetime(2026, 9, 16, 17, 15), datetime(2026, 9, 16, 17, 30))],
+        )
+
+        self.assertEqual(
+            window_summary(window),
+            '09:00–08:00 UTC (23.0 h): midpoint 20:30 UTC ± 11.5 h; gaps within the window: 17:15–17:30 UTC',
+        )
 
 
 class TestJPLSBDBQuery(TestCase):

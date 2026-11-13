@@ -1,5 +1,7 @@
 import logging
-from collections import namedtuple
+from collections import defaultdict, namedtuple
+from csv import writer
+from io import StringIO
 from pathlib import Path
 
 import assist
@@ -17,6 +19,7 @@ import rebound
 import spiceypy as spice
 from astropy import units as u
 from astropy.constants import GM_sun, c
+from astropy.coordinates import AltAz, EarthLocation, get_sun
 from astropy.coordinates.builtin_frames.utils import get_jd12, get_polar_motion
 from astropy.time import Time
 
@@ -24,12 +27,16 @@ from astropy.time import Time
 from sorcha.ephemeris.orbit_conversion_utilities import universal_cartesian
 from sorcha.ephemeris.simulation_driver import EphemerisGeometryParameters, get_residual_vectors, get_vec
 from sorcha.ephemeris.simulation_geometry import (
+    barycentricObservatoryRates,
     ecliptic_to_equatorial,
+    integrate_light_time,
     vec2ra_dec,
 )
 from sorcha.ephemeris.simulation_parsing import Observatory as SorchaObservatory
 from sorcha.ephemeris.simulation_setup import create_assist_ephemeris, furnish_spiceypy
 from sorcha.utilities.sorchaConfigs import auxiliaryConfigs
+
+from solsys_code.visibility import airmass_samples, observability_margins
 
 # Value of au in meters (fixed by IAU 2012 resolution)
 AU_M = 149597870700
@@ -405,14 +412,21 @@ def build_apco_context(pointing, observatory):
 
     Parameters
     ----------
-    pointing : ``pd.Series``
-        A single row (``pd.Series``) pulled from the pointings_df instance
-        for which to calculate the calculate the astrom values.
+    pointing : ``pd.Series`` or ``pd.DataFrame``
+        A single row (``pd.Series``) pulled from the pointings_df instance, or the whole
+        pointings_df, for which to calculate the astrom values. Pass the whole frame where
+        possible: the time scale conversions and IERS lookups cost about 3 ms per call however
+        many times they cover, so building one context per row dominates the ephemeris runtime.
     observatory : ``Observatory``
         An observatory
+
+    Returns
+    -------
+    The ``erfa.apco`` astrom structure: a scalar for a single row, otherwise an array with one
+    element per row of ``pointing``.
     """
     lon, lat, height = observatory.to_geodetic()
-    obstime = Time(pointing['observationMidpointMJD_TAI'], format='mjd', scale='tai')
+    obstime = Time(np.asarray(pointing['observationMidpointMJD_TAI'], dtype=float), format='mjd', scale='tai')
 
     jd1_tt, jd2_tt = get_jd12(obstime, 'tt')
     # Polar motion values (interpolated from IERS data) and TIO locator, s' (`sp`)
@@ -458,3 +472,217 @@ def build_apco_context(pointing, observatory):
         refa,
         refb,
     )
+
+
+def compute_ephemeris(target, observatory, times):
+    """
+    Compute a topocentric ephemeris for a non-sidereal Target as seen from an Observatory.
+
+    The Target's orbital elements are converted to a barycentric state vector, integrated with
+    REBOUND+ASSIST, light-time corrected (sorcha), and transformed to observed Alt/Az/HA with erfa.
+    Apparent magnitude and sky motion columns are appended.
+
+    :param target: Target with orbital elements
+    :type target: tom_targets.models.Target
+    :param observatory: Observatory to compute the ephemeris for
+    :type observatory: solsys_code.solsys_code_observatory.models.Observatory
+    :param times: Times at which to evaluate the ephemeris
+    :type times: astropy.time.Time
+    :return: One row per time. Columns include ``epoch_UTC``, ``RA_deg``, ``Dec_deg``, ``Obs_Az_deg``,
+        ``Obs_Alt_deg``, ``Obs_HA_deg``, ``APmag``, ``sky_motion``, ``sky_motion_PA_deg``, ``Helio_LTC_au``,
+        ``Range_LTC_au`` and ``phase_deg``. For the geocentre (MPC code 500) ``Obs_Az_deg``, ``Obs_Alt_deg`` and
+        ``Obs_HA_deg`` are NaN.
+
+        ``RA_deg``/``Dec_deg`` are astrometric ICRF positions and ``RARateCosDec_deg_day``/``DecRate_deg_day``
+        (hence ``sky_motion`` and ``sky_motion_PA_deg``) are rates along the ICRF axes. JPL Horizons instead
+        quotes rates along the true equator and equinox of date, whose north is rotated from ICRF north by
+        up to about ``20 arcsec * (years since 2000) * sin(RA) / cos(Dec)`` (11.7 arcmin for an object at
+        RA 274, Dec -43 in 2026). The total rate is unaffected; its split between RA and Dec, and the
+        position angle, change by that angle (0.3% of the motion in that example). Rotate the rates before
+        comparing with Horizons or passing them to a telescope that expects of-date tracking rates; see
+        ``TestDistantObject2026ED138`` in ``tests/test_ephem_utils.py`` for the rotation.
+    :rtype: pandas.DataFrame
+    """
+    obscode = observatory.obscode
+    geocentric = obscode == '500'
+    times = times.utc
+
+    data = convert_target_to_layup(target)
+
+    # Assemble stuff needed for sorcha's version of `integrate_light_time`
+    sim, ex = generate_assist_simulations(ephem, data)
+
+    output = StringIO()
+    in_memory_csv = writer(output)
+
+    column_names = (
+        'ObjID',
+        'epoch_UTC',
+        'fieldMJD_TAI',
+        'fieldJD_TDB',
+        'Range_LTC_au',
+        'RangeRate_LTC_au_s',
+        'Helio_LTC_au',
+        'HelioRate_LTC_au',
+        'RA_deg',
+        'RARateCosDec_deg_day',
+        'Dec_deg',
+        'DecRate_deg_day',
+        'Obj_Sun_x_LTC_au',
+        'Obj_Sun_y_LTC_au',
+        'Obj_Sun_z_LTC_au',
+        'Obj_Sun_vx_LTC_au_s',
+        'Obj_Sun_vy_LTC_au_s',
+        'Obj_Sun_vz_LTC_au_s',
+        'Obs_Sun_x_au',
+        'Obs_Sun_y_au',
+        'Obs_Sun_z_au',
+        'Obs_Sun_vx_au_s',
+        'Obs_Sun_vy_au_s',
+        'Obs_Sun_vz_au_s',
+        'phase_deg',
+        'Obs_Az_deg',
+        'Obs_Alt_deg',
+        'Obs_HA_deg',
+    )
+    column_types = defaultdict(ObjID=str, FieldID=str).setdefault(float)  # type: ignore
+    in_memory_csv.writerow(column_names)
+
+    # Make equivalent `pointings_df`
+    pointings_df = pd.DataFrame()
+    pointings_df['epoch_UTC'] = times
+    pointings_df['fieldJD_TDB'] = times.tdb.jd
+    pointings_df['observationMidpointMJD_TAI'] = times.tai.mjd
+
+    # Create ET for SPICE
+    et = (pointings_df['fieldJD_TDB'] - spice.j2000()) * SEC_PER_DAY
+
+    # create empty arrays for observatory position and velocity to be filled in
+    r_obs = np.empty((len(pointings_df), 3))
+    v_obs = np.empty((len(pointings_df), 3))
+
+    # SSB->observatory position and velocity vectors
+    for idx, et_i in enumerate(et):
+        r_obs[idx], v_obs[idx] = barycentricObservatoryRates(et_i, obscode, observatories=observatories)
+
+    r_obs /= AU_KM  # convert to au
+    v_obs *= SEC_PER_DAY / AU_KM  # convert to au/day
+
+    pointings_df['r_obs_x'] = r_obs[:, 0]
+    pointings_df['r_obs_y'] = r_obs[:, 1]
+    pointings_df['r_obs_z'] = r_obs[:, 2]
+    pointings_df['v_obs_x'] = v_obs[:, 0]
+    pointings_df['v_obs_y'] = v_obs[:, 1]
+    pointings_df['v_obs_z'] = v_obs[:, 2]
+
+    # create empty arrays for sun position and velocity to be filled in
+    r_sun = np.empty((len(pointings_df), 3))
+    v_sun = np.empty((len(pointings_df), 3))
+    time_offsets = pointings_df['fieldJD_TDB'] - ephem.jd_ref
+    for idx, time_offset_i in enumerate(time_offsets):
+        sun = ephem.get_particle('Sun', time_offset_i)
+        r_sun[idx] = np.array((sun.x, sun.y, sun.z))
+        v_sun[idx] = np.array((sun.vx, sun.vy, sun.vz))
+
+    pointings_df['r_sun_x'] = r_sun[:, 0]
+    pointings_df['r_sun_y'] = r_sun[:, 1]
+    pointings_df['r_sun_z'] = r_sun[:, 2]
+    pointings_df['v_sun_x'] = v_sun[:, 0]
+    pointings_df['v_sun_y'] = v_sun[:, 1]
+    pointings_df['v_sun_z'] = v_sun[:, 2]
+
+    # Astrometric contexts for the ICRS -> observed transform (undefined for the geocentre)
+    astroms = None if geocentric else build_apco_context(pointings_df, observatory)
+
+    # Generate ephemeris
+    for row, (_, pointing) in enumerate(pointings_df.iterrows()):
+        mjd_tai = float(pointing['observationMidpointMJD_TAI'])
+        r_obs = get_vec(pointing, 'r_obs')
+        ephem_geom_params = EphemerisGeometryParameters()
+        ephem_geom_params.obj_id = target.name
+        ephem_geom_params.mjd_tai = mjd_tai
+        (
+            ephem_geom_params.rho,
+            ephem_geom_params.rho_mag,
+            ltt,
+            ephem_geom_params.r_ast,
+            ephem_geom_params.v_ast,
+        ) = integrate_light_time(sim, ex, pointing['fieldJD_TDB'] - ephem.jd_ref, r_obs, lt0=0.01)
+        ephem_geom_params.rho_hat = ephem_geom_params.rho / ephem_geom_params.rho_mag
+
+        out_tuple = calculate_rates_and_geometry(pointing, ephem_geom_params)
+        if geocentric:
+            # Az, Alt and HA are undefined for the geocentre
+            out_tuple = out_tuple + (np.nan, np.nan, np.nan)
+        else:
+            # Transform from ICRS RA, Dec -> observed Alt, Az, HA
+            astrom = astroms[row]
+            # Transform to CIRS (can easily transform further to apparent RA, Dec if needed)
+            cirs_ra, cirs_dec = erfa.atciqz(np.radians(out_tuple[8]), np.radians(out_tuple[10]), astrom)
+            # Transform from CIRS->observed
+            obs_az, obs_zd, obs_ha, obs_dec, obs_ra = erfa.atioq(cirs_ra, cirs_dec, astrom)
+            # Convert zenith distance to altitude (in degrees)
+            obs_alt = np.degrees(PI_OVER_2 - obs_zd)
+            out_tuple = out_tuple + (np.degrees(obs_az), obs_alt, np.degrees(obs_ha))
+
+        in_memory_csv.writerow(out_tuple)
+    output.seek(0)
+    predictions = pd.read_csv(output, dtype=column_types)
+    # Add magnitude column
+    H = target.abs_mag or 22.0
+    G = target.slope or 0.15
+    comet = target.scheme == 'MPC_COMET'
+    predictions = add_magnitude(predictions, H, G, comet)
+    # Add sky motion rate column
+    predictions = add_sky_motion(predictions)
+    return predictions
+
+
+def get_nonsidereal_visibility(target, sites, start_time, end_time, interval, airmass_limit=None):
+    """
+    Sample the airmass of a non-sidereal Target from each site between ``start_time`` and ``end_time``.
+
+    Non-sidereal counterpart of ``tom_observations.utils.get_sidereal_visibility``. Each site's entry starts
+    with the same ``(datetimes, airmasses)`` pair and adds the per-sample margins that let
+    ``solsys_code.visibility.visibility_windows`` interpolate the window edges.
+    A sample is ``None`` when the target is below the horizon, at or above ``airmass_limit`` or the Sun is
+    above -18 degrees (see ``solsys_code.visibility.airmass_samples``).
+
+    :param target: Target with orbital elements
+    :type target: tom_targets.models.Target
+    :param sites: Observatories to sample from, keyed by the site name to report
+    :type sites: dict[str, solsys_code.solsys_code_observatory.models.Observatory]
+    :param start_time: Start of the window (UTC)
+    :type start_time: datetime
+    :param end_time: End of the window (UTC)
+    :type end_time: datetime
+    :param interval: Sampling interval in minutes
+    :type interval: int
+    :param airmass_limit: Maximum acceptable airmass; ``None`` means 10
+    :type airmass_limit: float
+    :return: ``{site: (datetimes, airmasses, margins)}`` with one entry per site and one sample per time;
+        ``margins`` are in degrees (see ``solsys_code.visibility.observability_margins``)
+    :rtype: dict
+    """
+    if end_time < start_time:
+        raise ValueError('Start must be before end')
+
+    start = Time(start_time)
+    n_samples = int(((Time(end_time) - start) / (interval * u.min)).decompose()) + 1
+    times = start + np.arange(n_samples) * interval * u.min
+    sun = get_sun(times)
+
+    visibility = {}
+    for site, observatory in sites.items():
+        location = EarthLocation.from_geodetic(
+            lon=observatory.lon * u.deg, lat=observatory.lat * u.deg, height=observatory.altitude * u.m
+        )
+        sun_alt = sun.transform_to(AltAz(obstime=times, location=location)).alt.deg
+        predictions = compute_ephemeris(target, observatory, times)
+        target_alt = predictions['Obs_Alt_deg']
+        visibility[site] = (
+            times.datetime,
+            airmass_samples(target_alt, sun_alt, airmass_limit),
+            observability_margins(target_alt, sun_alt, airmass_limit),
+        )
+    return visibility

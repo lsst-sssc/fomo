@@ -20,8 +20,8 @@
                 <td>{{ line.0 }}</td>
                 <td>{{ line.1 }}</td>
                 <td>{{ line.2 }}</td>
-                <td>{{ line.3 }}</td>
-                <td>{{ line.4 }}</td>
+                <td>{{ line.3|default_if_none:'n.a.' }}</td>
+                <td>{{ line.4|default_if_none:'n.a.' }}</td>
                 <td>{{ line.5|floatformat:3 }}</td>
                 <td>{{ line.6 }}</td>
                 <td>{{ line.7 }}</td>
@@ -32,8 +32,8 @@
                 <td>{{ line.0 }}</td>
                 <td>{{ line.1|floatformat:5 }}</td>
                 <td>{{ line.2|floatformat:5 }}</td>
-                <td>{{ line.3|floatformat:1 }}</td>
-                <td>{{ line.4|floatformat:1 }}</td>
+                <td>{{ line.3|floatformat:1|default:'n.a.' }}</td>
+                <td>{{ line.4|floatformat:1|default:'n.a.' }}</td>
                 <td>{{ line.5|floatformat:1 }}</td>
                 <td>{{ line.6|floatformat:3 }}</td>
                 <td>{{ line.7|floatformat:3 }}</td>

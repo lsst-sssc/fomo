@@ -1,18 +1,28 @@
 from collections import namedtuple
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import erfa
 import numpy as np
 import pandas as pd
 from astropy import units as u
+from astropy.coordinates import ICRS, TETE, SkyCoord
 from astropy.time import Time
 from django.test import SimpleTestCase, TestCase, tag
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
 from tom_targets.models import Target
 
-from solsys_code.solsys_code_observatory.models import Observatory
-
 # Import module to test
-from solsys_code.views import add_magnitude, add_sky_motion, build_apco_context, convert_target_to_layup
+from solsys_code.ephem_utils import (
+    add_magnitude,
+    add_sky_motion,
+    build_apco_context,
+    compute_ephemeris,
+    convert_target_to_layup,
+    get_nonsidereal_visibility,
+)
+from solsys_code.solsys_code_observatory.models import Observatory
+from solsys_code.visibility import visibility_windows
 
 MJD_TO_JD_CONVERSION = 2400000.5
 JD2000 = 2451545.0  # Reference epoch
@@ -302,3 +312,255 @@ class TestBuildAPCOContext(TestCase):
             assert_array_almost_equal(
                 expected_context[field], context[field], decimal=precision, err_msg=f'Failure on field {field}'
             )
+
+
+class TestGetNonsiderealVisibility(TestCase):
+    def setUp(self):
+        self.cpt, created = Observatory.objects.get_or_create(
+            obscode='K93',
+            name='Sutherland-LCO Dome C',
+            lat=-32.380667412,
+            lon=+20.81011,
+            altitude=1808.33,
+        )
+        self.target, created = Target.objects.get_or_create(
+            name='33933',
+            type='NON_SIDEREAL',
+            permissions='PUBLIC',
+            scheme='MPC_MINOR_PLANET',
+            epoch_of_elements=61000.0,
+            mean_anomaly=342.8987983972185,
+            arg_of_perihelion=197.2440098291647,
+            eccentricity=0.21317079351206,
+            lng_asc_node=55.4085914553028,
+            inclination=1.0791909799414,
+            semimajor_axis=2.186745866749343,
+            epoch_of_perihelion=59874.98228566302,
+            perihdist=1.72059551512517,
+            abs_mag=14.89,
+            slope=0.15,
+        )
+        self.start = datetime(2025, 5, 10)
+        self.end = datetime(2025, 5, 11)
+
+    def test_output_shape_matches_sidereal_visibility(self):
+        visibility = get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.start, self.end, 60)
+
+        self.assertEqual(list(visibility.keys()), ['CPT'])
+        times, airmasses, margins = visibility['CPT']
+        self.assertEqual(len(times), 25)
+        self.assertEqual(len(airmasses), 25)
+        self.assertEqual(len(margins), 25)
+        # A sample is observable exactly where its margin is positive
+        self.assertEqual([airmass is not None for airmass in airmasses], [margin > 0 for margin in margins])
+        self.assertEqual(times[0], self.start)
+        self.assertEqual(times[-1], self.end)
+
+    def test_target_only_visible_in_evening_from_cpt(self):
+        # (33933) sets a few hours after the Sun in May 2025; from K93 it is only above the horizon
+        # after astronomical twilight between 18:00 and 20:00 UTC on 2025-05-10.
+        times, airmasses, _ = get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.start, self.end, 60)[
+            'CPT'
+        ]
+
+        valid = {time.hour: airmass for time, airmass in zip(times, airmasses, strict=True) if airmass is not None}
+        self.assertEqual(sorted(valid), [18, 19, 20])
+        self.assertAlmostEqual(valid[18], 2.02, places=2)
+        self.assertAlmostEqual(valid[19], 2.75, places=2)
+        self.assertAlmostEqual(valid[20], 5.11, places=2)
+
+    def test_airmass_limit(self):
+        times, airmasses, _ = get_nonsidereal_visibility(
+            self.target, {'CPT': self.cpt}, self.start, self.end, 60, airmass_limit=3.0
+        )['CPT']
+
+        valid_hours = [time.hour for time, airmass in zip(times, airmasses, strict=True) if airmass is not None]
+        self.assertEqual(valid_hours, [18, 19])
+
+    def test_end_before_start_raises(self):
+        with self.assertRaises(ValueError):
+            get_nonsidereal_visibility(self.target, {'CPT': self.cpt}, self.end, self.start, 60)
+
+
+class TestCloseApproach2025FA22(TestCase):
+    """
+    2025 FA22 passed 0.0056 au from the Earth on 2025-09-18 07:43 TDB, arriving from the daytime sky
+    (31 deg from the Sun two days before) and moving at up to 2.6 arcsec/s at closest approach. The
+    reference is a JPL Horizons geocentric ephemeris (``data/2025FA22_horizons_geocentric.csv``) from the
+    same orbit solution as the elements below.
+    """
+
+    def setUp(self):
+        # Horizons osculating heliocentric ecliptic elements at 2025-09-01 00:00 TDB (solution of 2026-05-08)
+        self.target, created = Target.objects.get_or_create(
+            name='2025 FA22',
+            type='NON_SIDEREAL',
+            permissions='PUBLIC',
+            scheme='MPC_MINOR_PLANET',
+            epoch_of_elements=60919.0,
+            perihdist=0.8818643632074030,
+            eccentricity=0.4150181985939446,
+            inclination=7.547632751977779,
+            lng_asc_node=356.5000374812164,
+            arg_of_perihelion=304.9125910339715,
+            epoch_of_perihelion=60894.453130597249,
+            semimajor_axis=1.507507346532430,
+            mean_anomaly=13.07106667639207,
+            abs_mag=21.59,
+            slope=0.15,
+        )
+        self.geocentre, created = Observatory.objects.get_or_create(
+            obscode='500', name='Geocentric', lat=0.0, lon=0.0, altitude=0.0
+        )
+        self.horizons = pd.read_csv(Path(__file__).parent / 'data' / '2025FA22_horizons_geocentric.csv', comment='#')
+
+    def test_geocentric_ephemeris_matches_horizons_through_close_approach(self):
+        times = Time([datetime.strptime(date, '%Y-%b-%d %H:%M:%S.%f') for date in self.horizons['date_tt']], scale='tt')
+
+        predictions = compute_ephemeris(self.target, self.geocentre, times)
+
+        predicted = SkyCoord(predictions['RA_deg'], predictions['Dec_deg'], unit='deg')
+        expected = SkyCoord(self.horizons['ra_deg'], self.horizons['dec_deg'], unit='deg')
+        self.assertLess(predicted.separation(expected).arcsec.max(), 0.05)
+        assert_array_almost_equal(predictions['Range_LTC_au'], self.horizons['delta_au'], decimal=8)
+        assert_array_almost_equal(predictions['phase_deg'], self.horizons['phase_deg'], decimal=1)
+        # Closest approach is the 2025-09-18 07:42:59 row
+        self.assertEqual(predictions['Range_LTC_au'].idxmin(), 9)
+        # Az/Alt/HA are undefined for the geocentre
+        for column in ('Obs_Az_deg', 'Obs_Alt_deg', 'Obs_HA_deg'):
+            self.assertTrue(predictions[column].isna().all(), column)
+
+    def test_visibility_switches_on_after_close_approach(self):
+        lsc, created = Observatory.objects.get_or_create(
+            obscode='W85', name='Cerro Tololo-LCO', lat=-30.167, lon=-70.805, altitude=2198.0
+        )
+        ogg, created = Observatory.objects.get_or_create(
+            obscode='T04', name='Haleakala-LCO', lat=20.707, lon=-156.258, altitude=3055.0
+        )
+
+        visibility = get_nonsidereal_visibility(
+            self.target, {'LSC': lsc, 'OGG': ogg}, datetime(2025, 9, 16), datetime(2025, 9, 20), 15, airmass_limit=2.5
+        )
+
+        # Two days before closest approach the target is 31 deg from the Sun: nothing from either hemisphere
+        for site, (times, airmasses, _margins) in visibility.items():
+            self.assertTrue(
+                all(airmass is None for time, airmass in zip(times, airmasses, strict=True) if time.day == 16), site
+            )
+        # The night after closest approach it is well placed from both hemispheres
+        windows = visibility_windows(visibility)
+        # Edges are interpolated between samples; the expected values come from sampling every minute
+        expected = {
+            'LSC': (datetime(2025, 9, 19, 5, 22, 39), datetime(2025, 9, 19, 9, 16, 26)),
+            'OGG': (datetime(2025, 9, 19, 8, 55, 41), datetime(2025, 9, 19, 14, 59, 33)),
+        }
+        for site, edges in expected.items():
+            for edge, expected_edge in zip(windows[site][-1], edges, strict=True):
+                self.assertAlmostEqual(edge, expected_edge, delta=timedelta(seconds=10), msg=site)
+
+
+class TestDistantObject2026ED138(TestCase):
+    """
+    2026 ED138 is a trans-Neptunian object 46 au from the Earth, moving at under 3 arcsec/hour: the
+    opposite regime to 2025 FA22. At declination -43 deg it passes 13 deg from the zenith at SOAR, and
+    around its June 2026 opposition it is up for the whole (winter) night. The reference is a JPL
+    Horizons topocentric ephemeris from SOAR (``data/2026ED138_horizons_I33.csv``) from the same orbit
+    solution as the elements below.
+    """
+
+    def setUp(self):
+        # Horizons osculating heliocentric ecliptic elements at 2026-06-09 00:00 TDB (solution of 2026-10-29)
+        self.target = Target.objects.create(
+            name='2026 ED138',
+            type='NON_SIDEREAL',
+            permissions='PUBLIC',
+            scheme='MPC_MINOR_PLANET',
+            epoch_of_elements=61200.0,
+            perihdist=36.86093963238855,
+            eccentricity=0.1417448328724423,
+            inclination=24.47104038636354,
+            lng_asc_node=322.5008984917491,
+            arg_of_perihelion=167.9532328258089,
+            epoch_of_perihelion=24550.90080999816,
+            semimajor_axis=42.94869526478494,
+            mean_anomaly=128.3342024267172,
+            abs_mag=2.8533,
+            slope=0.15,
+        )
+        # Geodetic position from the MPC parallax constants for I33 (289.26631, 0.865052, -0.500865)
+        self.soar = Observatory.objects.create(
+            obscode='I33', name='SOAR, Cerro Pachon', lat=-30.2379234, lon=-70.73369, altitude=2776.05
+        )
+        self.horizons = pd.read_csv(Path(__file__).parent / 'data' / '2026ED138_horizons_I33.csv', comment='#')
+        self.times = Time(
+            [datetime.strptime(date, '%Y-%b-%d %H:%M:%S') for date in self.horizons['date_utc']], scale='utc'
+        )
+
+    def assertAnglesWithin(self, actual_deg, expected_deg, tolerance_arcsec, scale=1.0):
+        """Asserts that angles agree to ``tolerance_arcsec`` after wrapping the difference into +/-180 deg."""
+        difference = (np.asarray(actual_deg) - np.asarray(expected_deg) + 180.0) % 360.0 - 180.0
+        self.assertLess(np.abs(difference * scale).max() * 3600.0, tolerance_arcsec)
+
+    def test_topocentric_ephemeris_matches_horizons(self):
+        predictions = compute_ephemeris(self.target, self.soar, self.times)
+
+        predicted = SkyCoord(predictions['RA_deg'], predictions['Dec_deg'], unit='deg')
+        expected = SkyCoord(self.horizons['ra_deg'], self.horizons['dec_deg'], unit='deg')
+        self.assertLess(predicted.separation(expected).arcsec.max(), 0.01)
+        assert_array_almost_equal(predictions['Range_LTC_au'], self.horizons['delta_au'], decimal=8)
+        assert_array_almost_equal(predictions['Helio_LTC_au'], self.horizons['r_au'], decimal=5)
+        assert_array_almost_equal(predictions['phase_deg'], self.horizons['phase_deg'], decimal=3)
+        assert_array_almost_equal(predictions['APmag'], self.horizons['v_mag'], decimal=2)
+
+    def test_observed_altaz_matches_horizons(self):
+        # The 7 h step samples every hour angle, with the target below the horizon in about a third of the rows
+        self.assertLess(self.horizons['alt_deg'].min(), 0.0)
+        self.assertGreater(self.horizons['alt_deg'].max(), 75.0)
+
+        predictions = compute_ephemeris(self.target, self.soar, self.times)
+
+        self.assertAnglesWithin(predictions['Obs_Alt_deg'], self.horizons['alt_deg'], 1.0)
+        cos_alt = np.cos(np.radians(self.horizons['alt_deg']))
+        self.assertAnglesWithin(predictions['Obs_Az_deg'], self.horizons['az_deg'], 1.0, scale=cos_alt)
+        self.assertAnglesWithin(predictions['Obs_HA_deg'], self.horizons['ha_hours'] * 15.0, 1.0)
+
+    def test_sky_motion_is_slow_and_matches_horizons(self):
+        predictions = compute_ephemeris(self.target, self.soar, self.times)
+
+        deg_day_to_arcsec_hr = 3600.0 / 24.0
+        ra_rate = predictions['RARateCosDec_deg_day'] * deg_day_to_arcsec_hr
+        dec_rate = predictions['DecRate_deg_day'] * deg_day_to_arcsec_hr
+        self.assertLess(np.hypot(ra_rate, dec_rate).max(), 3.0)
+
+        # Horizons gives rates along the true equator and equinox of date; ours are along the ICRF axes.
+        # North of date is rotated from ICRF north by 11.7 arcmin at this position in 2026, which moves
+        # 0.009 arcsec/hour of the RA motion into Dec, so resolve our rates along the of-date axes first.
+        position = SkyCoord(self.horizons['ra_deg'], self.horizons['dec_deg'], unit='deg')
+        pole_of_date = SkyCoord(0 * u.deg, 90 * u.deg, frame=TETE(obstime=self.times)).transform_to(ICRS())
+        rotation = position.position_angle(pole_of_date).rad
+        ra_rate_of_date = ra_rate * np.cos(rotation) - dec_rate * np.sin(rotation)
+        dec_rate_of_date = ra_rate * np.sin(rotation) + dec_rate * np.cos(rotation)
+        self.assertLess(np.abs(ra_rate_of_date - self.horizons['ra_rate_arcsec_hr']).max(), 0.002)
+        self.assertLess(np.abs(dec_rate_of_date - self.horizons['dec_rate_arcsec_hr']).max(), 0.002)
+
+    def test_visibility_windows_from_soar(self):
+        # Expected edges are interpolated from Horizons 1-minute airless elevations of the target and the
+        # Sun from I33 on the night of 2026-06-20: where the target crosses 30 deg (airmass 2), and where
+        # the Sun crosses -18 deg.
+        start, end = datetime(2026, 6, 20, 18), datetime(2026, 6, 21, 14)
+        cases = {
+            # Limited by the target rising and setting through airmass 2
+            2.0: (datetime(2026, 6, 21, 0, 0, 41), datetime(2026, 6, 21, 10, 4, 2)),
+            # At the default airmass limit of 10 the target is up all night: limited by twilight
+            None: (datetime(2026, 6, 20, 23, 16, 9), datetime(2026, 6, 21, 10, 13, 13)),
+        }
+        for airmass_limit, expected in cases.items():
+            with self.subTest(airmass_limit=airmass_limit):
+                visibility = get_nonsidereal_visibility(
+                    self.target, {'SOAR': self.soar}, start, end, 15, airmass_limit=airmass_limit
+                )
+                windows = visibility_windows(visibility)['SOAR']
+
+                self.assertEqual(len(windows), 1)
+                for edge, expected_edge in zip(windows[0], expected, strict=True):
+                    self.assertAlmostEqual(edge, expected_edge, delta=timedelta(seconds=5))
