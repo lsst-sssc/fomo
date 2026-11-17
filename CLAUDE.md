@@ -102,7 +102,7 @@ Coverage is measured with `coverage run manage.py test` (`[tool.coverage.run]` i
   ignored so astronomical variable names (e.g. `H`, `G`, `RA_deg`) are allowed. Format with single quotes.
 - pre-commit blocks direct commits to `main`, clears Jupyter notebook output, runs ruff, and runs the
   Django tests minus the `functional` tag (`django-test` hook). Sphinx docs are built only in CI. CI
-  (`.github/workflows/`) tests Python 3.10–3.12.
+  (`.github/workflows/`) tests Python 3.11–3.14.
 - The repo is generated from the LINCC python-project-template (`.copier-answers.yml`). The template's
   CI/pre-commit files assume pytest; after each `copier update` the test steps in
   `testing-and-coverage.yml`, `smoke-test.yml` and `.pre-commit-config.yaml` must be re-pointed at
