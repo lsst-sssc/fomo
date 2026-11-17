@@ -12,7 +12,7 @@ Requirements
 
 ``fomo`` has the following requirements that will be automatically installed  using pip or conda when you install the requirements from the ``pyproject.toml`` file in the fomo package:
 
-* python 3.10 or later
+* python 3.11 or later
 * astropy
 * tomtoolkit>=3.1.0
 * tom_alertstreams>=1.3.0
@@ -54,7 +54,7 @@ Alternatively, the LINCC-Frameworks engineers primarily use `conda` to manage vi
 
 .. code-block:: console
 
-   >> conda create env -n <env_name> python=3.10
+   >> conda create env -n <env_name> python=3.11
    >> conda activate <env_name>
 
 
