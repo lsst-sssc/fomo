@@ -22,6 +22,7 @@ FOMO, which stands for Follow-up Observations of Moving Objects is a Target and 
    Installation and Getting Started <installation>
    Deployment <deploy/deploy>
    Scout candidates and Rubin ToO filtering <scout_rubin_too>
+   Visibility and cadence planning <visibility>
    Design <design/design>
    API Reference <autoapi/index>
    Notebooks <notebooks>

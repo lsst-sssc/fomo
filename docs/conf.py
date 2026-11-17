@@ -67,4 +67,6 @@ def _skip_version_module(app, what, name, obj, skip, options):
 
 def setup(app):
     """Register the Sphinx event handlers."""
-    app.connect('autoapi-skip-member', _skip_version_module)
+    # Esbonio keeps going when an extension fails to load, so autoapi's events may not exist.
+    if 'autoapi.extension' in app.extensions:
+        app.connect('autoapi-skip-member', _skip_version_module)

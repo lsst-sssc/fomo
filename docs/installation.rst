@@ -20,7 +20,7 @@ Requirements
 * tom_eso>=0.3.1
 * tom_jpl>=0.3.0
 * numpy>1.24 (tomtoolkit currently caps this below 2.2)
-* sorcha (which has several other dependencies of which the ones below are likely to be the largest or most troublesome):
+* sorcha>=1.2.1 (which has several other dependencies of which the ones below are likely to be the largest or most troublesome):
 
   * assist
   * numba
