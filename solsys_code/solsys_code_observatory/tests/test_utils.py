@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -76,8 +76,8 @@ class TestMPCObscodeFetcher(TestCase):
         self.assertAlmostEqual(obs.altitude, 1154.26336, 5)
         self.assertEqual(obs.observations_type, 0)
         self.assertEqual(obs.uses_two_line_obs, False)
-        self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 26, tzinfo=timezone.utc))
-        self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 52, 50, tzinfo=timezone.utc))
+        self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 26, tzinfo=UTC))
+        self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 52, 50, tzinfo=UTC))
 
     def test_to_radar_observatory(self):
         self.fetcher.obs_data = {
@@ -112,5 +112,5 @@ class TestMPCObscodeFetcher(TestCase):
         self.assertAlmostEqual(obs.altitude, 1012.164086, 5)
         self.assertEqual(obs.observations_type, Observatory.RADAR_OBSTYPE)
         self.assertEqual(obs.uses_two_line_obs, True)
-        self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 21, tzinfo=timezone.utc))
-        self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 51, 48, tzinfo=timezone.utc))
+        self.assertEqual(obs.created, datetime(2019, 5, 25, 0, 11, 21, tzinfo=UTC))
+        self.assertEqual(obs.modified, datetime(2025, 4, 15, 20, 51, 48, tzinfo=UTC))

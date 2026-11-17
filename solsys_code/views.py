@@ -4,7 +4,7 @@ import re
 import urllib.parse
 from collections import defaultdict
 from csv import writer
-from datetime import timezone
+from datetime import UTC
 from io import StringIO
 from math import ceil
 from typing import Any
@@ -141,12 +141,12 @@ class MakeEphemerisView(FormView):
         # and then make it naive (as astropy.Time in Ephemeris() can't handle non-naive `datetime`s)
         start = form.cleaned_data['start_date']
         # Convert to UTC (still timezone aware at this stage)
-        utc_start = start.astimezone(timezone.utc)
+        utc_start = start.astimezone(UTC)
         # Replace timezone info making it naive
         utc_start = utc_start.replace(tzinfo=None)
 
         end = form.cleaned_data['end_date']
-        utc_end = end.astimezone(timezone.utc)
+        utc_end = end.astimezone(UTC)
         utc_end = utc_end.replace(tzinfo=None)
 
         step = form.cleaned_data['step']
