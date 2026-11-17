@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from crispy_forms.bootstrap import FormActions
 from crispy_forms.helper import FormHelper
@@ -34,7 +34,7 @@ class EphemerisForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
-        dt = datetime.now(timezone.utc)
+        dt = datetime.now(UTC)
         start_date = dt.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = start_date + timedelta(days=20)
         self.fields['start_date'].initial = start_date

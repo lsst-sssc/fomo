@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 from tom_dataservices.dataservices import MissingDataException
@@ -78,13 +78,13 @@ class MPCObscodeFetcher:
             obs.from_parallax_constants(elong, float(self.obs_data['rhocosphi']), float(self.obs_data['rhosinphi']))
             try:
                 created_time = datetime.strptime(self.obs_data['created_at'], '%a, %d %b %Y %H:%M:%S %Z')
-                created_time = created_time.replace(tzinfo=timezone.utc)
+                created_time = created_time.replace(tzinfo=UTC)
                 obs.created = created_time
             except ValueError:
                 pass
             try:
                 modified_time = datetime.strptime(self.obs_data['updated_at'], '%a, %d %b %Y %H:%M:%S %Z')
-                modified_time = modified_time.replace(tzinfo=timezone.utc)
+                modified_time = modified_time.replace(tzinfo=UTC)
                 obs.modified = modified_time
             except ValueError:
                 pass
